@@ -26,41 +26,49 @@ def _assert_safe_db(db_name: str, live_ok: bool) -> None:
     )
 
 
-async def _run(args: argparse.Namespace) -> dict:
+async def _run(args: argparse.Namespace, db=None) -> dict:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
     from app.config import settings
     from app.constants.office_location import OFFICE_LATITUDE, OFFICE_LONGITUDE, get_built_in_office_ips
     from app.core.integrations import is_reamarc_company
-    from app.database import close_mongo_connection, connect_to_mongo, db_instance
 
     _assert_safe_db(getattr(settings, "MONGODB_DB_NAME", "") or "", args.i_know_this_is_live_readonly)
-    await connect_to_mongo()
-    db = db_instance.db
+    client = None
     if db is None:
+        client = AsyncIOMotorClient(settings.MONGODB_URL)
+        db = client[settings.MONGODB_DB_NAME]
+    if db is None:
+        if client is not None:
+            client.close()
         raise SystemExit("Database unavailable.")
 
     builtin = set(get_built_in_office_ips())
     hits = []
-    async for doc in db.system_config.find({"key": "attendance_security"}):
-        cid = doc.get("company_id")
-        if is_reamarc_company(cid):
-            continue
-        ips = set()
-        for key in ("office_public_ips", "office_ip_whitelist"):
-            for item in doc.get(key) or []:
-                text = str(item or "").strip()
-                if text:
-                    ips.add(text)
-        lat = doc.get("office_latitude")
-        lng = doc.get("office_longitude")
-        has_ips = bool(ips & builtin)
-        has_pin = (lat == OFFICE_LATITUDE and lng == OFFICE_LONGITUDE)
-        if has_ips or has_pin:
-            hits.append({
-                "company_id": cid,
-                "has_built_in_ips": has_ips,
-                "has_reamarc_lat_lng": has_pin,
-            })
-    await close_mongo_connection()
+    try:
+        async for doc in db.system_config.find({"key": "attendance_security"}):
+            cid = doc.get("company_id")
+            if is_reamarc_company(cid):
+                continue
+            ips = set()
+            for key in ("office_public_ips", "office_ip_whitelist"):
+                for item in doc.get(key) or []:
+                    text = str(item or "").strip()
+                    if text:
+                        ips.add(text)
+            lat = doc.get("office_latitude")
+            lng = doc.get("office_longitude")
+            has_ips = bool(ips & builtin)
+            has_pin = (lat == OFFICE_LATITUDE and lng == OFFICE_LONGITUDE)
+            if has_ips or has_pin:
+                hits.append({
+                    "company_id": cid,
+                    "has_built_in_ips": has_ips,
+                    "has_reamarc_lat_lng": has_pin,
+                })
+    finally:
+        if client is not None:
+            client.close()
     return {"companies": hits, "count": len(hits)}
 
 

@@ -59,7 +59,8 @@ def _logo_block(logo_url: Optional[str], company_name: str) -> str:
 async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
     """Return display identity for outbound mail. Transport address is unchanged."""
     from app.core.integrations import is_reamarc_company
-    from app.core.tenant import get_global_db, get_tenant_context
+    from app.core.tenant import get_tenant_context
+    from app.services.company_branding import company_admin_reply_email, get_company_doc
 
     cid = None
     if company:
@@ -68,9 +69,7 @@ async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
         ctx = get_tenant_context()
         cid = ctx.company_id if ctx else None
     if company is None and cid:
-        gdb = get_global_db()
-        if gdb is not None:
-            company = await gdb.companies.find_one({"id": cid}, {"_id": 0})
+        company = await get_company_doc(cid)
 
     if is_reamarc_company(cid):
         return {
@@ -90,15 +89,7 @@ async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
         (company or {}).get("contact_email") or (company or {}).get("support_email")
     )
     if not reply_to and cid:
-        gdb = get_global_db()
-        if gdb is not None:
-            admin = await gdb.company_memberships.find_one(
-                {"company_id": cid, "status": "active", "role": "admin"},
-                {"user_id": 1},
-            )
-            if admin and admin.get("user_id"):
-                user = await gdb.users.find_one({"id": admin["user_id"]}, {"email": 1})
-                reply_to = _valid_reply_to((user or {}).get("email"))
+        reply_to = _valid_reply_to(await company_admin_reply_email(cid))
     return {
         "from_name": from_name,
         "reply_to": reply_to,

@@ -718,9 +718,32 @@ def _walks_to_company_folder(file_id: str, company_root: str, max_hops: int = 10
     return False
 
 
+def _picker_user_files_get(file_id: str, user_token: str) -> int:
+    """Drive files.get with the picker user token. Returns the HTTP status. Never logs the token."""
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+
+    token = (user_token or "").strip()
+    if not token or not file_id:
+        return 0
+    creds = Credentials(token=token)
+    try:
+        build("drive", "v3", credentials=creds, cache_discovery=False).files().get(
+            fileId=file_id,
+            fields="id",
+        ).execute()
+        return 200
+    except HttpError as exc:
+        return int(getattr(getattr(exc, "resp", None), "status", 0) or 0)
+    except Exception:
+        return 0
+
+
 async def record_picker_grants(
     file_ids: List[str],
     actor: Optional[Dict[str, Any]] = None,
+    user_token: Optional[str] = None,
 ) -> int:
     """Record picker-issued file ids for this user and company (1 hour TTL)."""
     from app.core.integrations import current_company_id
@@ -730,16 +753,20 @@ async def record_picker_grants(
     if db is None:
         return 0
     user_id = str((actor or {}).get("id") or "").strip()
+    token = (user_token or "").strip()
     cid = current_company_id()
     now = datetime.now(timezone.utc)
     expires = now + _PICKER_GRANT_TTL
     count = 0
     for raw_id in file_ids or []:
         file_id = str(raw_id or "").strip()
-        if not file_id or not user_id:
+        if not file_id or not user_id or not token:
+            continue
+        status_code = await asyncio.to_thread(_picker_user_files_get, file_id, token)
+        if status_code != 200:
             continue
         await db.drive_picker_grants.update_one(
-            {"file_id": file_id, "user_id": user_id},
+            {"file_id": file_id, "user_id": user_id, "company_id": cid},
             {
                 "$set": {
                     "file_id": file_id,
@@ -757,20 +784,27 @@ async def record_picker_grants(
 
 
 async def _has_valid_picker_grant(file_id: str, actor: Optional[Dict[str, Any]]) -> bool:
+    from app.core.integrations import current_company_id
     from app.database import get_database
 
     db = get_database()
     if db is None:
         return False
     user_id = str((actor or {}).get("id") or "").strip()
-    if not user_id or not file_id:
+    cid = current_company_id()
+    if not user_id or not file_id or not cid:
         return False
     now = datetime.now(timezone.utc)
     doc = await db.drive_picker_grants.find_one(
-        {"file_id": file_id, "user_id": user_id, "expires_at": {"$gt": now}},
-        {"_id": 0, "file_id": 1},
+        {
+            "file_id": file_id,
+            "user_id": user_id,
+            "company_id": cid,
+            "expires_at": {"$gt": now},
+        },
+        {"_id": 0, "file_id": 1, "company_id": 1},
     )
-    return bool(doc)
+    return bool(doc) and doc.get("company_id") == cid
 
 
 async def _assert_picked_file_allowed(

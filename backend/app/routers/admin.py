@@ -838,23 +838,26 @@ async def update_member(
             detail="HR cannot modify the Super Admin account. Only the Super Admin can edit their own profile.",
         )
 
-    # Primary Admin Protection: Prevent deactivating or demoting Admin accounts
+    # Primary Admin Protection: non-owners cannot demote/deactivate Admins.
+    # The owner may, as long as the company still has another Admin.
     if is_target_admin:
         demoting = member_in.role is not None and member_in.role != UserRole.ADMIN
         deactivating = member_in.is_active is False
-        if (demoting or deactivating) and multi_enabled:
-            from app.services.identity_guard import assert_company_keeps_an_admin
-            await assert_company_keeps_an_admin(
-                gdb,
-                current_user.get("company_id"),
-                excluding_user_id=user_id,
-            )
-        if demoting:
-            raise HTTPException(
-                status_code=400, detail="Cannot demote or modify the role of an Admin account."
-            )
-        if deactivating:
-            raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
+        if demoting or deactivating:
+            if is_owner_actor(current_user):
+                from app.services.identity_guard import assert_company_keeps_an_admin
+                await assert_company_keeps_an_admin(
+                    gdb,
+                    current_user.get("company_id"),
+                    excluding_user_id=user_id,
+                )
+            else:
+                if demoting:
+                    raise HTTPException(
+                        status_code=400, detail="Cannot demote or modify the role of an Admin account."
+                    )
+                if deactivating:
+                    raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
     # Prevent promoting any non-admin to admin (owner may still do this)
     if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin") and not is_owner_actor(current_user):
@@ -1168,7 +1171,7 @@ async def delete_member(
         if caller_mem and caller_mem.get("role"):
             current_user = {**current_user, "role": caller_mem.get("role")}
 
-    from app.services.identity_guard import assert_can_edit_member
+    from app.services.identity_guard import assert_can_edit_member, assert_company_keeps_an_admin, is_owner_actor
     await assert_can_edit_member(
         current_user,
         existing_user,
@@ -1176,10 +1179,17 @@ async def delete_member(
         {"_action": "delete", "is_active": False},
     )
 
-    if existing_user.get("is_super_admin") or target_role in (UserRole.ADMIN.value, "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="The Super Admin account cannot be deleted.",
+    target_is_admin = existing_user.get("is_super_admin") or target_role in (UserRole.ADMIN.value, "admin")
+    if target_is_admin:
+        if existing_user.get("is_super_admin") or not is_owner_actor(current_user):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The Super Admin account cannot be deleted.",
+            )
+        await assert_company_keeps_an_admin(
+            gdb,
+            caller_cid,
+            excluding_user_id=user_id,
         )
 
     caller_cid = current_user.get("company_id")

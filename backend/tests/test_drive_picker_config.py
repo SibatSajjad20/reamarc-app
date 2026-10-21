@@ -2,6 +2,8 @@
 import os
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI, HTTPException
@@ -213,6 +215,128 @@ class TestPickerConfigHttp(unittest.TestCase):
             res = client.get("/api/v1/website-projects/proj-1/picker-config")
         self.assertEqual(res.status_code, 200, res.text)
         self.assertNotIn("access_token", res.json())
+
+
+class _GrantColl:
+    def __init__(self):
+        self.rows = []
+
+    async def update_one(self, query, update, **kwargs):
+        found = [r for r in self.rows if all(r.get(k) == v for k, v in query.items())]
+        if found:
+            found[0].update(update.get("$set") or {})
+            return SimpleNamespace(modified_count=1)
+        if kwargs.get("upsert"):
+            doc = dict(query)
+            doc.update(update.get("$set") or {})
+            doc.update(update.get("$setOnInsert") or {})
+            self.rows.append(doc)
+            return SimpleNamespace(modified_count=1)
+        return SimpleNamespace(modified_count=0)
+
+    async def find_one(self, query, *args, **kwargs):
+        now = datetime.now(timezone.utc)
+        for row in self.rows:
+            if row.get("file_id") != query.get("file_id"):
+                continue
+            if row.get("user_id") != query.get("user_id"):
+                continue
+            if "company_id" in query and row.get("company_id") != query.get("company_id"):
+                continue
+            expires = row.get("expires_at")
+            exp_q = query.get("expires_at") or {}
+            if "$gt" in exp_q and expires and expires <= now:
+                continue
+            return dict(row)
+        return None
+
+
+class TestPickerGrantVerification(unittest.IsolatedAsyncioTestCase):
+    async def test_forged_id_records_nothing_ingest_403(self):
+        from app.core.tenant import tenant_scope
+        from app.config import settings
+
+        db = SimpleNamespace(drive_picker_grants=_GrantColl())
+        actor = {"id": "u1"}
+        with patch.object(settings, "MULTI_TENANT_ENABLED", True), patch.object(
+            settings, "MULTI_COMPANY_ENABLED", True
+        ), tenant_scope("comp_dataviz"), patch(
+            "app.database.get_database", return_value=db
+        ), patch.object(gdrive, "_picker_user_files_get", return_value=404), patch.object(
+            gdrive, "_walks_to_company_folder", return_value=False
+        ), patch("app.core.tenant.log_security_event", new=AsyncMock()), patch.object(
+            gdrive, "_ingest_picked_file_sync"
+        ) as ingest_sync:
+            recorded = await gdrive.record_picker_grants(
+                ["forged-id"], actor=actor, user_token="picker-token"
+            )
+            self.assertEqual(recorded, 0)
+            self.assertEqual(db.drive_picker_grants.rows, [])
+            with self.assertRaises(HTTPException) as ctx:
+                await gdrive.ingest_picked_file(
+                    "forged-id",
+                    "dv-folder",
+                    actor=actor,
+                    company_root_folder_id="dv-root",
+                )
+            self.assertEqual(ctx.exception.status_code, 403)
+            ingest_sync.assert_not_called()
+
+    async def test_real_picked_id_is_accepted(self):
+        from app.core.tenant import tenant_scope
+        from app.config import settings
+
+        db = SimpleNamespace(drive_picker_grants=_GrantColl())
+        actor = {"id": "u1"}
+        with patch.object(settings, "MULTI_TENANT_ENABLED", True), patch.object(
+            settings, "MULTI_COMPANY_ENABLED", True
+        ), tenant_scope("comp_dataviz"), patch(
+            "app.database.get_database", return_value=db
+        ), patch.object(gdrive, "_picker_user_files_get", return_value=200), patch.object(
+            gdrive, "_walks_to_company_folder", return_value=False
+        ), patch.object(gdrive, "_ingest_picked_file_sync", return_value={"id": "picked-ok"}):
+            recorded = await gdrive.record_picker_grants(
+                ["picked-ok"], actor=actor, user_token="picker-token"
+            )
+            self.assertEqual(recorded, 1)
+            self.assertEqual(db.drive_picker_grants.rows[0]["file_id"], "picked-ok")
+            self.assertEqual(db.drive_picker_grants.rows[0]["company_id"], "comp_dataviz")
+            out = await gdrive.ingest_picked_file(
+                "picked-ok",
+                "dv-folder",
+                actor=actor,
+                company_root_folder_id="dv-root",
+            )
+        self.assertEqual(out["id"], "picked-ok")
+
+    async def test_grant_from_another_company_is_refused(self):
+        from app.core.tenant import tenant_scope
+        from app.config import settings
+
+        coll = _GrantColl()
+        coll.rows.append({
+            "file_id": "shared-id",
+            "user_id": "u1",
+            "company_id": "company_reamarc",
+            "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+        })
+        db = SimpleNamespace(drive_picker_grants=coll)
+        with patch.object(settings, "MULTI_TENANT_ENABLED", True), patch.object(
+            settings, "MULTI_COMPANY_ENABLED", True
+        ), tenant_scope("comp_dataviz"), patch(
+            "app.database.get_database", return_value=db
+        ), patch.object(gdrive, "_walks_to_company_folder", return_value=False), patch(
+            "app.core.tenant.log_security_event", new=AsyncMock()
+        ), patch.object(gdrive, "_ingest_picked_file_sync") as ingest_sync:
+            with self.assertRaises(HTTPException) as ctx:
+                await gdrive.ingest_picked_file(
+                    "shared-id",
+                    "dv-folder",
+                    actor={"id": "u1"},
+                    company_root_folder_id="dv-root",
+                )
+            self.assertEqual(ctx.exception.status_code, 403)
+            ingest_sync.assert_not_called()
 
 
 if __name__ == "__main__":

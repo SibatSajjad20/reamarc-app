@@ -13,6 +13,7 @@ router = APIRouter(prefix="/drive", tags=["Google Drive"])
 
 class PickerGrantRequest(BaseModel):
     file_ids: List[str] = Field(default_factory=list)
+    user_token: str = Field(default="", exclude=True)
 
 
 @router.post("/picker-grants")
@@ -23,5 +24,9 @@ async def record_picker_grants(
     current_user: dict = Depends(get_current_user),
 ):
     """Record file ids the user just picked so ingest can accept them for 1 hour."""
-    count = await gdrive.record_picker_grants(payload.file_ids, actor=current_user)
+    count = await gdrive.record_picker_grants(
+        payload.file_ids,
+        actor=current_user,
+        user_token=payload.user_token,
+    )
     return {"ok": True, "recorded": count}

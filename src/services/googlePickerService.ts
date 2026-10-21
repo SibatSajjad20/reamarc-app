@@ -199,7 +199,7 @@ export async function openGoogleDrivePicker(
             }));
             const fileIds = files.map((f) => f.id).filter(Boolean);
             apiClient
-              .post('/drive/picker-grants', { file_ids: fileIds })
+              .post('/drive/picker-grants', { file_ids: fileIds, user_token: userToken })
               .catch(() => undefined)
               .finally(() => resolve(files));
             return;

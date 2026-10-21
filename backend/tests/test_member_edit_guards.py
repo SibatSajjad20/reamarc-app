@@ -92,6 +92,11 @@ class FakeCollection:
     async def update_one(self, query, update, **kwargs):
         found = self._find(query)
         if not found:
+            if kwargs.get("upsert"):
+                doc = dict(query)
+                self._apply(doc, update)
+                self.rows.append(doc)
+                return SimpleNamespace(modified_count=1)
             return SimpleNamespace(modified_count=0)
         self._apply(found[0], update)
         return SimpleNamespace(modified_count=1)
@@ -380,3 +385,75 @@ class TestMemberEditGuards(IsolatedAsyncioTestCase):
                     {"user_id": "dual1", "company_id": CO_A}
                 )
                 self.assertEqual(a_mem["role"], "hr")
+
+    async def test_owner_demotes_admin_when_another_admin_exists(self):
+        gdb = _seed()
+        gdb.company_memberships.rows.append(_mem("admin1", CO_B, "team_lead"))
+        original_user_role = next(u["role"] for u in gdb.users.rows if u["id"] == "admin1")
+        with self._stack(gdb, True):
+            updated = await admin_router.update_member(
+                "admin1",
+                MemberUpdate(role=UserRole.TEAM_LEAD),
+                current_user=_actor("owner1", "admin", super_admin=True),
+            )
+            self.assertEqual(updated["role"], UserRole.TEAM_LEAD)
+            user_doc = await gdb.users.find_one({"id": "admin1"})
+            self.assertEqual(user_doc["role"], original_user_role)
+            still_b = await gdb.company_memberships.find_one(
+                {"user_id": "admin1", "company_id": CO_B}
+            )
+            self.assertEqual(still_b["role"], "team_lead")
+            a_mem = await gdb.company_memberships.find_one(
+                {"user_id": "admin1", "company_id": CO_A}
+            )
+            self.assertEqual(a_mem["role"], "team_lead")
+
+    async def test_owner_demote_last_admin_is_400(self):
+        last_db = _seed()
+        last_db.company_memberships.rows = [
+            m
+            for m in last_db.company_memberships.rows
+            if m["user_id"] == "admin1" and m["role"] == "admin"
+        ]
+        last_db.users.rows = [u for u in last_db.users.rows if u["id"] in ("admin1", "owner1")]
+        role_before = next(
+            m["role"]
+            for m in last_db.company_memberships.rows
+            if m["user_id"] == "admin1"
+        )
+        with self._stack(last_db, True):
+            with self.assertRaises(HTTPException) as ctx:
+                await admin_router.update_member(
+                    "admin1",
+                    MemberUpdate(role=UserRole.TEAM_LEAD),
+                    current_user=_actor("owner1", "admin", super_admin=True),
+                )
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertEqual(ctx.exception.detail, LAST_ADMIN_MSG)
+            still = await last_db.company_memberships.find_one({"user_id": "admin1"})
+            self.assertEqual(still["role"], role_before)
+
+    async def test_owner_deactivate_last_admin_is_400(self):
+        last_db = _seed()
+        last_db.company_memberships.rows = [
+            m
+            for m in last_db.company_memberships.rows
+            if m["user_id"] == "admin1" and m["role"] == "admin"
+        ]
+        last_db.users.rows = [u for u in last_db.users.rows if u["id"] in ("admin1", "owner1")]
+        status_before = next(
+            m["status"]
+            for m in last_db.company_memberships.rows
+            if m["user_id"] == "admin1"
+        )
+        with self._stack(last_db, True):
+            with self.assertRaises(HTTPException) as ctx:
+                await admin_router.update_member(
+                    "admin1",
+                    MemberUpdate(is_active=False),
+                    current_user=_actor("owner1", "admin", super_admin=True),
+                )
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertEqual(ctx.exception.detail, LAST_ADMIN_MSG)
+            still = await last_db.company_memberships.find_one({"user_id": "admin1"})
+            self.assertEqual(still["status"], status_before)

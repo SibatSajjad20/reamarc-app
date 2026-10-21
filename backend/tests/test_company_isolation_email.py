@@ -297,7 +297,7 @@ class TestDriveIsolation(unittest.IsolatedAsyncioTestCase):
 
     async def test_picker_grant_valid_and_expired(self):
         db = MagicMock()
-        db.drive_picker_grants.find_one = AsyncMock(return_value={"file_id": "granted"})
+        db.drive_picker_grants.find_one = AsyncMock(return_value={"file_id": "granted", "company_id": DATAVIZ})
         with _flags(True), tenant_scope(DATAVIZ), patch("app.database.get_database", return_value=db), patch.object(
             gdrive, "_walks_to_company_folder", return_value=False
         ), patch.object(gdrive, "_ingest_picked_file_sync", return_value={"id": "granted"}):
@@ -483,6 +483,41 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
         self.assertIn("https://cdn.example/dv.png", html)
         self.assertNotIn("Reamarc Workspace", html)
 
+    async def test_reply_to_skips_super_admin(self):
+        company = {"id": DATAVIZ, "name": "DataViz"}
+        gdb = MagicMock()
+        gdb.company_memberships.find.return_value = _Cursor([
+            {"user_id": "owner1"},
+            {"user_id": "admin_dv"},
+        ])
+
+        async def fake_user(query, *args, **kwargs):
+            uid = query.get("id")
+            if uid == "owner1":
+                return {"id": "owner1", "email": "owner@reamarc.test", "is_super_admin": True}
+            return {"id": "admin_dv", "email": "admin@dataviz.test", "is_super_admin": False}
+
+        gdb.users.find_one = AsyncMock(side_effect=fake_user)
+        gdb.companies.find_one = AsyncMock(return_value=company)
+        with _flags(True), tenant_scope(DATAVIZ), patch(
+            "app.services.company_branding.get_global_db", return_value=gdb
+        ):
+            identity = await resolve_sender_identity(company)
+        self.assertEqual(identity["reply_to"], "admin@dataviz.test")
+
+    async def test_reply_to_none_when_only_super_admin(self):
+        company = {"id": DATAVIZ, "name": "DataViz"}
+        gdb = MagicMock()
+        gdb.company_memberships.find.return_value = _Cursor([{"user_id": "owner1"}])
+        gdb.users.find_one = AsyncMock(
+            return_value={"id": "owner1", "email": "owner@reamarc.test", "is_super_admin": True}
+        )
+        with _flags(True), tenant_scope(DATAVIZ), patch(
+            "app.services.company_branding.get_global_db", return_value=gdb
+        ):
+            identity = await resolve_sender_identity(company)
+        self.assertIsNone(identity["reply_to"])
+
 
 class TestAuditScript(unittest.IsolatedAsyncioTestCase):
     async def test_dry_run_reports_copied_lead_no_writes(self):
@@ -508,10 +543,8 @@ class TestAuditScript(unittest.IsolatedAsyncioTestCase):
         from scripts.audit_cross_company_meta_leads import _run
 
         args = SimpleNamespace(i_know_this_is_live_readonly=False, json_path=None)
-        with patch.object(settings, "MONGODB_DB_NAME", "reamarc_test_db"), patch(
-            "app.database.connect_to_mongo", new=AsyncMock()
-        ), patch("app.database.close_mongo_connection", new=AsyncMock()):
-            report = await _run(args)
+        with patch.object(settings, "MONGODB_DB_NAME", "reamarc_test_db"):
+            report = await _run(args, db=db)
         after = await db.crm_leads.count_documents({})
         sec_after = await db.security_events.count_documents({})
         self.assertEqual(before, after)

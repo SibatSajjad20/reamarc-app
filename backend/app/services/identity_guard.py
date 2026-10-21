@@ -19,7 +19,7 @@ logger = logging.getLogger("app.identity_guard")
 
 HOME_LOGIN_MSG = "This person's login is managed by their home company."
 SUPER_ADMIN_MSG = "This account can only be edited by the owner or the person themselves."
-LAST_ADMIN_MSG = "This company must keep at least one active admin."
+LAST_ADMIN_MSG = "Every company needs at least one Admin"
 HR_PRIVILEGED_MSG = "HR cannot modify Admin or Operations accounts."
 ADMIN_PEER_MSG = "Only the platform owner can edit another Admin."
 OWN_ROLE_MSG = "You can't change your own role"

@@ -29,58 +29,65 @@ def _assert_safe_db(db_name: str, live_ok: bool) -> None:
     )
 
 
-async def _run(args: argparse.Namespace) -> Dict[str, Any]:
+async def _run(args: argparse.Namespace, db=None) -> Dict[str, Any]:
+    from motor.motor_asyncio import AsyncIOMotorClient
+
     from app.config import settings
     from app.core.integrations import REAMARC_TENANT_IDS, is_reamarc_company
-    from app.database import connect_to_mongo, db_instance, close_mongo_connection
 
     _assert_safe_db(getattr(settings, "MONGODB_DB_NAME", "") or "", args.i_know_this_is_live_readonly)
-    await connect_to_mongo()
-    db = db_instance.db
+    client = None
     if db is None:
+        client = AsyncIOMotorClient(settings.MONGODB_URL)
+        db = client[settings.MONGODB_DB_NAME]
+    if db is None:
+        if client is not None:
+            client.close()
         raise SystemExit("Database unavailable.")
 
-    env_page = (settings.CRM_META_PAGE_ID or "").strip()
-    reamarc_pages: Set[str] = set()
-    if env_page:
-        reamarc_pages.add(env_page)
-    cursor = db.crm_meta_pages.find(
-        {"$or": [{"company_id": {"$in": list(REAMARC_TENANT_IDS)}}, {"company_id": {"$exists": False}}]},
-        {"page_id": 1, "company_id": 1},
-    )
-    async for doc in cursor:
-        pid = str(doc.get("page_id") or "").strip()
-        cid = doc.get("company_id")
-        if pid and (is_reamarc_company(cid) or (not cid and pid == env_page)):
-            reamarc_pages.add(pid)
+    try:
+        env_page = (settings.CRM_META_PAGE_ID or "").strip()
+        reamarc_pages: Set[str] = set()
+        if env_page:
+            reamarc_pages.add(env_page)
+        cursor = db.crm_meta_pages.find(
+            {"$or": [{"company_id": {"$in": list(REAMARC_TENANT_IDS)}}, {"company_id": {"$exists": False}}]},
+            {"page_id": 1, "company_id": 1},
+        )
+        async for doc in cursor:
+            pid = str(doc.get("page_id") or "").strip()
+            cid = doc.get("company_id")
+            if pid and (is_reamarc_company(cid) or (not cid and pid == env_page)):
+                reamarc_pages.add(pid)
 
-    companies: Dict[str, Dict[str, Any]] = {}
-    async for lead in db.crm_leads.find({}, {"id": 1, "company_id": 1, "attribution": 1, "raw_payload": 1}):
-        cid = lead.get("company_id") or "company_reamarc"
-        if is_reamarc_company(cid):
-            continue
-        attr = lead.get("attribution") or {}
-        payload = lead.get("raw_payload") or {}
-        meta = payload.get("meta_lead") if isinstance(payload, dict) else {}
-        page_id = str(
-            attr.get("page_id")
-            or (meta or {}).get("page_id")
-            or ""
-        ).strip()
-        if not page_id or page_id not in reamarc_pages:
-            continue
-        bucket = companies.setdefault(cid, {"company_id": cid, "count": 0, "sample_ids": []})
-        bucket["count"] += 1
-        if len(bucket["sample_ids"]) < 20 and lead.get("id"):
-            bucket["sample_ids"].append(str(lead["id"]))
+        companies: Dict[str, Dict[str, Any]] = {}
+        async for lead in db.crm_leads.find({}, {"id": 1, "company_id": 1, "attribution": 1, "raw_payload": 1}):
+            cid = lead.get("company_id") or "company_reamarc"
+            if is_reamarc_company(cid):
+                continue
+            attr = lead.get("attribution") or {}
+            payload = lead.get("raw_payload") or {}
+            meta = payload.get("meta_lead") if isinstance(payload, dict) else {}
+            page_id = str(
+                attr.get("page_id")
+                or (meta or {}).get("page_id")
+                or ""
+            ).strip()
+            if not page_id or page_id not in reamarc_pages:
+                continue
+            bucket = companies.setdefault(cid, {"company_id": cid, "count": 0, "sample_ids": []})
+            bucket["count"] += 1
+            if len(bucket["sample_ids"]) < 20 and lead.get("id"):
+                bucket["sample_ids"].append(str(lead["id"]))
 
-    report = {
-        "reamarc_page_ids": sorted(reamarc_pages),
-        "companies": list(companies.values()),
-        "total_copied_leads": sum(c["count"] for c in companies.values()),
-    }
-    await close_mongo_connection()
-    return report
+        return {
+            "reamarc_page_ids": sorted(reamarc_pages),
+            "companies": list(companies.values()),
+            "total_copied_leads": sum(c["count"] for c in companies.values()),
+        }
+    finally:
+        if client is not None:
+            client.close()
 
 
 def main() -> None:
