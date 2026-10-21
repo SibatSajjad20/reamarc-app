@@ -162,6 +162,26 @@ describe('publicDownload', () => {
     expect(clicks).toHaveLength(3);
   });
 
+  it('reports progress for download all sequentially', async () => {
+    const progress: Array<[number, number]> = [];
+    await downloadAllPublicAssets(
+      [
+        { downloadUrl: '/a?download=1', filename: 'a.png' },
+        { downloadUrl: '/b?download=1', filename: 'b.png' },
+      ],
+      0,
+      async () => undefined,
+      (current, total) => {
+        progress.push([current, total]);
+      },
+    );
+
+    expect(progress).toEqual([
+      [1, 2],
+      [2, 2],
+    ]);
+  });
+
   it('triggerAnchorDownload sets the download attribute', () => {
     const a = triggerAnchorDownload('/file.png?download=1', 'file.png');
     expect(a.download).toBe('file.png');
