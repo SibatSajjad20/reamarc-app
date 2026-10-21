@@ -92,6 +92,7 @@ export interface ContentCalendarItem {
   share_token?: string | null;
   read_only?: boolean;
   download_only?: boolean;
+  download_allowed?: boolean;
   created_at: string;
   updated_at: string;
 }

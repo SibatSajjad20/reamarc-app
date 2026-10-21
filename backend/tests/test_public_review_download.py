@@ -163,6 +163,7 @@ class TestPublicReviewDownload(unittest.IsolatedAsyncioTestCase):
         body = payload.json()
         urls = [att.get("download_url") for att in body.get("attachments") or [] if att.get("kind") != "link"]
         self.assertTrue(all(u and "download=1" in u for u in urls))
+        self.assertTrue(body.get("download_allowed"))
 
     async def test_foreign_asset_id_is_404(self):
         res = await self._dl(TOKEN, "att-other")

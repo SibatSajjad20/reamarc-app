@@ -295,6 +295,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
   const downloadOnly = Boolean(item?.read_only || item?.download_only);
   const canDecide = isPendingReview && !downloadOnly;
+  const downloadsEnabled = Boolean(item?.download_allowed);
 
   const activePreviewAsset = item?.attachments?.[activeAssetIndex];
   const activeIsVisual = isVisualAsset(activePreviewAsset);
@@ -468,7 +469,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                     <span className="truncate">Creative deliverables ({assets.length})</span>
                   </span>
                   <div className="flex items-center gap-2 shrink-0">
-                    {downloadableAssets.length >= 2 && !isMobile && (
+                    {downloadsEnabled && downloadableAssets.length >= 2 && !isMobile && (
                       <button
                         type="button"
                         onClick={() => void handleDownloadAll()}
@@ -534,7 +535,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         )}
                       />
                     )}
-                    {activeDownload && (
+                    {downloadsEnabled && activeDownload && (
                       <button
                         type="button"
                         onClick={(e) => handleDownloadAsset(activeDownload, e)}
@@ -566,7 +567,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         <span>Open file</span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
-                      {activeDownload && (
+                      {downloadsEnabled && activeDownload && (
                         <button
                           type="button"
                           onClick={(e) => handleDownloadAsset(activeDownload, e)}
@@ -635,7 +636,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                             </div>
                           )}
                         </button>
-                        {asset.kind !== 'link' && (asset.download_url || asset.url) && (
+                        {downloadsEnabled && asset.kind !== 'link' && (asset.download_url || asset.url) && (
                           <button
                             type="button"
                             aria-label={

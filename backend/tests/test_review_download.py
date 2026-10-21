@@ -110,6 +110,41 @@ class ReviewDownloadTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200, page.text)
         body = page.json()
         self.assertFalse(body.get("download_only"))
+        self.assertTrue(body.get("download_allowed"))
+        fake_file = Response(content=b"png", media_type="image/png")
+        with patch(
+            "app.core.uploads.open_upload_response",
+            new=AsyncMock(return_value=fake_file),
+        ):
+            dl = client.get(f"/api/v1/content-calendar/public/review/{token}/assets/att-1?download=1")
+        self.assertEqual(dl.status_code, 200, dl.text)
+
+    def _assert_internal_stage_blocks_download(self, stage, token):
+        doc = self._doc(token, stage, "Pending")
+        client = self._client_for(doc)
+        page = client.get(f"/api/v1/content-calendar/public/review/{token}")
+        self.assertEqual(page.status_code, 200, page.text)
+        body = page.json()
+        self.assertFalse(body.get("download_allowed"))
+        dl = client.get(f"/api/v1/content-calendar/public/review/{token}/assets/att-1?download=1")
+        self.assertEqual(dl.status_code, 410, dl.text)
+
+    def test_content_stage_download_is_410_page_stays_200(self):
+        self._assert_internal_stage_blocks_download("Content", "tok-content")
+
+    def test_content_internal_review_download_is_410_page_stays_200(self):
+        self._assert_internal_stage_blocks_download("Content Internal Review", "tok-cir")
+
+    def test_creative_internal_review_download_is_410_page_stays_200(self):
+        self._assert_internal_stage_blocks_download("Creative Internal Review", "tok-crir")
+
+    def test_creative_client_review_changes_requested_download_is_200(self):
+        token = "tok-crev-changes"
+        doc = self._doc(token, "Creative Client Review", "Changes Requested")
+        client = self._client_for(doc)
+        page = client.get(f"/api/v1/content-calendar/public/review/{token}")
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertTrue(page.json().get("download_allowed"))
         fake_file = Response(content=b"png", media_type="image/png")
         with patch(
             "app.core.uploads.open_upload_response",
@@ -126,6 +161,7 @@ class ReviewDownloadTests(unittest.TestCase):
         self.assertEqual(page.status_code, 200, page.text)
         body = page.json()
         self.assertTrue(body.get("download_only") or body.get("read_only"))
+        self.assertTrue(body.get("download_allowed"))
         fake_file = Response(content=b"png", media_type="image/png")
         with patch(
             "app.core.uploads.open_upload_response",

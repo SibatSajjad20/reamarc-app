@@ -2347,7 +2347,10 @@ def check_review_link_download_allowed(doc: Dict[str, Any]) -> bool:
     """Downloads are allowed only during client review, or after approval if not sent back."""
     stage = normalize_stage(doc.get("stage"))
     approval_status = str(doc.get("approval_status") or "").strip()
-    # Block revision / in-progress production before any allow rule (including leftover Approved).
+    # Client review wins first: an item re-sent after changes may still say Changes Requested.
+    if stage in CLIENT_REVIEW_STAGES:
+        return True
+    # Block revision / in-progress production before any later allow rule (including leftover Approved).
     if (
         stage in ("Content Revision", "Creative Revision")
         or approval_status == "Changes Requested"
@@ -2355,8 +2358,6 @@ def check_review_link_download_allowed(doc: Dict[str, Any]) -> bool:
         or stage in _REVIEW_DOWNLOAD_BLOCK_STAGES
     ):
         return False
-    if stage in CLIENT_REVIEW_STAGES:
-        return True
     if approval_status in _REVIEW_DOWNLOAD_APPROVED_STATUSES:
         return True
     return stage in ("Ready to Post", "Posted")
@@ -2388,9 +2389,10 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
     # Review links only expire once approved or changes requested.
     # Approved items stay readable for downloads (read_only / download_only).
     is_expired, expire_msg = check_review_link_expiration(presented)
+    download_allowed = check_review_link_download_allowed(presented)
     download_only = False
     if is_expired:
-        if check_review_link_download_allowed(presented):
+        if download_allowed:
             download_only = True
         else:
             raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
@@ -2444,6 +2446,7 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         "updated_at": presented.get("updated_at"),
         "read_only": download_only,
         "download_only": download_only,
+        "download_allowed": download_allowed,
     }
 
 
@@ -2835,8 +2838,14 @@ async def stream_public_asset(
 
     presented = _present_doc(dict(doc))
     is_expired, expire_msg = check_review_link_expiration(presented)
-    if is_expired and not check_review_link_download_allowed(presented):
+    download_allowed = check_review_link_download_allowed(presented)
+    if is_expired and not download_allowed:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+    if download and not download_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=expire_msg or "Downloads are not available until this campaign is sent for client review.",
+        )
 
     attachments = presented.get("attachments") or []
     target = next((a for a in attachments if isinstance(a, dict) and a.get("id") == clean_aid), None)
