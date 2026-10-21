@@ -20,9 +20,7 @@ import { NewMemberDialog } from '@/components/owner/NewMemberDialog';
 import { GiveAccessDialog } from '@/components/owner/GiveAccessDialog';
 import { SetStartingPasswordDialog } from '@/components/owner/SetStartingPasswordDialog';
 import { CompanyDetailSheet } from '@/components/owner/CompanyDetailSheet';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
-import { CompanyBrandingForm } from '@/components/settings/sections/CompanyBrandingForm';
-import { ownerBrandingAdapter } from '@/services/companyBrandingService';
+import { CompanyBrandingSheet } from '@/components/owner/CompanyBrandingSheet';
 import { Plus, UserPlus, LogOut } from 'lucide-react';
 import type { ViewType } from '@/types';
 
@@ -427,31 +425,11 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
       />
 
       {/* Branding Sheet (triggered from Company Detail Sheet) */}
-      {brandingSheetCompany && (
-        <Sheet
-          open={Boolean(brandingSheetCompany)}
-          onOpenChange={(open) => !open && setBrandingSheetCompany(null)}
-        >
-          <SheetContent side="right" className="w-full sm:max-w-[480px] p-0 flex flex-col h-full bg-surface">
-            <SheetHeader className="p-5 border-b border-border">
-              <SheetTitle className="text-h2 font-semibold text-fg">
-                {brandingSheetCompany.name} branding
-              </SheetTitle>
-              <SheetDescription className="text-small text-fg-muted">
-                Logo, display name and accent colour for {brandingSheetCompany.name}.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="p-6 overflow-y-auto flex-1">
-              <CompanyBrandingForm
-                adapter={ownerBrandingAdapter(brandingSheetCompany.id)}
-                onSaved={async () => {
-                  await loadData();
-                }}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
+      <CompanyBrandingSheet
+        company={brandingSheetCompany}
+        onClose={() => setBrandingSheetCompany(null)}
+        onSaved={loadData}
+      />
     </div>
   );
 };

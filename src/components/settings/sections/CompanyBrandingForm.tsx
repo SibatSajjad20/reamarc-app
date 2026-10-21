@@ -29,6 +29,7 @@ interface CompanyBrandingFormProps {
   adapter?: CompanyBrandingAdapter;
   readOnly?: boolean;
   onSaved?: (branding: CompanyBranding) => void;
+  variant?: 'page' | 'drawer';
 }
 
 const LOGO_HELP = "PNG, JPG or WebP, up to 2 MB, at least 128 × 128 px. SVG isn't accepted.";
@@ -39,10 +40,46 @@ function apiMessage(err: unknown, fallback: string) {
   return fallback;
 }
 
+function BrandingRow({
+  variant,
+  title,
+  description,
+  children,
+}: {
+  variant: 'page' | 'drawer';
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  const isDrawer = variant === 'drawer';
+  return (
+    <div
+      className={cn(
+        'min-w-0 py-5',
+        isDrawer ? 'flex flex-col gap-3' : 'grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6'
+      )}
+    >
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold text-fg">{title}</h2>
+        <p
+          className={cn(
+            'text-xs text-fg-muted mt-1 leading-relaxed',
+            isDrawer && 'break-words'
+          )}
+        >
+          {description}
+        </p>
+      </div>
+      <div className="min-w-0 max-w-full">{children}</div>
+    </div>
+  );
+}
+
 export const CompanyBrandingForm: React.FC<CompanyBrandingFormProps> = ({
   adapter = companyBrandingService,
   readOnly = false,
   onSaved,
+  variant = 'page',
 }) => {
   const { user, refreshUser, updateUser } = useAuth();
   const { addToast } = useToast();
@@ -241,207 +278,260 @@ export const CompanyBrandingForm: React.FC<CompanyBrandingFormProps> = ({
     return <div className="text-sm text-fg-muted">Loading branding…</div>;
   }
 
+  const isDrawer = variant === 'drawer';
+  const logoFileInput = (
+    <input
+      ref={fileRef}
+      type="file"
+      accept="image/jpeg,image/png,image/webp"
+      className="hidden"
+      disabled={disabled || !branding?.uploads_enabled}
+      onChange={(e) => {
+        const file = e.target.files?.[0];
+        e.target.value = '';
+        if (file) handleFile(file);
+      }}
+    />
+  );
+  const logoButtons = (
+    <div className="flex flex-wrap gap-2 min-w-0">
+      {logoFileInput}
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        disabled={disabled || !branding?.uploads_enabled}
+        onClick={() => fileRef.current?.click()}
+      >
+        {branding?.has_logo ? 'Replace logo' : 'Upload logo'}
+      </Button>
+      {branding?.has_logo && (
+        <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => void handleRemoveLogo()}>
+          Remove
+        </Button>
+      )}
+    </div>
+  );
+  const logoHelp = (
+    <>
+      <p className={cn('text-xs text-fg-muted', isDrawer && 'break-words max-w-full')}>{LOGO_HELP}</p>
+      {!branding?.uploads_enabled && (
+        <p className={cn('text-xs text-warning-fg', isDrawer && 'break-words max-w-full')}>
+          Logo uploads aren't set up on this server yet.
+        </p>
+      )}
+    </>
+  );
+  const displayNameHelp = (
+    <p className={cn('text-xs text-fg-muted mt-2', isDrawer && 'break-words max-w-full')}>
+      Shown in the sidebar, company switcher, browser tab and exports. Leave blank to use the registered name{' '}
+      <span className="font-semibold text-fg">{branding?.name || user?.company?.name}</span>.
+    </p>
+  );
+  const accentControls = (
+    <div className="space-y-3 min-w-0 max-w-full">
+      <div className="flex flex-wrap items-center gap-2 min-w-0">
+        {ACCENT_SWATCHES.map((swatch) => (
+          <button
+            key={swatch}
+            type="button"
+            disabled={disabled}
+            aria-label={`Accent ${swatch}`}
+            onClick={() => setAccent(swatch)}
+            className={cn(
+              'w-8 h-8 rounded-full border-2 transition-transform',
+              isDrawer && 'shrink-0',
+              accentColor.toUpperCase() === swatch ? 'border-fg scale-105' : 'border-transparent'
+            )}
+            style={{ backgroundColor: swatch }}
+          />
+        ))}
+        <label className="relative w-8 h-8 rounded-full border border-border overflow-hidden cursor-pointer shrink-0">
+          <span className="sr-only">Pick a custom accent colour</span>
+          <input
+            type="color"
+            disabled={disabled}
+            value={pickerValue}
+            onChange={(e) => setAccent(e.target.value)}
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+          />
+          <span className="block h-full w-full" style={{ backgroundColor: pickerValue }} />
+        </label>
+        <Input
+          value={hexDraft}
+          disabled={disabled}
+          className={cn('w-[108px]', isDrawer && 'max-w-full min-w-0')}
+          onChange={(e) => {
+            const next = normalizeHexInput(e.target.value);
+            setHexDraft(next);
+            if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(next)) {
+              setAccentColor(next.toUpperCase());
+            }
+          }}
+        />
+      </div>
+      {contrast != null && contrast >= 4.5 && (
+        <p className="text-xs text-success-fg flex items-center gap-1.5">
+          <Check size={14} /> Contrast with white text {contrast.toFixed(1)}:1. Buttons and badges stay readable.
+        </p>
+      )}
+      {contrast != null && contrast >= 3 && contrast < 4.5 && (
+        <p className="text-xs text-warning-fg">Text on buttons may be harder to read.</p>
+      )}
+      {contrast != null && contrast < 3 && (
+        <p className="text-xs text-danger-fg">This colour doesn't have enough contrast with white button text.</p>
+      )}
+      <p className={cn('text-xs text-fg-muted', isDrawer && 'break-words max-w-full')}>
+        Used for buttons, links, active menu items and charts for everyone in this company.
+      </p>
+    </div>
+  );
+  const previewSamples = (
+    <>
+      <div className="rounded-lg border border-border bg-surface p-3 space-y-3 min-w-0 max-w-full">
+        <div className="flex items-center gap-2 min-w-0">
+          <BrandMark
+            size={28}
+            logoUrl={branding?.logo_url}
+            initial={initialsOf(brandPreview)}
+            accentColor={accentColor}
+          />
+          <div className="min-w-0">
+            <div className="text-xs font-semibold truncate">{brandPreview}</div>
+            <div className="text-[10px] text-fg-muted">Admin</div>
+          </div>
+        </div>
+        <div
+          className="text-xs font-medium rounded-md px-2 py-1.5"
+          style={{ backgroundColor: `${accentColor}22`, color: accentColor }}
+        >
+          Dashboard
+        </div>
+        <div className="text-xs text-fg-muted px-2">Attendance</div>
+      </div>
+      <div className="space-y-3 min-w-0 max-w-full">
+        <div>
+          <div className="text-sm font-semibold">Good morning, Sample User</div>
+          <div className="text-xs text-fg-muted break-words">Browser tab: {brandPreview}</div>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <button
+            type="button"
+            className="h-7 px-2.5 rounded-md text-xs font-medium text-white border shadow-xs"
+            style={{ backgroundColor: accentColor, borderColor: accentColor }}
+          >
+            Check in
+          </button>
+          {!branding?.has_logo && (
+            <span className="text-xs text-fg-muted break-words min-w-0">
+              No logo? The sidebar shows the initials {initialsOf(brandPreview)}
+            </span>
+          )}
+        </div>
+      </div>
+    </>
+  );
+
+  const fields = (
+    <div className={cn('divide-y divide-border', !isDrawer && '-my-1')}>
+      <BrandingRow
+        variant={variant}
+        title="Logo"
+        description="Square mark shown in the sidebar, company switcher and browser tab."
+      >
+        {isDrawer ? (
+          <div className="min-w-0 max-w-full space-y-3">
+            <div data-testid="branding-logo-row" className="flex items-center gap-3 flex-wrap min-w-0">
+              <BrandMark
+                size={56}
+                logoUrl={branding?.logo_url}
+                initial={initialsOf(brandPreview)}
+                accentColor={accentColor}
+                className="rounded-xl border border-border shrink-0"
+              />
+              {logoButtons}
+            </div>
+            {logoHelp}
+          </div>
+        ) : (
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
+            <BrandMark
+              size={80}
+              logoUrl={branding?.logo_url}
+              initial={initialsOf(brandPreview)}
+              accentColor={accentColor}
+              className="rounded-xl border border-border"
+            />
+            <div className="min-w-0 space-y-2">
+              {logoButtons}
+              {logoHelp}
+            </div>
+          </div>
+        )}
+      </BrandingRow>
+
+      <BrandingRow variant={variant} title="Display name" description="The name your team sees. Optional.">
+        <Input
+          value={displayName}
+          onChange={(e) => setDisplayName(e.target.value)}
+          placeholder={branding?.name || user?.company?.name}
+          disabled={disabled}
+          maxLength={60}
+          className={cn(isDrawer && 'max-w-full min-w-0')}
+        />
+        {displayNameHelp}
+      </BrandingRow>
+
+      <BrandingRow variant={variant} title="Accent colour" description="Brand colour for the whole app.">
+        {accentControls}
+      </BrandingRow>
+
+      <BrandingRow variant={variant} title="Preview" description="What your team will see after saving.">
+        <div
+          className={cn(
+            'rounded-xl border border-border bg-subtle/60 p-4 min-w-0 max-w-full',
+            isDrawer ? 'flex flex-col gap-4' : 'grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4'
+          )}
+        >
+          {previewSamples}
+        </div>
+      </BrandingRow>
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
+    <div className={cn('min-w-0 max-w-full', isDrawer ? 'flex flex-col' : 'space-y-6')}>
       {disabled && (
         <p className="text-xs text-fg-muted bg-subtle border border-border rounded-lg px-3 py-2">
           Read-only owner session.
         </p>
       )}
 
-      <SettingsCard>
-        <div className="divide-y divide-border -my-1">
-          <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6 py-5">
-            <div>
-              <h2 className="text-sm font-semibold text-fg">Logo</h2>
-              <p className="text-xs text-fg-muted mt-1 leading-relaxed">
-                Square mark shown in the sidebar, company switcher and browser tab.
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4 min-w-0">
-              <BrandMark
-                size={80}
-                logoUrl={branding?.logo_url}
-                initial={initialsOf(brandPreview)}
-                accentColor={accentColor}
-                className="rounded-xl border border-border"
-              />
-              <div className="min-w-0 space-y-2">
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    className="hidden"
-                    disabled={disabled || !branding?.uploads_enabled}
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (file) handleFile(file);
-                    }}
-                  />
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    disabled={disabled || !branding?.uploads_enabled}
-                    onClick={() => fileRef.current?.click()}
-                  >
-                    {branding?.has_logo ? 'Replace logo' : 'Upload logo'}
-                  </Button>
-                  {branding?.has_logo && (
-                    <Button type="button" variant="ghost" size="sm" disabled={disabled} onClick={() => void handleRemoveLogo()}>
-                      Remove
-                    </Button>
-                  )}
-                </div>
-                <p className="text-xs text-fg-muted">{LOGO_HELP}</p>
-                {!branding?.uploads_enabled && (
-                  <p className="text-xs text-warning-fg">Logo uploads aren't set up on this server yet.</p>
-                )}
-              </div>
-            </div>
+      {isDrawer ? fields : <SettingsCard>{fields}</SettingsCard>}
+
+      {error && <p className={cn('text-sm text-danger-fg', isDrawer && 'break-words px-0 py-2')}>{error}</p>}
+
+      {isDrawer ? (
+        dirty &&
+        !disabled && (
+          <div className="sticky bottom-0 border-t bg-surface p-4 flex justify-end gap-2 min-w-0">
+            <Button type="button" variant="secondary" size="sm" onClick={() => branding && hydrate(branding)} disabled={saving}>
+              Discard
+            </Button>
+            <Button type="button" variant="primary" size="sm" onClick={() => void handleSave()} loading={saving}>
+              Save changes
+            </Button>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6 py-5">
-            <div>
-              <h2 className="text-sm font-semibold text-fg">Display name</h2>
-              <p className="text-xs text-fg-muted mt-1 leading-relaxed">The name your team sees. Optional.</p>
-            </div>
-            <div>
-              <Input
-                value={displayName}
-                onChange={(e) => setDisplayName(e.target.value)}
-                placeholder={branding?.name || user?.company?.name}
-                disabled={disabled}
-                maxLength={60}
-              />
-              <p className="text-xs text-fg-muted mt-2">
-                Shown in the sidebar, company switcher, browser tab and exports. Leave blank to use the registered name{' '}
-                <span className="font-semibold text-fg">{branding?.name || user?.company?.name}</span>.
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6 py-5">
-            <div>
-              <h2 className="text-sm font-semibold text-fg">Accent colour</h2>
-              <p className="text-xs text-fg-muted mt-1 leading-relaxed">Brand colour for the whole app.</p>
-            </div>
-            <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                {ACCENT_SWATCHES.map((swatch) => (
-                  <button
-                    key={swatch}
-                    type="button"
-                    disabled={disabled}
-                    aria-label={`Accent ${swatch}`}
-                    onClick={() => setAccent(swatch)}
-                    className={cn(
-                      'w-8 h-8 rounded-full border-2 transition-transform',
-                      accentColor.toUpperCase() === swatch ? 'border-fg scale-105' : 'border-transparent'
-                    )}
-                    style={{ backgroundColor: swatch }}
-                  />
-                ))}
-                <label className="relative w-8 h-8 rounded-full border border-border overflow-hidden cursor-pointer shrink-0">
-                  <span className="sr-only">Pick a custom accent colour</span>
-                  <input
-                    type="color"
-                    disabled={disabled}
-                    value={pickerValue}
-                    onChange={(e) => setAccent(e.target.value)}
-                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                  />
-                  <span className="block h-full w-full" style={{ backgroundColor: pickerValue }} />
-                </label>
-                <Input
-                  value={hexDraft}
-                  disabled={disabled}
-                  className="w-[108px]"
-                  onChange={(e) => {
-                    const next = normalizeHexInput(e.target.value);
-                    setHexDraft(next);
-                    if (/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(next)) {
-                      setAccentColor(next.toUpperCase());
-                    }
-                  }}
-                />
-              </div>
-              {contrast != null && contrast >= 4.5 && (
-                <p className="text-xs text-success-fg flex items-center gap-1.5">
-                  <Check size={14} /> Contrast with white text {contrast.toFixed(1)}:1. Buttons and badges stay readable.
-                </p>
-              )}
-              {contrast != null && contrast >= 3 && contrast < 4.5 && (
-                <p className="text-xs text-warning-fg">Text on buttons may be harder to read.</p>
-              )}
-              {contrast != null && contrast < 3 && (
-                <p className="text-xs text-danger-fg">This colour doesn't have enough contrast with white button text.</p>
-              )}
-              <p className="text-xs text-fg-muted">Used for buttons, links, active menu items and charts for everyone in this company.</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6 py-5">
-            <div>
-              <h2 className="text-sm font-semibold text-fg">Preview</h2>
-              <p className="text-xs text-fg-muted mt-1 leading-relaxed">What your team will see after saving.</p>
-            </div>
-            <div className="rounded-xl border border-border bg-subtle/60 p-4 grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4">
-              <div className="rounded-lg border border-border bg-surface p-3 space-y-3">
-                <div className="flex items-center gap-2">
-                  <BrandMark
-                    size={28}
-                    logoUrl={branding?.logo_url}
-                    initial={initialsOf(brandPreview)}
-                    accentColor={accentColor}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-xs font-semibold truncate">{brandPreview}</div>
-                    <div className="text-[10px] text-fg-muted">Admin</div>
-                  </div>
-                </div>
-                <div
-                  className="text-xs font-medium rounded-md px-2 py-1.5"
-                  style={{ backgroundColor: `${accentColor}22`, color: accentColor }}
-                >
-                  Dashboard
-                </div>
-                <div className="text-xs text-fg-muted px-2">Attendance</div>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm font-semibold">Good morning, Sample User</div>
-                  <div className="text-xs text-fg-muted">Browser tab: {brandPreview}</div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="h-7 px-2.5 rounded-md text-xs font-medium text-white border shadow-xs"
-                    style={{ backgroundColor: accentColor, borderColor: accentColor }}
-                  >
-                    Check in
-                  </button>
-                  {!branding?.has_logo && (
-                    <span className="text-xs text-fg-muted">No logo? The sidebar shows the initials {initialsOf(brandPreview)}</span>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </SettingsCard>
-
-      {error && <p className="text-sm text-danger-fg">{error}</p>}
-
-      <StickySaveBar
-        isDirty={dirty && !disabled}
-        isSaving={saving}
-        onDiscard={() => branding && hydrate(branding)}
-        onSave={() => void handleSave()}
-        errorMessage={error}
-      />
+        )
+      ) : (
+        <StickySaveBar
+          isDirty={dirty && !disabled}
+          isSaving={saving}
+          onDiscard={() => branding && hydrate(branding)}
+          onSave={() => void handleSave()}
+          errorMessage={error}
+        />
+      )}
 
       <AvatarCropModal
         isOpen={cropOpen}
