@@ -602,7 +602,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         ) : downloadAllSuccess ? (
                           <>
                             <Check className="w-3.5 h-3.5 text-success-fg" aria-hidden="true" />
-                            <span>Downloaded ✓</span>
+                            <span>Downloaded</span>
                           </>
                         ) : (
                           <>
@@ -667,47 +667,6 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         )}
                       />
                     )}
-                    {downloadsEnabled && activeDownload && (() => {
-                      const pillKey = getAssetKey(activeDownload);
-                      const isPillDownloading = downloadingKeys.has(pillKey);
-                      const isPillSuccess = successKeys.has(pillKey);
-                      const isPillDisabled = isDownloadingAll || isPillDownloading || isPillSuccess;
-
-                      return (
-                        <button
-                          type="button"
-                          onClick={(e) => void handleDownloadAsset(activeDownload, e)}
-                          disabled={isPillDisabled}
-                          aria-label={
-                            isPillDownloading
-                              ? 'Downloading…'
-                              : isPillSuccess
-                              ? 'Downloaded ✓'
-                              : downloadableAssets.length > 1
-                              ? `Download slide ${activeAssetIndex + 1} of ${downloadableAssets.length}`
-                              : `Download ${activeDownload.filename}`
-                          }
-                          className="absolute top-2 right-2 z-20 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-60 disabled:cursor-not-allowed"
-                        >
-                          {isPillDownloading ? (
-                            <>
-                              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-                              <span>Downloading…</span>
-                            </>
-                          ) : isPillSuccess ? (
-                            <>
-                              <Check className="w-4 h-4 text-success-fg" aria-hidden="true" />
-                              <span>Downloaded ✓</span>
-                            </>
-                          ) : (
-                            <>
-                              <Download className="w-4 h-4" aria-hidden="true" />
-                              <span>Download</span>
-                            </>
-                          )}
-                        </button>
-                      );
-                    })()}
                   </div>
                 ) : activeAsset ? (
                   <div className="rounded-lg border border-border bg-subtle p-5 sm:p-6 text-center text-fg-muted space-y-3">
@@ -725,7 +684,22 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         <span>Open file</span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
-                      {downloadsEnabled && activeDownload && (() => {
+                    </div>
+                  </div>
+                ) : null}
+
+                {activeDownload && (
+                  <div className="space-y-2 px-0.5">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 space-y-1">
+                        <p className="text-xs font-medium text-fg break-all">{activeDownload.filename}</p>
+                        <p className="text-[13px] text-fg-muted">
+                          {[activeDownload.contentType, formatDownloadSize(activeDownload.sizeBytes)]
+                            .filter(Boolean)
+                            .join(' · ')}
+                        </p>
+                      </div>
+                      {downloadsEnabled && (() => {
                         const pillKey = getAssetKey(activeDownload);
                         const isPillDownloading = downloadingKeys.has(pillKey);
                         const isPillSuccess = successKeys.has(pillKey);
@@ -740,24 +714,26 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                               isPillDownloading
                                 ? 'Downloading…'
                                 : isPillSuccess
-                                ? 'Downloaded ✓'
+                                ? 'Downloaded'
+                                : downloadableAssets.length > 1
+                                ? `Download slide ${activeAssetIndex + 1} of ${downloadableAssets.length}`
                                 : `Download ${activeDownload.filename}`
                             }
-                            className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                            className="inline-flex items-center justify-center gap-1.5 w-full sm:w-auto min-h-11 px-3 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-60 disabled:cursor-not-allowed shrink-0"
                           >
                             {isPillDownloading ? (
                               <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                                <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
                                 <span>Downloading…</span>
                               </>
                             ) : isPillSuccess ? (
                               <>
-                                <Check className="w-3.5 h-3.5 text-success-fg" aria-hidden="true" />
-                                <span>Downloaded ✓</span>
+                                <Check className="w-4 h-4 text-success-fg" aria-hidden="true" />
+                                <span>Downloaded</span>
                               </>
                             ) : (
                               <>
-                                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                                <Download className="w-4 h-4" aria-hidden="true" />
                                 <span>Download</span>
                               </>
                             )}
@@ -765,17 +741,6 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         );
                       })()}
                     </div>
-                  </div>
-                ) : null}
-
-                {activeDownload && (
-                  <div className="space-y-1 px-0.5">
-                    <p className="text-xs font-medium text-fg break-all">{activeDownload.filename}</p>
-                    <p className="text-[13px] text-fg-muted">
-                      {[activeDownload.contentType, formatDownloadSize(activeDownload.sizeBytes)]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </p>
                     {isMobile && (
                       <p className="text-[13px] text-fg-muted">
                         If it opens instead of saving, tap Share → Save to Files (iPhone) or long-press → Download (Android).
@@ -788,90 +753,37 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                 {assets.length > 1 && (
                   <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
                     {assets.map((asset, idx) => (
-                      <div
+                      <button
                         key={asset.id || idx}
+                        type="button"
+                        onClick={() => setActiveAssetIndex(idx)}
+                        aria-label={asset.filename || `Asset ${idx + 1}`}
                         className={cn(
-                          'relative w-14 h-14 rounded-md overflow-hidden shrink-0 border',
+                          'relative w-14 h-14 rounded-md overflow-hidden shrink-0 border cursor-pointer',
                           activeAssetIndex === idx
                             ? 'border-accent shadow-[0_0_0_2px_var(--ring)]'
                             : 'border-border opacity-70 hover:opacity-100',
                         )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => setActiveAssetIndex(idx)}
-                          className="absolute inset-0 cursor-pointer"
-                          aria-label={asset.filename || `Asset ${idx + 1}`}
-                        >
-                          {asset.thumbnail_url || asset.kind === 'image' ? (
-                            <>
-                              <img
-                                src={asset.thumbnail_url || asset.url}
-                                alt=""
-                                className="w-full h-full object-cover"
-                              />
-                              {asset.kind === 'video' && (
-                                <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                                  <Play className="w-3.5 h-3.5 text-white fill-white/80" />
-                                </div>
-                              )}
-                            </>
-                          ) : (
-                            <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
-                              <FileText className="w-4 h-4" />
-                            </div>
-                          )}
-                        </button>
-                        {downloadsEnabled && asset.kind !== 'link' && (asset.download_url || asset.url) && (() => {
-                          const downloadAsset: PublicDownloadAsset = {
-                            id: asset.id,
-                            downloadUrl:
-                              asset.download_url ||
-                              `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
-                            filename: asset.filename || 'download',
-                            contentType: asset.content_type,
-                            sizeBytes: asset.size_bytes,
-                            kind: asset.kind,
-                          };
-                          const badgeKey = getAssetKey(downloadAsset);
-                          const isBadgeDownloading = downloadingKeys.has(badgeKey);
-                          const isBadgeSuccess = successKeys.has(badgeKey);
-                          const isBadgeDisabled = isDownloadingAll || isBadgeDownloading || isBadgeSuccess;
-
-                          const badgeAriaLabel = isBadgeDownloading
-                            ? 'Downloading…'
-                            : isBadgeSuccess
-                            ? 'Downloaded ✓'
-                            : downloadableAssets.length > 1
-                            ? `Download slide ${idx + 1} of ${downloadableAssets.length}`
-                            : `Download ${asset.filename || 'file'}`;
-
-                          return (
-                            <button
-                              type="button"
-                              aria-label={badgeAriaLabel}
-                              disabled={isBadgeDisabled}
-                              onClick={(e) => void handleDownloadAsset(downloadAsset, e)}
-                              className="absolute bottom-0 right-0 z-10 w-[44px] h-[44px] flex items-end justify-end p-1 cursor-pointer disabled:cursor-not-allowed group/dl-badge focus:outline-none"
-                            >
-                              <span
-                                className={cn(
-                                  'inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface/95 text-fg border border-border shadow-xs group-hover/dl-badge:bg-hover group-focus-visible/dl-badge:focus-ring',
-                                  isBadgeDisabled && 'opacity-60',
-                                )}
-                              >
-                                {isBadgeDownloading ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
-                                ) : isBadgeSuccess ? (
-                                  <Check className="w-3 h-3 text-success-fg" aria-hidden="true" />
-                                ) : (
-                                  <Download className="w-3 h-3" aria-hidden="true" />
-                                )}
-                              </span>
-                            </button>
-                          );
-                        })()}
-                      </div>
+                        {asset.thumbnail_url || asset.kind === 'image' ? (
+                          <>
+                            <img
+                              src={asset.thumbnail_url || asset.url}
+                              alt=""
+                              className="w-full h-full object-cover"
+                            />
+                            {asset.kind === 'video' && (
+                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                                <Play className="w-3.5 h-3.5 text-white fill-white/80" />
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
+                            <FileText className="w-4 h-4" />
+                          </div>
+                        )}
+                      </button>
                     ))}
                   </div>
                 )}
