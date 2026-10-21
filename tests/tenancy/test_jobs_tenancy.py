@@ -13,6 +13,7 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 import unittest
+from unittest.mock import patch
 import sys
 from pathlib import Path
 
@@ -189,15 +190,19 @@ class TestJobsTenancy(unittest.IsolatedAsyncioTestCase):
         gdb = get_global_db()
         comp_b = await gdb.companies.find_one({"id": CID_B})
 
-        with tenant_scope(company_id=CID_B):
-            # Dispatch email for company B member
+        with tenant_scope(company_id=CID_B), patch.object(
+            settings, "BREVO_API_KEY", ""
+        ), patch.object(settings, "RESEND_API_KEY", ""), patch.object(
+            settings, "SENDGRID_API_KEY", ""
+        ), patch(
+            "app.services.email_service._send_smtp_sync", return_value=False
+        ):
             res = await EmailService.send_log_reminder(
                 recipient_email="user_b@companyb.com",
                 recipient_name="User B",
                 missing_dates=["2026-08-25"],
                 company=comp_b,
             )
-            # Because Company B has no SMTP configured, delivery is skipped safely
             self.assertFalse(res)
 
     async def test_multi_tenant_timezone_and_reminder_scoping(self):

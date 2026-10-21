@@ -190,6 +190,33 @@ async def get_company_doc(company_id: str) -> Optional[dict]:
     return doc
 
 
+async def company_admin_reply_email(company_id: str) -> Optional[str]:
+    """First non-owner company admin email, or None. Skips the platform owner."""
+    if not company_id:
+        return None
+    gdb = get_global_db()
+    if gdb is None:
+        return None
+    cursor = gdb.company_memberships.find(
+        {"company_id": company_id, "status": "active", "role": "admin"},
+        {"user_id": 1, "_id": 0},
+    )
+    async for mem in cursor:
+        uid = mem.get("user_id")
+        if not uid:
+            continue
+        user = await gdb.users.find_one(
+            {"id": uid},
+            {"email": 1, "is_super_admin": 1, "_id": 0},
+        )
+        if not user or user.get("is_super_admin"):
+            continue
+        email = str(user.get("email") or "").strip()
+        if email:
+            return email
+    return None
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 

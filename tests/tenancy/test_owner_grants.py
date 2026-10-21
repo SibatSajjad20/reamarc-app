@@ -526,7 +526,7 @@ class TestOwnerGrants(unittest.IsolatedAsyncioTestCase):
                 headers=self.owner_headers,
             )
             self.assertEqual(remove_resp.status_code, 400, remove_resp.text)
-            self.assertIn("at least one active admin", remove_resp.text)
+            self.assertIn("Every company needs at least one Admin", remove_resp.text)
 
             demote_resp = await client.patch(
                 f"/api/v1/admin/members/{only_admin}",

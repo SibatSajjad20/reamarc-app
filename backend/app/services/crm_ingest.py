@@ -949,9 +949,14 @@ def meta_credentials_configured() -> bool:
     )
 
 
-def verify_meta_signature(raw_body: bytes, signature_header: Optional[str]) -> bool:
+def verify_meta_signature(
+    raw_body: bytes,
+    signature_header: Optional[str],
+    app_secret: Optional[str] = None,
+) -> bool:
     """Fail closed: missing app secret or signature always rejects."""
-    secret = (settings.CRM_META_APP_SECRET or "").strip()
+    secret = (app_secret if app_secret is not None else settings.CRM_META_APP_SECRET) or ""
+    secret = str(secret).strip()
     if not secret:
         return False
     if not signature_header or not signature_header.startswith("sha256="):
@@ -969,7 +974,11 @@ def verify_meta_hub_token(provided: Optional[str], expected: str) -> bool:
 
 
 async def fetch_meta_lead(leadgen_id: str, *, access_token: Optional[str] = None) -> Dict[str, Any]:
-    token = (access_token or settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
+    token = (access_token or "").strip()
+    if not token:
+        from app.core.integrations import is_reamarc_company, current_company_id
+        if is_reamarc_company(current_company_id()):
+            token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
     if not token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1156,7 +1165,11 @@ async def poll_meta_form_leads(
     default_campaign: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Backup poller: GET /{form_id}/leads for leads newer than the lookback."""
-    token = (access_token or settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
+    token = (access_token or "").strip()
+    if not token:
+        from app.core.integrations import is_reamarc_company, current_company_id
+        if is_reamarc_company(current_company_id()):
+            token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
     if not token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1217,16 +1230,19 @@ async def poll_connected_meta_pages(*, lookback_hours: int = META_POLL_LOOKBACK_
     """
     from app.services import crm_meta_accounts
 
+    from app.core.integrations import current_company_id
+
     pages = await crm_meta_accounts.active_page_credentials()
     if not pages:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="No connected Meta page with an access token.",
-        )
+        return {"forms": [], "errors": []}
 
+    current_cid = current_company_id() or "company_reamarc"
     results: List[Dict[str, Any]] = []
     errors: List[str] = []
     for page in pages:
+        page_cid = str(page.get("company_id") or "company_reamarc")
+        if page_cid != current_cid:
+            continue
         page_id = str(page.get("page_id") or "").strip()
         token = str(page.get("access_token") or "").strip()
         try:
@@ -1267,7 +1283,10 @@ async def poll_configured_meta_forms() -> Dict[str, Any]:
             raise
         page_result = {"forms": [], "errors": [str(exc.detail)]}
 
-    extra_ids = [f.strip() for f in (settings.CRM_META_FORM_IDS or "").split(",") if f.strip()]
+    extra_ids: List[str] = []
+    from app.core.integrations import current_company_id, is_reamarc_company
+    if is_reamarc_company(current_company_id()):
+        extra_ids = [f.strip() for f in (settings.CRM_META_FORM_IDS or "").split(",") if f.strip()]
     seen = {str(row.get("form_id")) for row in page_result.get("forms") or []}
     for form_id in extra_ids:
         if form_id in seen:

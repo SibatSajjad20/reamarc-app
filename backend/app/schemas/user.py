@@ -213,6 +213,9 @@ class MemberResponse(BaseModel):
     is_super_admin: Optional[bool] = False
     needs_setup: Optional[bool] = False
     login_managed_elsewhere: Optional[bool] = False
+    can_edit: Optional[bool] = True
+    can_edit_identity: Optional[bool] = True
+    can_edit_role: Optional[bool] = True
 
     @field_validator("created_at", mode="before")
     @classmethod

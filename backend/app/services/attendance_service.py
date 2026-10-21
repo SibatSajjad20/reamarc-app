@@ -1657,31 +1657,51 @@ async def persist_auto_absent(
 # 2. SECURITY SETTINGS
 # ──────────────────────────────────────────────────────────
 
+def _is_current_reamarc() -> bool:
+    from app.core.integrations import current_company_id, is_reamarc_company
+    return is_reamarc_company(current_company_id())
+
+
 async def get_security_settings() -> SecuritySettingsSchema:
     """Retrieves system attendance security settings from system_config collection."""
+    reamarc = _is_current_reamarc()
     db = get_database()
     if db is None:
+        if reamarc:
+            return SecuritySettingsSchema(
+                office_latitude=OFFICE_LATITUDE,
+                office_longitude=OFFICE_LONGITUDE,
+                office_public_ips=list(get_built_in_office_ips()),
+                office_ip_whitelist=list(get_built_in_office_ips()),
+            )
         return SecuritySettingsSchema(
-            office_latitude=OFFICE_LATITUDE,
-            office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(get_built_in_office_ips()),
-            office_ip_whitelist=list(get_built_in_office_ips()),
+            office_latitude=None,
+            office_longitude=None,
+            office_public_ips=[],
+            office_ip_whitelist=[],
         )
 
     doc = await db.system_config.find_one({"key": "attendance_security"}, {"_id": 0})
     if not doc:
-        default_settings = SecuritySettingsSchema(
-            office_latitude=OFFICE_LATITUDE,
-            office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(get_built_in_office_ips()),
-            office_ip_whitelist=list(get_built_in_office_ips()),
+        if reamarc:
+            default_settings = SecuritySettingsSchema(
+                office_latitude=OFFICE_LATITUDE,
+                office_longitude=OFFICE_LONGITUDE,
+                office_public_ips=list(get_built_in_office_ips()),
+                office_ip_whitelist=list(get_built_in_office_ips()),
+            )
+            await db.system_config.update_one(
+                {"key": "attendance_security"},
+                {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
+                upsert=True
+            )
+            return default_settings
+        return SecuritySettingsSchema(
+            office_latitude=None,
+            office_longitude=None,
+            office_public_ips=[],
+            office_ip_whitelist=[],
         )
-        await db.system_config.update_one(
-            {"key": "attendance_security"},
-            {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
-            upsert=True
-        )
-        return default_settings
 
     doc.pop("key", None)
     extra_list = doc.get("office_ip_whitelist") or []
@@ -1694,7 +1714,8 @@ async def get_security_settings() -> SecuritySettingsSchema:
     ]
     merged_ips: List[str] = []
     seen = set()
-    for item in list(get_built_in_office_ips()) + public_ips + extra_list:
+    builtin = list(get_built_in_office_ips()) if reamarc else []
+    for item in builtin + public_ips + extra_list:
         text = str(item or "").strip()
         if not text or text in seen:
             continue
@@ -1703,25 +1724,32 @@ async def get_security_settings() -> SecuritySettingsSchema:
     doc["office_public_ips"] = merged_ips
     doc["office_subnets"] = [str(s).strip() for s in subnets if str(s).strip()]
     doc["office_ip_whitelist"] = merged_ips
-    doc["office_latitude"] = OFFICE_LATITUDE
-    doc["office_longitude"] = OFFICE_LONGITUDE
+    if reamarc:
+        doc["office_latitude"] = OFFICE_LATITUDE
+        doc["office_longitude"] = OFFICE_LONGITUDE
+    else:
+        lat = doc.get("office_latitude")
+        lng = doc.get("office_longitude")
+        doc["office_latitude"] = lat if lat not in ("", None) else None
+        doc["office_longitude"] = lng if lng not in ("", None) else None
     return SecuritySettingsSchema(**doc)
 
 
 async def update_security_settings(new_settings: SecuritySettingsSchema) -> SecuritySettingsSchema:
-    """Updates attendance security settings. HQ pin is fixed; env OFFICE_PUBLIC_IPS is always merged in."""
+    """Updates attendance security settings. HQ pin is fixed for Reamarc only."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    # Hardcode office coordinates
-    new_settings.office_latitude = OFFICE_LATITUDE
-    new_settings.office_longitude = OFFICE_LONGITUDE
+    reamarc = _is_current_reamarc()
+    if reamarc:
+        new_settings.office_latitude = OFFICE_LATITUDE
+        new_settings.office_longitude = OFFICE_LONGITUDE
 
-    # Ensure hardcoded office IPs are never removed
     merged_ips = []
     seen = set()
-    for ip in list(get_built_in_office_ips()) + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
+    builtin = list(get_built_in_office_ips()) if reamarc else []
+    for ip in builtin + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
         text = str(ip or "").strip()
         if text and text not in seen:
             seen.add(text)

@@ -344,7 +344,11 @@ class TestRound3B0Fixes(unittest.TestCase):
         with patch("app.routers.website_projects.get_database") as mock_db:
             mock_db.return_value.website_projects.find_one = AsyncMock(return_value={"id": "p_1"})
             with patch("app.routers.website_projects.can_manage_project", return_value=True):
-                with patch("app.services.website_project_service.create_file_record", new=AsyncMock(return_value={
+                with patch("app.services.google_drive_service.configured", return_value=True):
+                    with patch("app.services.google_drive_service.ensure_website_folder", new=AsyncMock(return_value="fld_123")):
+                        with patch("app.services.google_drive_service._ensure_root", new=AsyncMock(return_value="root_123")):
+                            with patch("app.services.google_drive_service.ingest_picked_file", new=AsyncMock(return_value={"id": "d1", "name": "Doc.pdf", "webViewLink": "https://drive.google.com/file/d/d1"})):
+                                with patch("app.services.website_project_service.create_file_record", new=AsyncMock(return_value={
                     "id": "wf_1",
                     "project_id": "p_1",
                     "folder": "assets",
@@ -353,12 +357,12 @@ class TestRound3B0Fixes(unittest.TestCase):
                     "external_url": "https://drive.google.com/file/d/d1",
                     "created_at": "2026-10-10T12:00:00Z",
                 })):
-                    payload = {
-                        "folder": "assets",
-                        "files": [{"id": "d1", "name": "Doc.pdf", "url": "https://drive.google.com/file/d/d1"}],
-                    }
-                    res = client.post(f"{settings.API_V1_STR}/website-projects/p_1/files/from-drive", json=payload)
-                    self.assertEqual(res.status_code, 201)
+                                    payload = {
+                                        "folder": "assets",
+                                        "files": [{"id": "d1", "name": "Doc.pdf", "url": "https://drive.google.com/file/d/d1"}],
+                                    }
+                                    res = client.post(f"{settings.API_V1_STR}/website-projects/p_1/files/from-drive", json=payload)
+                                    self.assertEqual(res.status_code, 201)
                     data = res.json()
                     self.assertEqual(len(data), 1)
                     self.assertEqual(data[0]["storage_key"], "drive:d1")

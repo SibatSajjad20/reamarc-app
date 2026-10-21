@@ -1,5 +1,6 @@
 """Public CRM ingest endpoints (token auth / Meta webhook). No session required."""
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -12,6 +13,8 @@ from app.core.limiter import limiter
 from app.schemas.crm import CrmIngestResponse, CrmLeadResponse, CrmPublicIngestAck
 from app.schemas.error import ErrorResponse
 from app.services import crm_ingest
+
+logger = logging.getLogger("app.crm.public")
 
 router = APIRouter(
     prefix="/crm",
@@ -327,8 +330,6 @@ async def meta_webhook_receive(request: Request):
     raw = await request.body()
     crm_ingest.assert_ingest_body_size(raw)
     signature = request.headers.get("x-hub-signature-256")
-    if not crm_ingest.verify_meta_signature(raw, signature):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Meta signature.")
 
     try:
         payload = json.loads(raw.decode("utf-8") or "{}")
@@ -339,6 +340,7 @@ async def meta_webhook_receive(request: Request):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON object required.")
 
     from app.services.crm_lead_processor import queue_webhook_event
+    from app.services import crm_meta_accounts
     from app.core.tenant import get_global_db, tenant_scope
 
     cid = None
@@ -356,6 +358,9 @@ async def meta_webhook_receive(request: Request):
                 page_id = str(ent["id"]).strip()
             if page_id:
                 break
+        env_page = (settings.CRM_META_PAGE_ID or "").strip()
+        if page_id and env_page and page_id == env_page:
+            cid = "company_reamarc"
         if page_id and gdb is not None:
             # 1. Check company_integrations
             integ = await gdb.company_integrations.find_one({"meta.page_id": page_id}, {"company_id": 1})
@@ -363,20 +368,45 @@ async def meta_webhook_receive(request: Request):
                 cid = integ["company_id"]
             else:
                 # 2. Check crm_meta_pages
-                p_doc = await gdb.crm_meta_pages.find_one({"page_id": page_id}, {"company_id": 1})
-                if p_doc and p_doc.get("company_id"):
-                    cid = p_doc["company_id"]
+                p_doc = await gdb.crm_meta_pages.find_one({"page_id": page_id}, {"company_id": 1, "page_id": 1})
+                if p_doc:
+                    stored_cid = p_doc.get("company_id")
+                    if stored_cid:
+                        cid = stored_cid
+                    elif env_page and page_id == env_page:
+                        cid = "company_reamarc"
+                    else:
+                        cid = cid  # missing company_id is unknown unless env page
+        if page_id and env_page and page_id == env_page:
+            cid = "company_reamarc"
     except Exception as exc:
         logger.warning("Error resolving Meta webhook company: %s", exc)
 
+    env_page = (settings.CRM_META_PAGE_ID or "").strip()
+    page_secret = None
+    if page_id and env_page and page_id == env_page:
+        page_secret = (settings.CRM_META_APP_SECRET or "").strip()
+        cid = "company_reamarc"
+    else:
+        creds = await crm_meta_accounts.get_page_credentials(page_id, company_id=cid)
+        if creds:
+            page_secret = (creds.get("app_secret") or "").strip()
+            cid = cid or creds.get("company_id")
+
+    if not crm_ingest.verify_meta_signature(raw, signature, page_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Meta signature.")
+
     if not cid:
         if getattr(settings, "MULTI_TENANT_ENABLED", False):
-            # Unknown page -> drop the event and log to security_events
+            entry_ids = []
+            for ent in payload.get("entry") or []:
+                if ent.get("id") is not None:
+                    entry_ids.append(str(ent.get("id")))
             if gdb is not None:
                 await gdb.security_events.insert_one({
                     "event_type": "unknown_webhook_page",
                     "page_id": page_id,
-                    "payload": payload,
+                    "entry_ids": entry_ids,
                     "created_at": datetime.now(timezone.utc),
                 })
             return {"ok": True, "dropped": True, "reason": "unknown_page"}

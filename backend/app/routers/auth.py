@@ -945,11 +945,38 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
 
         # Dispatch branded email asynchronously with error resilience
         recipient_name = user_doc.get("full_name") or user_doc.get("name", "User")
+        company_doc = None
+        try:
+            from app.core.tenant import resolve_company_from_host
+            host_cid = await resolve_company_from_host(request)
+            uid = user_doc.get("id")
+            memberships = []
+            if uid:
+                memberships = await gdb.company_memberships.find(
+                    {"user_id": uid, "status": "active"},
+                    {"company_id": 1, "is_primary": 1},
+                ).to_list(50)
+            chosen = None
+            mem_cids = [m.get("company_id") for m in memberships if m.get("company_id")]
+            if host_cid and host_cid in mem_cids:
+                chosen = host_cid
+            elif len(mem_cids) == 1:
+                chosen = mem_cids[0]
+            elif mem_cids:
+                primary = next((m.get("company_id") for m in memberships if m.get("is_primary")), None)
+                chosen = primary or mem_cids[0]
+            elif user_doc.get("company_id"):
+                chosen = user_doc.get("company_id")
+            if chosen:
+                company_doc = await gdb.companies.find_one({"id": chosen}, {"_id": 0})
+        except Exception as resolve_err:
+            logger.warning("Password reset company resolve failed: %s", resolve_err)
         try:
             await EmailService.send_password_reset_code(
                 recipient_email=email_clean,
                 code=code,
                 recipient_name=recipient_name,
+                company=company_doc,
             )
         except Exception as err:
             logger.error(f"Error during forgot_password email dispatch: {err}")
