@@ -36,27 +36,35 @@ import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
 import { getStatusMapping } from '../../lib/statusMap';
-import { FacebookIcon, InstagramIcon, TikTokIcon, LinkedInIcon, MetaIcon } from '../ui/brand-icons';
+import { FacebookIcon, InstagramIcon, TikTokIcon, LinkedInIcon, MetaIcon, GoogleIcon } from '../ui/brand-icons';
 import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/contentCalendarWorkflow';
 import { ClientAvatar } from '../ui/ClientAvatar';
 import { useResolvedClient } from '../../hooks/useClientLookup';
 
 export const renderPlatformIcon = (item: ContentCalendarItem) => {
-  const combined = `${item.channels?.join(' ') || ''} ${item.campaign_type || ''} ${item.captions_hashtags || ''}`.toLowerCase();
-  if (combined.includes('instagram') || combined.includes('ig') || combined.includes('#instagram')) {
-    return <InstagramIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+  if (!item.channels || item.channels.length === 0) {
+    return null;
   }
-  if (combined.includes('facebook') || combined.includes('fb') || combined.includes('#facebook')) {
-    return <FacebookIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
-  }
-  if (combined.includes('tiktok') || combined.includes('#tiktok')) {
-    return <TikTokIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
-  }
-  if (combined.includes('linkedin') || combined.includes('#linkedin')) {
-    return <LinkedInIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
-  }
-  if (combined.includes('meta')) {
-    return <MetaIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+  for (const raw of item.channels) {
+    const ch = (raw || '').trim().toLowerCase();
+    if (ch === 'instagram') {
+      return <InstagramIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
+    if (ch === 'facebook') {
+      return <FacebookIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
+    if (ch === 'tiktok') {
+      return <TikTokIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
+    if (ch === 'linkedin') {
+      return <LinkedInIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
+    if (ch === 'meta') {
+      return <MetaIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
+    if (ch === 'google') {
+      return <GoogleIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
+    }
   }
   return null;
 };
