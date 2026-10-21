@@ -738,6 +738,7 @@ async def update_member(
 
     multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
     target_mem = None
+    gdb = None
     if multi_enabled:
         from app.core.tenant import get_global_db
         gdb = get_global_db()
@@ -779,11 +780,20 @@ async def update_member(
 
     # Primary Admin Protection: Prevent deactivating or demoting Admin accounts
     if is_target_admin:
-        if member_in.role is not None and member_in.role != UserRole.ADMIN:
+        demoting = member_in.role is not None and member_in.role != UserRole.ADMIN
+        deactivating = member_in.is_active is False
+        if (demoting or deactivating) and multi_enabled:
+            from app.services.identity_guard import assert_company_keeps_an_admin
+            await assert_company_keeps_an_admin(
+                gdb,
+                current_user.get("company_id"),
+                excluding_user_id=user_id,
+            )
+        if demoting:
             raise HTTPException(
                 status_code=400, detail="Cannot demote or modify the role of an Admin account."
             )
-        if member_in.is_active is False:
+        if deactivating:
             raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
     # Prevent promoting any non-admin to admin

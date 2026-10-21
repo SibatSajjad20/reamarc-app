@@ -24,6 +24,7 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
 }) => {
   const { addToast } = useToast();
   const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const [role, setRole] = useState('team_member');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +38,7 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
   useEffect(() => {
     if (isOpen) {
       setSelectedCompanyId('');
+      setRole('team_member');
       setError(null);
     }
   }, [isOpen, user]);
@@ -54,7 +56,7 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
     setError(null);
     setIsSubmitting(true);
     try {
-      const res = await ownerService.grantCompanyAccess(user.id, selectedCompanyId);
+      const res = await ownerService.grantCompanyAccess(user.id, selectedCompanyId, role);
       const compName = selectedCompany?.name || 'the company';
 
       if (res.note === 'already has access') {
@@ -98,14 +100,14 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
               className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
             >
               <option value="">Select a company…</option>
-              {companies.map((c) => {
-                const alreadyHas = grantedCompanyIds.has(c.id);
+              {companies
+                .filter((c) => !grantedCompanyIds.has(c.id))
+                .map((c) => {
                 const isPaused = c.status === 'suspended';
-                const isDisabled = alreadyHas || isPaused;
-                const suffix = alreadyHas ? ' (Already has access)' : isPaused ? ' (Paused)' : '';
+                const suffix = isPaused ? ' (Paused)' : '';
 
                 return (
-                  <option key={c.id} value={c.id} disabled={isDisabled}>
+                  <option key={c.id} value={c.id} disabled={isPaused}>
                     {c.name}
                     {suffix}
                   </option>
@@ -115,10 +117,36 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
           )}
         </FormField>
 
+        <FormField label="Role">
+          {({ id }) => (
+            <select
+              id={id}
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              aria-label="Role"
+              className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
+            >
+              <option value="admin">Admin</option>
+              <option value="hr">HR</option>
+              <option value="operations">Operations</option>
+              <option value="team_lead">Team lead</option>
+              <option value="team_member">Team member</option>
+            </select>
+          )}
+        </FormField>
+
         {selectedCompany && (
           <Callout variant="info">
-            {selectedCompany.name}'s admin sets their role, department and modules. Until then they show as{' '}
-            <strong className="font-semibold">Needs setup</strong> and can only see their profile.
+            {role === 'admin' ? (
+              <>
+                They'll be Admin of {selectedCompany.name} straight away.
+              </>
+            ) : (
+              <>
+                {selectedCompany.name}'s admin sets their role, department and modules. Until then they show as{' '}
+                <strong className="font-semibold">Needs setup</strong> and can only see their profile.
+              </>
+            )}
           </Callout>
         )}
 

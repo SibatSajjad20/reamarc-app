@@ -21,6 +21,7 @@ logger = logging.getLogger("app.identity_guard")
 
 HOME_LOGIN_MSG = "This person's login is managed by their home company."
 SUPER_ADMIN_MSG = "This account can only be edited by the owner or the person themselves."
+LAST_ADMIN_MSG = "This company must keep at least one active admin."
 
 IDENTITY_USER_KEYS: Set[str] = {
     "email",
@@ -111,6 +112,27 @@ async def invalidate_global_login(user_id: str) -> None:
         },
     )
     invalidate_auth_cache(user_id=user_id)
+
+
+async def assert_company_keeps_an_admin(
+    gdb: Any,
+    company_id: str,
+    *,
+    excluding_user_id: Optional[str] = None,
+) -> None:
+    """Refuse actions that would leave a company with zero active admins."""
+    if gdb is None or not company_id:
+        return
+    query: Dict[str, Any] = {
+        "company_id": company_id,
+        "status": "active",
+        "role": "admin",
+    }
+    if excluding_user_id:
+        query["user_id"] = {"$ne": excluding_user_id}
+    remaining = await gdb.company_memberships.count_documents(query)
+    if remaining < 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=LAST_ADMIN_MSG)
 
 
 async def remove_company_membership(user_id: str, company_id: str) -> None:

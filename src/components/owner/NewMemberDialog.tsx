@@ -28,6 +28,7 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [companyId, setCompanyId] = useState('');
+  const [role, setRole] = useState('team_member');
   const [password, setPassword] = useState('');
 
   const [clientErrors, setClientErrors] = useState<Record<string, string>>({});
@@ -43,6 +44,7 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
       setEmail('');
       setPhone('');
       setCompanyId(activeCompanies[0]?.id || '');
+      setRole('team_member');
       setPassword('');
       setClientErrors({});
       setServerError(null);
@@ -81,7 +83,7 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
         email: email.trim(),
         phone: phone.trim() || undefined,
         company_id: companyId,
-        role: 'team_member',
+        role,
         temporary_password: password,
       });
 
@@ -163,6 +165,24 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
             )}
           </FormField>
 
+          <FormField label="Role">
+            {({ id }) => (
+              <select
+                id={id}
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                aria-label="Role"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none"
+              >
+                <option value="admin">Admin</option>
+                <option value="hr">HR</option>
+                <option value="operations">Operations</option>
+                <option value="team_lead">Team lead</option>
+                <option value="team_member">Team member</option>
+              </select>
+            )}
+          </FormField>
+
           <FormField label="Phone" hint="Optional">
             {({ id }) => (
               <Input
@@ -188,8 +208,14 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
 
         {selectedCompany && (
           <Callout variant="neutral">
-            {selectedCompany.name}'s admin sets their role, department and modules. They start as{' '}
-            <strong className="font-semibold text-fg">Needs setup</strong>.
+            {role === 'admin' ? (
+              <>They'll be Admin of {selectedCompany.name} straight away.</>
+            ) : (
+              <>
+                {selectedCompany.name}'s admin sets their role, department and modules. They start as{' '}
+                <strong className="font-semibold text-fg">Needs setup</strong>.
+              </>
+            )}
           </Callout>
         )}
 

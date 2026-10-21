@@ -15,12 +15,12 @@ import uuid
 import hashlib
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 from app.config import settings
 from app.core.owner_audit import record_owner_audit_event
@@ -31,6 +31,49 @@ from app.core.security import (
     invalidate_auth_cache,
 )
 from app.core.tenant import get_global_db
+from app.services.identity_guard import assert_company_keeps_an_admin
+
+OwnerMemberRole = Literal["admin", "hr", "operations", "team_lead", "team_member"]
+
+
+def _reject_super_admin_field(data: Any) -> Any:
+    if isinstance(data, dict) and "is_super_admin" in data:
+        raise ValueError("is_super_admin cannot be set through this endpoint.")
+    return data
+
+
+def _grant_role(body: Any) -> str:
+    return str(getattr(body, "role", None) or "team_member")
+
+
+def _grant_needs_setup(role: str) -> bool:
+    return role != "admin"
+
+
+def _grant_access_map() -> Dict[str, bool]:
+    return {
+        "attendance": False,
+        "daily_log": False,
+        "sales": False,
+        "content_calendar": False,
+        "website": False,
+        "ads": False,
+    }
+
+
+def _assert_client_role_allowed(target_user: Dict[str, Any], body: Any) -> None:
+    role = _grant_role(body)
+    is_client = str(target_user.get("role") or "").lower() == "client"
+    if is_client and not getattr(body, "allow_client", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client users cannot be added to companies unless allow_client is true.",
+        )
+    if is_client and role == "admin":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client users cannot be granted admin.",
+        )
 
 async def require_owner_console(
     request: Request,
@@ -85,6 +128,12 @@ class OwnerEnterRequest(BaseModel):
 class GrantCompanyAccessRequest(BaseModel):
     company_id: str = Field(..., min_length=2, max_length=100)
     allow_client: bool = False
+    role: OwnerMemberRole = "team_member"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_super_admin(cls, data: Any) -> Any:
+        return _reject_super_admin_field(data)
 
 
 class ProvisionMemberRequest(BaseModel):
@@ -93,8 +142,13 @@ class ProvisionMemberRequest(BaseModel):
     phone: Optional[str] = None
     company_id: str = Field(..., min_length=2, max_length=100)
     allow_client: bool = False
-    role: str = Field("team_member", pattern=r"^(admin|hr|operations|team_lead|team_member)$")
+    role: OwnerMemberRole = "team_member"
     temporary_password: str = Field(..., min_length=8)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_super_admin(cls, data: Any) -> Any:
+        return _reject_super_admin_field(data)
 
 
 class StartingPasswordRequest(BaseModel):
@@ -644,6 +698,7 @@ async def provision_member(
     now_iso = now.isoformat()
 
     if existing_user:
+        _assert_client_role_allowed(existing_user, body)
         user_id = existing_user.get("id") or str(existing_user.get("_id"))
         existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
         if existing_mem and existing_mem.get("status") == "active":
@@ -658,15 +713,8 @@ async def provision_member(
             "primary_department": None,
             "departments": [],
             "content_stages": [],
-            "access": {
-                "attendance": False,
-                "daily_log": False,
-                "sales": False,
-                "content_calendar": False,
-                "website": False,
-                "ads": False,
-            },
-            "needs_setup": True,
+            "access": _grant_access_map(),
+            "needs_setup": _grant_needs_setup(body.role or "team_member"),
             "granted_by": current_user["id"],
             "granted_at": now_iso,
             "removed_by": None,
@@ -698,6 +746,7 @@ async def provision_member(
                 "user_id": user_id,
                 "email": email_clean,
                 "membership_id": mem_id,
+                "role": body.role or "team_member",
                 "note": "Existing user granted membership via provision",
             },
         )
@@ -744,16 +793,9 @@ async def provision_member(
         "primary_department": None,
         "departments": [],
         "content_stages": [],
-        "access": {
-            "attendance": False,
-            "daily_log": False,
-            "sales": False,
-            "content_calendar": False,
-            "website": False,
-            "ads": False,
-        },
+        "access": _grant_access_map(),
         "status": "active",
-        "needs_setup": True,
+        "needs_setup": _grant_needs_setup(body.role or "team_member"),
         "granted_by": current_user["id"],
         "granted_at": now_iso,
         "removed_by": None,
@@ -841,7 +883,7 @@ async def grant_company_access(
     body: GrantCompanyAccessRequest,
     current_user: dict = Depends(require_owner),
 ) -> Dict[str, Any]:
-    """Give a user access to a company. Starts with minimal access and needs_setup=True."""
+    """Give a user access to a company with the requested role."""
     if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
 
@@ -859,19 +901,16 @@ async def grant_company_access(
             detail="This company is paused.",
         )
 
-    if target_user.get("role") == "client" and not getattr(body, "allow_client", False):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Client users cannot be added to companies unless allow_client is true.",
-        )
+    _assert_client_role_allowed(target_user, body)
+    grant_role = _grant_role(body)
+    needs_setup = _grant_needs_setup(grant_role)
 
     existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
     if existing_mem and existing_mem.get("status") == "active":
-        return {
-            "ok": True,
-            "note": "already has access",
-            "membership_id": existing_mem["id"],
-        }
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User already has access to this company.",
+        )
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
@@ -880,19 +919,12 @@ async def grant_company_access(
         mem_id = existing_mem["id"]
         update_doc = {
             "status": "active",
-            "role": "team_member",
+            "role": grant_role,
             "primary_department": None,
             "departments": [],
             "content_stages": [],
-            "access": {
-                "attendance": False,
-                "daily_log": False,
-                "sales": False,
-                "content_calendar": False,
-                "website": False,
-                "ads": False,
-            },
-            "needs_setup": True,
+            "access": _grant_access_map(),
+            "needs_setup": needs_setup,
             "granted_by": current_user["id"],
             "granted_at": now_iso,
             "removed_by": None,
@@ -910,20 +942,13 @@ async def grant_company_access(
             "id": mem_id,
             "user_id": user_id,
             "company_id": body.company_id,
-            "role": "team_member",
+            "role": grant_role,
             "primary_department": None,
             "departments": [],
             "content_stages": [],
-            "access": {
-                "attendance": False,
-                "daily_log": False,
-                "sales": False,
-                "content_calendar": False,
-                "website": False,
-                "ads": False,
-            },
+            "access": _grant_access_map(),
             "status": "active",
-            "needs_setup": True,
+            "needs_setup": needs_setup,
             "granted_by": current_user["id"],
             "granted_at": now_iso,
             "removed_by": None,
@@ -945,6 +970,8 @@ async def grant_company_access(
             "target_user_id": user_id,
             "target_user_email": target_user.get("email"),
             "membership_id": mem_id,
+            "role": grant_role,
+            "self_grant": user_id == current_user["id"],
         },
     )
 
@@ -954,8 +981,8 @@ async def grant_company_access(
         "user_id": user_id,
         "company_id": body.company_id,
         "status": "active",
-        "needs_setup": True,
-        "role": "team_member",
+        "needs_setup": needs_setup,
+        "role": grant_role,
     }
 
 
@@ -973,6 +1000,9 @@ async def remove_company_access(
     target_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": company_id})
     if not target_mem:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found.")
+
+    if target_mem.get("status") == "active" and target_mem.get("role") == "admin":
+        await assert_company_keeps_an_admin(gdb, company_id, excluding_user_id=user_id)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     await gdb.company_memberships.update_one(
