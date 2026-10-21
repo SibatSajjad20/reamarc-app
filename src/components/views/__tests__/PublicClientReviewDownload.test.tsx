@@ -82,8 +82,7 @@ describe('PublicClientReviewView download feedback', () => {
 
     render(<PublicClientReviewView />);
 
-    const downloadButtons = await screen.findAllByRole('button', { name: /download slide 1 of 2/i });
-    const pillBtn = downloadButtons[0];
+    const pillBtn = await screen.findByRole('button', { name: /download slide 1 of 2/i });
     expect(pillBtn).toBeTruthy();
 
     // Rapid double-click
@@ -103,8 +102,7 @@ describe('PublicClientReviewView download feedback', () => {
 
     render(<PublicClientReviewView />);
 
-    const downloadButtons = await screen.findAllByRole('button', { name: /download slide 1 of 2/i });
-    const pillBtn = downloadButtons[0] as HTMLButtonElement;
+    const pillBtn = (await screen.findByRole('button', { name: /download slide 1 of 2/i })) as HTMLButtonElement;
 
     expect(pillBtn.disabled).toBe(false);
     expect(pillBtn.textContent).toContain('Download');
@@ -126,8 +124,9 @@ describe('PublicClientReviewView download feedback', () => {
       await Promise.resolve();
     });
 
-    // Shows "Downloaded ✓" and remains disabled for ~2s
-    expect(pillBtn.textContent).toContain('Downloaded ✓');
+    // Shows "Downloaded" with the check icon, not a second ✓
+    expect(pillBtn.textContent).toContain('Downloaded');
+    expect(pillBtn.textContent).not.toContain('Downloaded ✓');
     expect(pillBtn.disabled).toBe(true);
 
     // Advance 2 seconds
@@ -182,8 +181,7 @@ describe('PublicClientReviewView download feedback', () => {
     render(<PublicClientReviewView />);
 
     const downloadAllBtn = (await screen.findByRole('button', { name: /download all \(2\)/i })) as HTMLButtonElement;
-    const singleButtons = await screen.findAllByRole('button', { name: /download slide 1 of 2/i });
-    const pillBtn = singleButtons[0] as HTMLButtonElement;
+    const pillBtn = (await screen.findByRole('button', { name: /download slide 1 of 2/i })) as HTMLButtonElement;
 
     fireEvent.click(downloadAllBtn);
 
@@ -200,7 +198,8 @@ describe('PublicClientReviewView download feedback', () => {
       await Promise.resolve();
     });
 
-    expect(downloadAllBtn.textContent).toContain('Downloaded ✓');
+    expect(downloadAllBtn.textContent).toContain('Downloaded');
+    expect(downloadAllBtn.textContent).not.toContain('Downloaded ✓');
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2000);
@@ -216,8 +215,7 @@ describe('PublicClientReviewView download feedback', () => {
 
     render(<PublicClientReviewView />);
 
-    const downloadButtons = await screen.findAllByRole('button', { name: /download slide 1 of 2/i });
-    const pillBtn = downloadButtons[0] as HTMLButtonElement;
+    const pillBtn = (await screen.findByRole('button', { name: /download slide 1 of 2/i })) as HTMLButtonElement;
 
     // Trigger download which will fail
     fireEvent.click(pillBtn);
@@ -231,43 +229,40 @@ describe('PublicClientReviewView download feedback', () => {
     expect(pillBtn.textContent).toContain('Download');
   });
 
-  it('gives thumbnail badge a 44px tap area and shows spinner with aria-label while downloading', async () => {
-    let resolveDownload!: () => void;
-    const pendingPromise = new Promise<void>((resolve) => {
-      resolveDownload = resolve;
-    });
+  it('thumbnails have no download buttons', async () => {
+    render(<PublicClientReviewView />);
 
-    vi.spyOn(publicDownload, 'downloadPublicAsset').mockImplementation(() => pendingPromise);
+    const thumb1 = await screen.findByRole('button', { name: 'hero-1.png' });
+    const thumb2 = screen.getByRole('button', { name: 'hero-2.png' });
+    expect(thumb1.querySelector('svg.lucide-download')).toBeNull();
+    expect(thumb2.querySelector('svg.lucide-download')).toBeNull();
+    expect(screen.getAllByRole('button', { name: /download slide \d of 2/i })).toHaveLength(1);
+  });
+
+  it('clicking a thumbnail selects it and does not download', async () => {
+    const downloadSpy = vi.spyOn(publicDownload, 'downloadPublicAsset').mockResolvedValue();
 
     render(<PublicClientReviewView />);
 
-    // Find the thumbnail badge (it has the 44px tap area class)
-    const downloadButtons = await screen.findAllByRole('button', { name: /download slide 1 of 2/i });
-    const badgeBtn = downloadButtons.find((btn) => btn.className.includes('w-[44px]')) as HTMLButtonElement;
-    expect(badgeBtn).toBeDefined();
-    expect(badgeBtn.className).toContain('w-[44px]');
-    expect(badgeBtn.className).toContain('h-[44px]');
+    const thumb2 = await screen.findByRole('button', { name: 'hero-2.png' });
+    fireEvent.click(thumb2);
 
-    fireEvent.click(badgeBtn);
+    expect(downloadSpy).not.toHaveBeenCalled();
+    expect(await screen.findByRole('button', { name: /download slide 2 of 2/i })).toBeTruthy();
+    expect(thumb2.className).toContain('border-accent');
+  });
 
-    // During download: disabled and aria-label is Downloading…
-    expect(badgeBtn.disabled).toBe(true);
-    expect(badgeBtn.getAttribute('aria-label')).toBe('Downloading…');
+  it('the Download button on the info row downloads the currently selected asset', async () => {
+    const downloadSpy = vi.spyOn(publicDownload, 'downloadPublicAsset').mockResolvedValue();
 
-    vi.useFakeTimers();
+    render(<PublicClientReviewView />);
 
-    // Resolve download
-    await act(async () => {
-      resolveDownload();
-      await Promise.resolve();
-    });
+    fireEvent.click(await screen.findByRole('button', { name: 'hero-2.png' }));
+    const infoRowDownload = await screen.findByRole('button', { name: /download slide 2 of 2/i });
+    expect(infoRowDownload.className).toContain('min-h-11');
+    fireEvent.click(infoRowDownload);
 
-    expect(badgeBtn.getAttribute('aria-label')).toBe('Downloaded ✓');
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000);
-    });
-
-    expect(badgeBtn.disabled).toBe(false);
+    expect(downloadSpy).toHaveBeenCalledTimes(1);
+    expect(downloadSpy.mock.calls[0][0].filename).toBe('hero-2.png');
   });
 });
