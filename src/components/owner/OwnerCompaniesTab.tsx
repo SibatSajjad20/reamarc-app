@@ -17,7 +17,6 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Button, IconButton } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/StatusPill';
@@ -27,8 +26,7 @@ import { useConfirm } from '@/components/ui/ConfirmProvider';
 import { useToast } from '@/context/ToastContext';
 import { CompanyMark } from './CompanyMark';
 import { formatCreatedDate } from './CompanyDetailSheet';
-import { CompanyBrandingForm } from '@/components/settings/sections/CompanyBrandingForm';
-import { ownerBrandingAdapter } from '@/services/companyBrandingService';
+import { CompanyBrandingSheet } from '@/components/owner/CompanyBrandingSheet';
 import { ownerService, type Company } from '@/services/ownerService';
 import { Search, LogIn, Palette, MoreHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -529,28 +527,11 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
       </TableCard>
 
       {/* Branding Drawer */}
-      {brandingCompany && (
-        <Sheet open={Boolean(brandingCompany)} onOpenChange={(open) => !open && setBrandingCompany(null)}>
-          <SheetContent side="right" className="w-full sm:max-w-[480px] p-0 flex flex-col h-full bg-surface">
-            <SheetHeader className="p-5 border-b border-border">
-              <SheetTitle className="text-h2 font-semibold text-fg">
-                {brandingCompany.name} branding
-              </SheetTitle>
-              <SheetDescription className="text-small text-fg-muted">
-                Logo, display name and accent colour for {brandingCompany.name}.
-              </SheetDescription>
-            </SheetHeader>
-            <div className="p-6 overflow-y-auto flex-1">
-              <CompanyBrandingForm
-                adapter={ownerBrandingAdapter(brandingCompany.id)}
-                onSaved={async () => {
-                  await onRefreshData();
-                }}
-              />
-            </div>
-          </SheetContent>
-        </Sheet>
-      )}
+      <CompanyBrandingSheet
+        company={brandingCompany}
+        onClose={() => setBrandingCompany(null)}
+        onSaved={onRefreshData}
+      />
     </>
   );
 };
