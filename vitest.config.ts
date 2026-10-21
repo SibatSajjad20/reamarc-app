@@ -23,6 +23,7 @@ export default defineConfig({
       'src/components/clients/__tests__/**/*.test.tsx',
       'src/services/__tests__/**/*.test.ts',
       'src/components/content-calendar/__tests__/**/*.test.tsx',
+      'src/context/**/*.test.ts',
     ],
   },
 });
