@@ -38,6 +38,10 @@ class UsersCollection:
 
     def _match(self, query):
         query = query or {}
+        for sub in query.get("$or") or []:
+            hit = self._match(sub)
+            if hit:
+                return hit
         uid = query.get("id")
         if uid:
             return self.docs.get(uid)
@@ -71,6 +75,7 @@ class UsersCollection:
 class FakeDB:
     def __init__(self):
         self.users = UsersCollection()
+        self.companies = MagicMock(find_one=AsyncMock(return_value=None))
 
 
 class MeAvatarTests(unittest.TestCase):
@@ -86,6 +91,7 @@ class MeAvatarTests(unittest.TestCase):
             patch("app.database.get_database", lambda: self.db),
             patch("app.routers.users.get_database", lambda: self.db),
             patch("app.routers.auth.get_database", lambda: self.db),
+            patch("app.core.tenant.get_global_db", lambda: self.db),
         ]
         for p in self.db_patchers:
             p.start()

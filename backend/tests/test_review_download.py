@@ -57,6 +57,7 @@ class ReviewDownloadTests(unittest.TestCase):
         patchers = [
             patch("app.database.get_database", lambda: db),
             patch("app.routers.content_calendar.get_database", lambda: db),
+            patch("app.core.tenant.get_global_db", lambda: None),
         ]
         for p in patchers:
             p.start()
