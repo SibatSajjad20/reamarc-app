@@ -1,8 +1,8 @@
 """
 Who may approve, reject, clarify, edit, or delete leave / WFH / punch-correction / overtime requests.
 
-HR: team members and team leads only.
-Operations: team members and team leads only (HR requests go strictly to Admin).
+HR: anyone except their own (including Operations). HR's own requests go to Admin.
+Operations: team members and team leads only (not own, not HR, not Admin).
 Admin: everyone except their own row.
 Nobody reviews their own request.
 Delete: the applicant (pending only) or Admin (pending only).
@@ -11,10 +11,16 @@ from typing import Any, Mapping, Optional
 
 from fastapi import HTTPException, status
 
-STAFF_ROLES = {"team_member", "member", "team_lead"}
-HR_REVIEWABLE = STAFF_ROLES
-OPS_REVIEWABLE = STAFF_ROLES
-ADMIN_REVIEWABLE = STAFF_ROLES | {"hr", "operations", "admin", "client"}
+from app.services.attendance_permissions import (
+    HR_REVIEWABLE,
+    OPS_REVIEWABLE,
+    actor_id,
+    can_review_request,
+    is_request_review_allowed,
+    normalize_role,
+)
+
+ADMIN_REVIEWABLE = HR_REVIEWABLE
 
 REVIEWABLE_BY_ROLE = {
     "hr": HR_REVIEWABLE,
@@ -23,29 +29,15 @@ REVIEWABLE_BY_ROLE = {
 }
 
 
-def normalize_role(role: Optional[str]) -> str:
-    value = str(role or "team_member").strip().lower()
-    if value == "member":
-        return "team_member"
-    return value or "team_member"
-
-
-def actor_id(user: Mapping[str, Any]) -> str:
-    return str(user.get("id") or user.get("_id") or "")
-
-
 def can_review_leave_request(
     reviewer: Mapping[str, Any],
     applicant_id: Optional[str],
     applicant_role: Optional[str],
 ) -> bool:
-    reviewer_id = actor_id(reviewer)
-    if reviewer_id and applicant_id and reviewer_id == str(applicant_id):
-        return False
-    allowed = REVIEWABLE_BY_ROLE.get(normalize_role(reviewer.get("role")))
-    if not allowed:
-        return False
-    return normalize_role(applicant_role) in allowed
+    return is_request_review_allowed(
+        reviewer,
+        {"id": applicant_id, "role": applicant_role},
+    )
 
 
 def can_delete_leave_request(
@@ -76,28 +68,7 @@ def assert_can_review_leave_request(
     applicant_id: Optional[str],
     applicant_role: Optional[str],
 ) -> None:
-    if can_review_leave_request(reviewer, applicant_id, applicant_role):
-        return
-    reviewer_role = normalize_role(reviewer.get("role"))
-    if actor_id(reviewer) and applicant_id and actor_id(reviewer) == str(applicant_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot approve or reject your own request.",
-        )
-    if reviewer_role == "hr":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="HR can only review team member and team lead requests. HR requests go strictly to Admin.",
-        )
-    if reviewer_role == "operations":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operations cannot review this request. Admin must review HR, Operations, and Admin requests.",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to review this request.",
-    )
+    can_review_request(reviewer, {"id": applicant_id, "role": applicant_role})
 
 
 def can_edit_leave_status(
@@ -105,11 +76,7 @@ def can_edit_leave_status(
     applicant_id: Optional[str],
     applicant_role: Optional[str],
 ) -> bool:
-    """
-    Admin can edit any status (except own row).
-    HR can edit statuses of team members and team leads (except own row).
-    Operations can edit statuses of team members and team leads (except own row).
-    """
+    """Same scope as request review: nobody edits their own; HR can edit anyone except self."""
     return can_review_leave_request(actor, applicant_id, applicant_role)
 
 
@@ -118,28 +85,7 @@ def assert_can_edit_leave_status(
     applicant_id: Optional[str],
     applicant_role: Optional[str],
 ) -> None:
-    if can_edit_leave_status(actor, applicant_id, applicant_role):
-        return
-    actor_role = normalize_role(actor.get("role"))
-    if actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You cannot edit the status of your own request.",
-        )
-    if actor_role == "hr":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="HR can only edit statuses for team members and team leads. Admin must edit HR requests.",
-        )
-    if actor_role == "operations":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operations cannot edit this request status. Admin must edit HR and Operations requests.",
-        )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to edit this request status.",
-    )
+    can_review_request(actor, {"id": applicant_id, "role": applicant_role})
 
 
 def assert_can_delete_leave_request(

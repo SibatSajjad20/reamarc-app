@@ -496,7 +496,7 @@ class TestShiftChangeSuite(unittest.IsolatedAsyncioTestCase):
                 DateShiftOverride(date=other_date, shift_id=self.std_shift_id, source="hr")
             ],
         )
-        await attendance_service.assign_user_shift(hr_asgn_payload)
+        await attendance_service.assign_user_shift(hr_asgn_payload, self.admin_user)
 
         # Verify that the shift_change override was PRESERVED!
         asgn = await self.db.user_shift_assignments.find_one({"user_id": self.emp_id})

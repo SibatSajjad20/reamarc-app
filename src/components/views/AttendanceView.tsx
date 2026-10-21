@@ -987,7 +987,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                 }}
                 isLoading={isLoading || isLoadingMatrix}
                 onRefresh={() => loadMatrix(matrixDate, selectedDepartment, true)}
-                canEditOverride={isAdmin || isHR || isOperations || user?.role === 'team_lead'}
+                canEditOverride={isAdmin || isHR}
                 minDate={attendanceMinDate}
                 onSelectEmployee={(userId) => {
                   setSelectedEmployeeId(userId);
@@ -1089,7 +1089,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     joiningDate={
                       directoryMembers.find((m) => m.id === selectedEmployeeId)?.joining_date
                     }
-                    canInquireMissedPunch={isAdmin || isHR || isOperations}
+                    canInquireMissedPunch={
+                      (isAdmin || isHR) && Boolean(user?.id) && selectedEmployeeId !== user?.id
+                    }
                     employeeName={
                       employeeTimesheet?.employee_name ||
                       directoryMembers.find((m) => m.id === selectedEmployeeId)?.full_name

@@ -48,6 +48,8 @@ import { getRoleBadgeClass } from '../../../utils/badgeStyles';
 import { ShiftPatternModal } from './ShiftPatternModal';
 import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal, weekdayKeyFromIso } from '../../../utils/shiftAssignment';
 import { formatHours } from '../../../utils/logTimeChecks';
+import { useAuth } from '../../../context/AuthContext';
+import { OWN_ATTENDANCE_TOOLTIP, canChangeAttendance } from '../../../utils/attendancePermissions';
 
 const timeToMinutes = (value?: string | null) => {
   if (!value) return 0;
@@ -104,6 +106,8 @@ interface AttendancePoliciesSectionProps {
 export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps> = ({ fixedTab }) => {
   const { addToast } = useToast();
   const confirm = useConfirm();
+  const { user } = useAuth();
+  const isOperations = user?.role === 'operations';
 
   const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'leaves'>(fixedTab || 'shifts');
   const [isSaving, setIsSaving] = useState(false);
@@ -956,6 +960,8 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                       );
                       const todayShift = shifts.find((s) => s.id === (todayResolved.shift_id || currentShiftId));
                       const patterned = hasWeekPattern(assignment);
+                      const canEditThisRow = !isOperations && canChangeAttendance(user?.id, user?.role, member.id);
+                      const ownRowLocked = Boolean(user?.id && member.id === user.id);
 
                       return (
                         <tr key={member.id} className="hover:bg-hover transition-colors">
@@ -973,16 +979,27 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                             </span>
                           </td>
                           <td className="py-2 px-4 min-w-[220px]">
-                            <CustomSelect
-                              size="sm"
-                              value={currentShiftId}
-                              disabled={isAssigning[member.id]}
-                              onChange={(val) => handleInitiateShiftChange(member, val)}
-                              options={shifts.map((s) => ({
-                                value: s.id,
-                                label: `${s.name} (${s.start_time} - ${s.end_time})`,
-                              }))}
-                            />
+                            {canEditThisRow ? (
+                              <CustomSelect
+                                size="sm"
+                                value={currentShiftId}
+                                disabled={isAssigning[member.id]}
+                                onChange={(val) => handleInitiateShiftChange(member, val)}
+                                options={shifts.map((s) => ({
+                                  value: s.id,
+                                  label: `${s.name} (${s.start_time} - ${s.end_time})`,
+                                }))}
+                              />
+                            ) : (
+                              <span
+                                className="text-fg-muted"
+                                title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
+                              >
+                                {todayShift
+                                  ? `${todayShift.name} (${todayShift.start_time} - ${todayShift.end_time})`
+                                  : 'Department default'}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap">
                             <div className="font-numeric font-medium text-accent text-xs">
@@ -995,14 +1012,23 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                             )}
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap">
-                            <button
-                              type="button"
-                              disabled={isAssigning[member.id]}
-                              onClick={() => setPatternMember(member)}
-                              className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-fg-2 hover:bg-hover disabled:opacity-50 cursor-pointer transition-colors"
-                            >
-                              {patterned ? 'Edit pattern' : 'Set pattern'}
-                            </button>
+                            {canEditThisRow ? (
+                              <button
+                                type="button"
+                                disabled={isAssigning[member.id]}
+                                onClick={() => setPatternMember(member)}
+                                className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-fg-2 hover:bg-hover disabled:opacity-50 cursor-pointer transition-colors"
+                              >
+                                {patterned ? 'Edit pattern' : 'Set pattern'}
+                              </button>
+                            ) : (
+                              <span
+                                className="text-fg-muted text-xs"
+                                title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
+                              >
+                                {patterned ? 'Pattern set' : 'No pattern'}
+                              </span>
+                            )}
                           </td>
                         </tr>
                       );
@@ -1152,6 +1178,8 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     </tr>
                   ) : (
                     leaveBalances.map((row) => {
+                    const canEditThisRow = !isOperations && canChangeAttendance(user?.id, user?.role, row.user_id);
+                    const ownRowLocked = Boolean(user?.id && row.user_id === user.id);
                     const draft = leaveDrafts[row.user_id];
                     const annualTaken = Number(draft?.annual ?? row.annual_used_opening) || 0;
                     const sickTaken = Number(draft?.sick ?? row.sick_used_opening) || 0;
@@ -1186,8 +1214,10 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           min={0}
                           step={0.5}
                           value={draft?.annual ?? String(row.annual_used_opening)}
+                          disabled={!canEditThisRow}
+                          title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
                           onChange={(e) => patchDraft({ annual: e.target.value })}
-                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="px-3 py-3">
@@ -1196,8 +1226,10 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           min={0}
                           step={0.5}
                           value={draft?.sick ?? String(row.sick_used_opening)}
+                          disabled={!canEditThisRow}
+                          title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
                           onChange={(e) => patchDraft({ sick: e.target.value })}
-                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="px-3 py-3">
@@ -1206,8 +1238,10 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           min={0}
                           step={0.5}
                           value={draft?.annualQuota ?? String(row.annual_entitled)}
+                          disabled={!canEditThisRow}
+                          title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
                           onChange={(e) => patchDraft({ annualQuota: e.target.value })}
-                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="px-3 py-3">
@@ -1216,8 +1250,10 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           min={0}
                           step={0.5}
                           value={draft?.sickQuota ?? String(row.sick_entitled)}
+                          disabled={!canEditThisRow}
+                          title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
                           onChange={(e) => patchDraft({ sickQuota: e.target.value })}
-                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small disabled:opacity-60 disabled:cursor-not-allowed"
                         />
                       </td>
                       <td className="px-3 py-3 text-fg-2">
@@ -1259,15 +1295,24 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                         {sickLeft}
                       </td>
                       <td className="px-3 py-3 text-right">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="primary"
-                          disabled={savingLeaveUserId === row.user_id}
-                          onClick={() => handleSaveLeaveOpening(row.user_id)}
-                        >
-                          {savingLeaveUserId === row.user_id ? 'Saving…' : 'Save'}
-                        </Button>
+                        {canEditThisRow ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="primary"
+                            disabled={savingLeaveUserId === row.user_id}
+                            onClick={() => handleSaveLeaveOpening(row.user_id)}
+                          >
+                            {savingLeaveUserId === row.user_id ? 'Saving…' : 'Save'}
+                          </Button>
+                        ) : (
+                          <span
+                            className="text-xs text-fg-muted"
+                            title={ownRowLocked ? OWN_ATTENDANCE_TOOLTIP : undefined}
+                          >
+                            {ownRowLocked ? 'Admin only' : 'View only'}
+                          </span>
+                        )}
                       </td>
                     </tr>
                     );

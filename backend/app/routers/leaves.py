@@ -259,5 +259,7 @@ async def update_leave_opening_balance(
     current_user: dict = Depends(require_hr_or_admin),
 ):
     from app.services import leave_balance
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(current_user, user_id)
     return await leave_balance.update_opening_balance(user_id, payload)
 

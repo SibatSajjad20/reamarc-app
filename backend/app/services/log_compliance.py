@@ -923,6 +923,7 @@ async def recompute_day_score(
         {"user_id": user_id, "date": date_str},
         {"_id": 0},
     )
+    role = str(user.get("role") or "team_member").lower()
     score = {
         "id": (existing_score or {}).get("id") or f"dls-{uuid.uuid4().hex[:12]}",
         "user_id": user_id,
