@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { reviewAssetCacheKey, useReviewAssetCache } from '../../hooks/useReviewAssetCache';
 import {
   Check,
   Clock,
@@ -37,56 +38,11 @@ interface Props {
   theme?: 'dark' | 'light';
 }
 
-function isVisualAsset(asset: { kind?: string; content_type?: string; url?: string } | null | undefined) {
-  if (!asset?.url) return false;
-  const kind = String(asset.kind || '').toLowerCase();
-  const type = String(asset.content_type || '').toLowerCase();
-  return kind === 'image' || kind === 'video' || type.startsWith('image/') || type.startsWith('video/');
-}
-
-function waitForMedia(
-  asset: { kind?: string; content_type?: string; url?: string },
-  signal?: AbortSignal,
-  timeoutMs = 45000,
-): Promise<void> {
-  return new Promise((resolve) => {
-    const url = String(asset.url || '').trim();
-    if (!url || signal?.aborted) {
-      resolve();
-      return;
-    }
-
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      signal?.removeEventListener('abort', finish);
-      resolve();
-    };
-
-    const timer = window.setTimeout(finish, timeoutMs);
-    signal?.addEventListener('abort', finish, { once: true });
-
-    const isVideo =
-      String(asset.kind || '').toLowerCase() === 'video' ||
-      String(asset.content_type || '').toLowerCase().startsWith('video/');
-
-    if (isVideo) {
-      const video = document.createElement('video');
-      video.preload = 'auto';
-      video.oncanplaythrough = finish;
-      video.onerror = finish;
-      video.src = url;
-      video.load();
-      return;
-    }
-
-    const img = new Image();
-    img.onload = finish;
-    img.onerror = finish;
-    img.src = url;
-  });
+function readReviewToken(): string {
+  const path = window.location.pathname;
+  const match = path.match(/\/(?:review|client-review)\/([^/?#]+)/i);
+  const searchToken = new URLSearchParams(window.location.search).get('token');
+  return (match ? match[1] : searchToken) || '';
 }
 
 function parseHookLines(text?: string | null): string[] {
@@ -104,13 +60,16 @@ function parseHookLines(text?: string | null): string[] {
 }
 
 export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light' }) => {
-  const [token, setToken] = useState<string>('');
+  const [token, setToken] = useState<string>(readReviewToken);
   const [item, setItem] = useState<ContentCalendarItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [loadingMessage, setLoadingMessage] = useState('Loading campaign review...');
+  const loadingMessage = 'Loading campaign review...';
   const [error, setError] = useState<string | null>(null);
-  const [isMediaReady, setIsMediaReady] = useState(false);
-  const readyMediaUrlRef = useRef<string | null>(null);
+  const [readyMediaIds, setReadyMediaIds] = useState<Set<string>>(() => new Set());
+  const videoNodesRef = useRef<Map<string, HTMLVideoElement>>(new Map());
+  const cacheScope = `${token}:${item?.id || ''}`;
+  const { load: loadCachedAsset, prefetch: prefetchCachedAssets, get: getCachedAsset, noteActive } =
+    useReviewAssetCache(cacheScope);
 
   // Review action state
   const [reviewerName, setReviewerName] = useState('');
@@ -166,13 +125,16 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   }, [_theme]);
 
   useEffect(() => {
-    const path = window.location.pathname;
-    const match = path.match(/\/(?:review|client-review)\/([^/?#]+)/i);
-    const searchToken = new URLSearchParams(window.location.search).get('token');
-    const resolved = (match ? match[1] : searchToken) || '';
-    setToken(resolved);
+    const onPop = () => {
+      const next = readReviewToken();
+      setToken((current) => (current === next ? current : next));
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, []);
 
-    if (!resolved) {
+  useEffect(() => {
+    if (!token) {
       setError('Invalid or missing review link. Please verify the URL.');
       setIsLoading(false);
       return;
@@ -181,7 +143,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     const abort = new AbortController();
     const fetchReviewData = async () => {
       try {
-        const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(resolved)}`, {
+        const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(token)}`, {
           signal: abort.signal,
         });
         if (!res.ok) {
@@ -189,31 +151,22 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
           throw new Error(data.detail || 'Campaign not found or link has expired.');
         }
         const data = await res.json();
+        if (abort.signal.aborted) return;
         setItem(data);
-
-        const contentStages = ['Content', 'Content Internal Review', 'Content Client Review', 'Content Revision'];
-        const firstVisual = (data.attachments || []).find((asset: { kind?: string; content_type?: string; url?: string }) =>
-          isVisualAsset(asset),
-        );
-        if (firstVisual && !contentStages.includes(String(data.stage || ''))) {
-          setLoadingMessage('Loading creative…');
-          await waitForMedia(firstVisual, abort.signal);
-          if (!abort.signal.aborted) {
-            readyMediaUrlRef.current = String(firstVisual.url || '');
-            setIsMediaReady(true);
-          }
-        }
+        setError(null);
       } catch (err: any) {
         if (err?.name === 'AbortError') return;
+        setItem(null);
         setError(err.message || 'Failed to load campaign review.');
       } finally {
         if (!abort.signal.aborted) setIsLoading(false);
       }
     };
 
+    setIsLoading(true);
     void fetchReviewData();
     return () => abort.abort();
-  }, []);
+  }, [token]);
 
   useEffect(() => {
     const previous = document.title;
@@ -318,20 +271,50 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const downloadsEnabled = Boolean(item?.download_allowed);
 
   const activePreviewAsset = item?.attachments?.[activeAssetIndex];
-  const activeIsVisual = isVisualAsset(activePreviewAsset);
+  const activeCacheKey = activePreviewAsset ? reviewAssetCacheKey(activePreviewAsset) : '';
+  noteActive(activeCacheKey);
+  const activeCacheEntry = activePreviewAsset ? getCachedAsset(activePreviewAsset) : undefined;
+  const activePreviewReady =
+    activePreviewAsset?.kind === 'video'
+      ? readyMediaIds.has(activeCacheKey)
+      : activePreviewAsset?.kind === 'image'
+        ? activeCacheEntry?.status === 'ready' ||
+          ((activeCacheEntry?.status === 'error' || activeCacheEntry?.status === 'direct') &&
+            readyMediaIds.has(activeCacheKey))
+        : false;
 
   useEffect(() => {
-    const url = String(activePreviewAsset?.url || '');
-    if (!activeIsVisual) {
-      setIsMediaReady(true);
-      return;
-    }
-    if (readyMediaUrlRef.current === url) {
-      setIsMediaReady(true);
-      return;
-    }
-    setIsMediaReady(false);
-  }, [activePreviewAsset?.url, activePreviewAsset?.id, activeIsVisual]);
+    setReadyMediaIds(new Set());
+    setActiveAssetIndex(0);
+  }, [token, item?.id]);
+
+  useEffect(() => {
+    const active = item?.attachments?.[activeAssetIndex];
+    if (!item || isContentStage || active?.kind !== 'image' || !active.url) return;
+    void loadCachedAsset(active);
+  }, [item, isContentStage, activeAssetIndex, loadCachedAsset]);
+
+  useEffect(() => {
+    if (!item || isContentStage || !activePreviewReady || !activeCacheKey) return;
+    prefetchCachedAssets(item.attachments || [], activeCacheKey);
+  }, [item, isContentStage, activePreviewReady, activeCacheKey, prefetchCachedAssets]);
+
+  useEffect(() => {
+    const active = item?.attachments?.[activeAssetIndex];
+    const key = active?.kind === 'video' ? reviewAssetCacheKey(active) : '';
+    videoNodesRef.current.forEach((node, nodeKey) => {
+      if (nodeKey !== key && !node.paused) node.pause();
+    });
+  }, [activeAssetIndex, item]);
+
+  const markMediaReady = (key: string) => {
+    setReadyMediaIds((prev) => {
+      if (prev.has(key)) return prev;
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
 
   if (isLoading) {
     return (
@@ -527,6 +510,16 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     }
   };
 
+  const showCreativeLoader = (() => {
+    if (!activeAsset || (activeAsset.kind !== 'image' && activeAsset.kind !== 'video')) return false;
+    const key = reviewAssetCacheKey(activeAsset);
+    if (activeAsset.kind === 'video') return !readyMediaIds.has(key);
+    const entry = getCachedAsset(activeAsset);
+    if (entry?.status === 'ready') return false;
+    if ((entry?.status === 'error' || entry?.status === 'direct') && readyMediaIds.has(key)) return false;
+    return true;
+  })();
+
   return (
     <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-canvas text-fg font-sans antialiased">
       {/* Top Navbar 56px per §13.17 */}
@@ -625,48 +618,68 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                   <div
                     className={cn(
                       'relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center',
-                      !isMediaReady && 'min-h-[min(70vh,28rem)]',
+                      showCreativeLoader && 'min-h-[min(70vh,28rem)]',
                     )}
                   >
-                    {!isMediaReady && (
+                    {showCreativeLoader && (
                       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
                         <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
                         <p className="text-xs font-medium text-white/80">Loading creative…</p>
                       </div>
                     )}
-                    {activeAsset.kind === 'video' ? (
-                      <video
-                        key={activeAsset.url}
-                        src={activeAsset.url}
-                        controls={isMediaReady}
-                        playsInline
-                        preload="auto"
-                        onCanPlayThrough={() => {
-                          readyMediaUrlRef.current = activeAsset.url;
-                          setIsMediaReady(true);
-                        }}
-                        onError={() => setIsMediaReady(true)}
-                        className={cn(
-                          'w-full h-auto max-h-[70vh] object-contain',
-                          !isMediaReady && 'opacity-0',
-                        )}
-                      />
-                    ) : (
-                      <img
-                        key={activeAsset.url}
-                        src={activeAsset.url}
-                        alt={activeAsset.filename || 'Creative asset'}
-                        onLoad={() => {
-                          readyMediaUrlRef.current = activeAsset.url;
-                          setIsMediaReady(true);
-                        }}
-                        onError={() => setIsMediaReady(true)}
-                        className={cn(
-                          'w-full h-auto max-h-[70vh] object-contain',
-                          !isMediaReady && 'opacity-0',
-                        )}
-                      />
-                    )}
+                    {assets.map((asset) => {
+                      if (asset.kind !== 'video' && asset.kind !== 'image') return null;
+                      const key = reviewAssetCacheKey(asset);
+                      const isActive = reviewAssetCacheKey(activeAsset) === key;
+                      const entry = getCachedAsset(asset);
+                      if (asset.kind === 'video') {
+                        const ready = readyMediaIds.has(key);
+                        return (
+                          <video
+                            key={key}
+                            ref={(node) => {
+                              if (node) videoNodesRef.current.set(key, node);
+                              else videoNodesRef.current.delete(key);
+                            }}
+                            src={asset.url}
+                            hidden={!isActive}
+                            controls={isActive && ready}
+                            playsInline
+                            preload={isActive ? 'auto' : 'metadata'}
+                            onLoadedData={() => markMediaReady(key)}
+                            onCanPlay={() => markMediaReady(key)}
+                            onError={() => markMediaReady(key)}
+                            className={cn(
+                              'w-full h-auto max-h-[70vh] object-contain',
+                              isActive && !ready && 'opacity-0',
+                            )}
+                          />
+                        );
+                      }
+                      const src =
+                        entry?.status === 'ready' && entry.objectUrl
+                          ? entry.objectUrl
+                          : entry?.status === 'error' || entry?.status === 'direct'
+                            ? asset.url
+                            : '';
+                      const seen = readyMediaIds.has(key);
+                      if (!src || (entry?.status !== 'ready' && !isActive && !seen)) return null;
+                      const ready = entry?.status === 'ready' || seen;
+                      return (
+                        <img
+                          key={key}
+                          src={src}
+                          alt={asset.filename || 'Creative asset'}
+                          hidden={!isActive}
+                          onLoad={() => markMediaReady(key)}
+                          onError={() => markMediaReady(key)}
+                          className={cn(
+                            'w-full h-auto max-h-[70vh] object-contain',
+                            isActive && !ready && 'opacity-0',
+                          )}
+                        />
+                      );
+                    })}
                   </div>
                 ) : activeAsset ? (
                   <div className="rounded-lg border border-border bg-subtle p-5 sm:p-6 text-center text-fg-muted space-y-3">

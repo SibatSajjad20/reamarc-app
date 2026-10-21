@@ -6,6 +6,7 @@ import os
 import io
 import re
 import uuid
+import hashlib
 import secrets
 import logging
 import asyncio
@@ -16,6 +17,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import UploadFile, HTTPException, status, Request
+from fastapi.responses import Response
 from pymongo import UpdateOne, IndexModel, ASCENDING
 
 from app.schemas.content_calendar import (
@@ -2826,6 +2828,49 @@ async def notify_content_calendar_event(
 
 
 
+def _public_asset_etag(asset_id: str, target: Dict[str, Any], presented: Dict[str, Any], *, thumb: bool) -> str:
+    """Weak validator for a private review stream. Not shared across clients."""
+    if thumb:
+        drive_id = str(target.get("google_drive_thumb_file_id") or target.get("google_drive_file_id") or "")
+    else:
+        drive_id = str(target.get("google_drive_file_id") or "")
+    modified = str(
+        target.get("modifiedTime")
+        or target.get("modified_time")
+        or target.get("uploaded_at")
+        or presented.get("updated_at")
+        or ""
+    )
+    if target.get("size_bytes") is not None:
+        size = str(target.get("size_bytes"))
+    elif target.get("size") is not None:
+        size = str(target.get("size"))
+    else:
+        size = str(target.get("file_size") or "")
+    raw = "|".join([str(asset_id), drive_id, modified, size, "thumb" if thumb else "full"])
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f'W/"{digest}"'
+
+
+def _if_none_match_matches(header: Optional[str], etag: str) -> bool:
+    if not header:
+        return False
+    raw = header.strip()
+    if raw == "*":
+        return True
+
+    def _norm(value: str) -> str:
+        text = value.strip()
+        if len(text) > 2 and text[:2].lower() == "w/":
+            text = text[2:].strip()
+        if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        return text
+
+    wanted = _norm(etag)
+    return any(_norm(part) == wanted for part in raw.split(",") if part.strip())
+
+
 async def stream_public_asset(
     db,
     token: str,
@@ -2888,6 +2933,21 @@ async def stream_public_asset(
     if not (is_valid_internal or is_valid_gdrive):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this asset.")
 
+    # Token, expiry, and path checks above must pass before a conditional 304.
+    # Download responses stay uncacheable and never short-circuit.
+    etag = _public_asset_etag(clean_aid, target, presented, thumb=use_thumb)
+    if not download:
+        if_none_match = request.headers.get("if-none-match") if request is not None else None
+        if _if_none_match_matches(if_none_match, etag):
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "private, max-age=3600",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+
     from app.core.uploads import content_disposition_header, open_upload_response
     range_header = request.headers.get("range") if request else None
     response = await open_upload_response(db, target_url, download=download, range_header=range_header)
@@ -2905,5 +2965,8 @@ async def stream_public_asset(
             filename = f"{doc_serial or doc_id or 'file'}-{index + 1}{ext}"
         response.headers["Content-Disposition"] = content_disposition_header(filename, inline=False)
         response.headers["Cache-Control"] = "private, no-store"
+    else:
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        response.headers["ETag"] = etag
     return response
 
