@@ -14,10 +14,13 @@ const envApiUrl =
   globalProcess?.env?.NEXT_PUBLIC_API_URL ||
   (import.meta as any).env?.NEXT_PUBLIC_API_URL ||
   (import.meta as any).env?.VITE_API_URL;
+const forceDirectApi = String((import.meta as any).env?.VITE_API_DIRECT || '') === '1';
 
-if (!envApiUrl && !(import.meta as any).env?.DEV) {
+// Production browsers call same-origin `/api/v1` (Vercel rewrite). VITE_API_URL is
+// only required when forcing a direct backend URL via VITE_API_DIRECT=1.
+if (!envApiUrl && !(import.meta as any).env?.DEV && forceDirectApi) {
   throw new Error(
-    '[Reamarc] VITE_API_URL / NEXT_PUBLIC_API_URL is required in production. Refusing to start with a localhost API fallback.'
+    '[Reamarc] VITE_API_URL / NEXT_PUBLIC_API_URL is required when VITE_API_DIRECT=1. Refusing to start with a localhost API fallback.'
   );
 }
 

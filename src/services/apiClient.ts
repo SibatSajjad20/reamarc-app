@@ -82,13 +82,21 @@ const getBaseUrl = (): string => {
     (import.meta as any).env?.VITE_API_URL ||
     ''
   ).trim();
+  const isDev = Boolean((import.meta as any).env?.DEV);
+  const forceDirect = String((import.meta as any).env?.VITE_API_DIRECT || '') === '1';
 
   // Vite dev: same-origin `/api` so a phone on an https tunnel still hits this PC.
-  if ((import.meta as any).env?.DEV && !envUrl) {
+  if (isDev && !envUrl) {
     return '/api/v1';
   }
 
-  if (!envUrl && !(import.meta as any).env?.DEV) {
+  // Browser production: same-origin `/api/v1` so Vercel rewrites to Render and
+  // auth cookies are first-party. Set VITE_API_DIRECT=1 to call the env URL instead.
+  if (!isDev && typeof window !== 'undefined' && !forceDirect) {
+    return '/api/v1';
+  }
+
+  if (!envUrl && !isDev) {
     throw new Error(
       'VITE_API_URL (or NEXT_PUBLIC_API_URL) must be set for production builds. Refusing to default to localhost.'
     );
@@ -140,6 +148,11 @@ class ApiClient {
 
   public setWorkspaceId(workspaceId: string | null) {
     this.activeWorkspaceId = workspaceId;
+  }
+
+  /** Refresh the HttpOnly session once. Used by raw upload fetches that skip request(). */
+  public refreshSessionOnce(): Promise<boolean> {
+    return this.tryRefreshSession();
   }
 
   private async tryRefreshSession(): Promise<boolean> {

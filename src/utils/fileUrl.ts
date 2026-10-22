@@ -1,5 +1,19 @@
-import { API_BASE_URL } from '../services/apiClient';
+import { API_BASE_URL, apiClient } from '../services/apiClient';
 import { notifyFileUrl } from '../lib/notify';
+
+async function fetchWithSessionRetry(url: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  const response = await fetch(url, {
+    ...init,
+    credentials: 'include',
+  });
+  if (response.status === 401 && !retried) {
+    const refreshed = await apiClient.refreshSessionOnce();
+    if (refreshed) {
+      return fetchWithSessionRetry(url, init, true);
+    }
+  }
+  return response;
+}
 
 /**
  * Returns the backend URL for an authenticated /uploads path only.
@@ -38,7 +52,12 @@ const isVideoFilename = (filename?: string, mime?: string) => {
   );
 };
 
-/** Fetch an authenticated upload into a blob URL so <video> can play without CORS Range. */
+/**
+ * Fetch an authenticated upload into a blob URL.
+ * Downloads the whole file first — acceptable for small media, but large videos
+ * should use a same-origin `<video src="/api/v1/uploads/...">` so Range/206 works
+ * and Vercel does not proxy the entire file as one request.
+ */
 export const fetchAuthenticatedMediaObjectUrl = async (
   url: string,
   filename?: string,
@@ -46,9 +65,8 @@ export const fetchAuthenticatedMediaObjectUrl = async (
   const uploadsPath = extractUploadsPath(url);
   if (!uploadsPath) return null;
   const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
-  const response = await fetch(`${API_BASE_URL}/uploads/${cleanKey}`, {
+  const response = await fetchWithSessionRetry(`${API_BASE_URL}/uploads/${cleanKey}`, {
     method: 'GET',
-    credentials: 'include',
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
   if (!response.ok) return null;
@@ -77,6 +95,11 @@ export const extractUploadsPath = (url: string): string | null => {
     } catch {
       return null;
     }
+  }
+
+  const relativeIdx = raw.indexOf('/uploads/');
+  if (relativeIdx !== -1) {
+    return raw.slice(relativeIdx).split(/[?#]/)[0];
   }
 
   return null;
@@ -119,6 +142,15 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     return;
   }
 
+  // Same-origin /api/v1 rewrite: cookies are first-party, so <video> can stream with Range.
+  if (isVideoFilename(filename || url)) {
+    const playUrl = getBackendFileUrl(url);
+    if (playUrl) {
+      window.open(playUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+  }
+
   // Pre-open window synchronously during user gesture to avoid popup blockers.
   // Note: We MUST NOT pass 'noopener' or 'noreferrer' here because per the HTML spec,
   // passing noopener causes window.open to return null, breaking navigation to the blob URL.
@@ -154,9 +186,8 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
   for (const targetUrl of candidateUrls) {
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchWithSessionRetry(targetUrl, {
         method: 'GET',
-        credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       attemptCount += 1;
@@ -284,7 +315,7 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         }
 
         if (newTab && !newTab.closed && isVideoFilename(filename || url, finalBlob.type)) {
-          const playUrl = window.URL.createObjectURL(finalBlob);
+          const playUrl = getBackendFileUrl(url) || targetUrl;
           const safeTitle = (filename || 'Video').replace(/[<>&"]/g, '');
           try {
             newTab.document.title = safeTitle;
@@ -302,7 +333,6 @@ export const openFileAttachment = async (url: string, filename?: string) => {
               // Ignore fallback error
             }
           }
-          setTimeout(() => window.URL.revokeObjectURL(playUrl), 120_000);
           return;
         }
 
@@ -417,9 +447,8 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
 
   for (const targetUrl of candidateUrls) {
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchWithSessionRetry(targetUrl, {
         method: 'GET',
-        credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       attemptCount += 1;

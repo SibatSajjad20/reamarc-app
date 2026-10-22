@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE_URL } from '../services/apiClient';
 import { notifyFileUrl } from '../lib/notify';
-import { downloadFileAttachment, openFileAttachment } from './fileUrl';
+import { downloadFileAttachment, extractUploadsPath, fetchAuthenticatedMediaObjectUrl, getBackendFileUrl, openFileAttachment } from './fileUrl';
 
 vi.mock('../lib/notify', () => ({
   notifyFileUrl: vi.fn(),
@@ -97,5 +97,49 @@ describe('fileUrl attachment fetch order', () => {
       expect(url.startsWith('/uploads/')).toBe(false);
       expect(url.startsWith('/uploads')).toBe(false);
     }
+  });
+
+  it('rewrites stored onrender upload URLs onto same-origin API_BASE_URL', () => {
+    expect(API_BASE_URL).toBe('/api/v1');
+    const stored = 'https://reamarc-app.onrender.com/api/v1/uploads/abc123/clip.mp4';
+    expect(extractUploadsPath(stored)).toBe('/uploads/abc123/clip.mp4');
+    expect(getBackendFileUrl(stored)).toBe('/api/v1/uploads/abc123/clip.mp4');
+    expect(getBackendFileUrl('/api/v1/uploads/abc123/clip.mp4')).toBe(
+      '/api/v1/uploads/abc123/clip.mp4',
+    );
+  });
+
+  it('opens videos at the same-origin uploads URL instead of fetching a blob', async () => {
+    const stored = 'https://reamarc-app.onrender.com/api/v1/uploads/abc123/clip.mp4';
+    await openFileAttachment(stored, 'clip.mp4');
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(window.open).toHaveBeenCalledWith(
+      '/api/v1/uploads/abc123/clip.mp4',
+      '_blank',
+      'noopener,noreferrer',
+    );
+  });
+
+  it('retries authenticated media fetch once after a 401 refresh', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([0, 1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        }),
+      );
+
+    const objectUrl = await fetchAuthenticatedMediaObjectUrl('/uploads/abc123/still.png', 'still.png');
+
+    expect(objectUrl).toBe('blob:test');
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      '/api/v1/uploads/abc123/still.png',
+      '/api/v1/auth/refresh',
+      '/api/v1/uploads/abc123/still.png',
+    ]);
   });
 });

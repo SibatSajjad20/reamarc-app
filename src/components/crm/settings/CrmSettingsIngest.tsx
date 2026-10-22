@@ -102,7 +102,12 @@ export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart 
 
   const absoluteUrl = (path: string) => {
     if (path.startsWith('http')) return path;
-    const base = API_BASE_URL.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+    const envBase = API_BASE_URL.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+    const origin =
+      typeof window !== 'undefined' && window.location.origin
+        ? window.location.origin
+        : envBase;
+    const base = envBase.startsWith('http') ? envBase : origin;
     let suffix = path.startsWith('/') ? path : `/${path}`;
     if (base.endsWith('/api/v1') && suffix.startsWith('/api/v1/')) {
       suffix = suffix.slice('/api/v1'.length);
