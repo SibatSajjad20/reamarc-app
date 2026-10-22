@@ -706,7 +706,7 @@ async def get_current_user(
         effective_depts = membership_doc.get("departments") or []
         effective_primary_dept = membership_doc.get("primary_department")
         effective_access = membership_doc.get("access") or {}
-        effective_content_stages = membership_doc.get("content_stages") or []
+        effective_content_stages = membership_doc.get("content_stages")
         needs_setup = bool(membership_doc.get("needs_setup", False))
         membership_id = membership_doc.get("id")
     else:

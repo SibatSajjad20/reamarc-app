@@ -251,7 +251,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         user_doc["primary_department"] = target_membership.get("primary_department")
         user_doc["departments"] = target_membership.get("departments") or []
         user_doc["access"] = target_membership.get("access") or {}
-        user_doc["content_stages"] = target_membership.get("content_stages") or []
+        user_doc["content_stages"] = target_membership.get("content_stages")
         user_doc["company_id"] = cid
         user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
         user_doc["membership_id"] = target_membership.get("id")
@@ -402,7 +402,7 @@ async def refresh_token(request: Request, response: Response):
         user_doc["primary_department"] = target_membership.get("primary_department")
         user_doc["departments"] = target_membership.get("departments") or []
         user_doc["access"] = target_membership.get("access") or {}
-        user_doc["content_stages"] = target_membership.get("content_stages") or []
+        user_doc["content_stages"] = target_membership.get("content_stages")
         user_doc["company_id"] = cid
         user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
         user_doc["membership_id"] = target_membership.get("id")
@@ -425,7 +425,7 @@ async def refresh_token(request: Request, response: Response):
             user_doc["primary_department"] = target_membership.get("primary_department")
             user_doc["departments"] = target_membership.get("departments") or []
             user_doc["access"] = target_membership.get("access") or {}
-            user_doc["content_stages"] = target_membership.get("content_stages") or []
+            user_doc["content_stages"] = target_membership.get("content_stages")
             user_doc["company_id"] = cid
             user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
             user_doc["membership_id"] = target_membership.get("id")
@@ -831,7 +831,7 @@ async def switch_company(
     actor_doc["primary_department"] = membership.get("primary_department")
     actor_doc["departments"] = membership.get("departments") or []
     actor_doc["access"] = membership.get("access") or {}
-    actor_doc["content_stages"] = membership.get("content_stages") or []
+    actor_doc["content_stages"] = membership.get("content_stages")
     actor_doc["company_id"] = target_cid
     actor_doc["needs_setup"] = bool(membership.get("needs_setup", False))
     actor_doc["membership_id"] = membership.get("id")

@@ -168,7 +168,7 @@ async def list_access_users(
             merged["departments"] = m.get("departments") or []
             merged["primary_department"] = m.get("primary_department")
             merged["access"] = m.get("access") or {}
-            merged["content_stages"] = m.get("content_stages") or []
+            merged["content_stages"] = m.get("content_stages")
             merged["company_id"] = current_cid
 
             row = _serialize_user_row(merged)
@@ -263,7 +263,7 @@ async def patch_user_access(
             raise HTTPException(status_code=404, detail="User not found")
         target["role"] = target_mem.get("role", "team_member")
         target["access"] = target_mem.get("access") or {}
-        target["content_stages"] = target_mem.get("content_stages") or []
+        target["content_stages"] = target_mem.get("content_stages")
         target["department"] = target_mem.get("department")
         target["departments"] = target_mem.get("departments") or []
         target["primary_department"] = target_mem.get("primary_department")
@@ -407,7 +407,7 @@ async def patch_user_access(
         if refreshed_mem and updated:
             updated["role"] = refreshed_mem.get("role", "team_member")
             updated["access"] = refreshed_mem.get("access") or {}
-            updated["content_stages"] = refreshed_mem.get("content_stages") or []
+            updated["content_stages"] = refreshed_mem.get("content_stages")
             updated["department"] = refreshed_mem.get("department")
             updated["departments"] = refreshed_mem.get("departments") or []
             updated["primary_department"] = refreshed_mem.get("primary_department")
@@ -446,7 +446,7 @@ async def reset_user_access(
             raise HTTPException(status_code=404, detail="User not found")
         target["role"] = target_mem.get("role", "team_member")
         target["access"] = target_mem.get("access") or {}
-        target["content_stages"] = target_mem.get("content_stages") or []
+        target["content_stages"] = target_mem.get("content_stages")
         target["department"] = target_mem.get("department")
         target["departments"] = target_mem.get("departments") or []
         target["primary_department"] = target_mem.get("primary_department")
@@ -496,7 +496,7 @@ async def reset_user_access(
         await db.users.update_one(
             {"_id": target["_id"]},
             {
-                "$set": {"access": null_access, "content_stages": []},
+                "$set": {"access": null_access, "content_stages": None},
                 "$inc": {"access_version": 1},
             },
         )
@@ -504,7 +504,7 @@ async def reset_user_access(
             await gdb.company_memberships.update_one(
                 {"id": target_mem["id"]},
                 {
-                    "$set": {"access": {m: False for m in MODULES}, "content_stages": []},
+                    "$set": {"access": null_access, "content_stages": None},
                     "$inc": {"token_version": 1},
                 },
             )
@@ -533,7 +533,7 @@ async def reset_user_access(
         if refreshed_mem and updated:
             updated["role"] = refreshed_mem.get("role", "team_member")
             updated["access"] = refreshed_mem.get("access") or {}
-            updated["content_stages"] = refreshed_mem.get("content_stages") or []
+            updated["content_stages"] = refreshed_mem.get("content_stages")
             updated["department"] = refreshed_mem.get("department")
             updated["departments"] = refreshed_mem.get("departments") or []
             updated["primary_department"] = refreshed_mem.get("primary_department")

@@ -49,14 +49,14 @@ def _grant_needs_setup(role: str) -> bool:
     return role != "admin"
 
 
-def _grant_access_map() -> Dict[str, bool]:
+def _grant_access_map() -> Dict[str, Optional[bool]]:
     return {
-        "attendance": False,
-        "daily_log": False,
-        "sales": False,
-        "content_calendar": False,
-        "website": False,
-        "ads": False,
+        "attendance": None,
+        "daily_log": None,
+        "sales": None,
+        "content_calendar": None,
+        "website": None,
+        "ads": None,
     }
 
 
@@ -712,7 +712,7 @@ async def provision_member(
             "primary_department": depts.get("primary_department"),
             "departments": depts.get("departments") or [],
             "department": depts.get("department"),
-            "content_stages": [],
+            "content_stages": None,
             "access": _grant_access_map(),
             "needs_setup": _grant_needs_setup(grant_role),
             "granted_by": current_user["id"],
@@ -792,7 +792,7 @@ async def provision_member(
         "role": body.role or "team_member",
         "primary_department": None,
         "departments": [],
-        "content_stages": [],
+        "content_stages": None,
         "access": _grant_access_map(),
         "status": "active",
         "needs_setup": _grant_needs_setup(body.role or "team_member"),
@@ -924,7 +924,7 @@ async def grant_company_access(
             "primary_department": grant_depts.get("primary_department"),
             "departments": grant_depts.get("departments") or [],
             "department": grant_depts.get("department"),
-            "content_stages": [],
+            "content_stages": None,
             "access": _grant_access_map(),
             "needs_setup": needs_setup,
             "granted_by": current_user["id"],
@@ -948,7 +948,7 @@ async def grant_company_access(
             "primary_department": grant_depts.get("primary_department"),
             "departments": grant_depts.get("departments") or [],
             "department": grant_depts.get("department"),
-            "content_stages": [],
+            "content_stages": None,
             "access": _grant_access_map(),
             "status": "active",
             "needs_setup": needs_setup,

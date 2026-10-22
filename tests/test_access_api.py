@@ -310,7 +310,7 @@ class AccessApiTests(unittest.TestCase):
             self.assertEqual(r_all.status_code, 200)
             for m in MODULES:
                 self.assertIsNone(self.users_col.docs["user-member"]["access"][m])
-            self.assertEqual(self.users_col.docs["user-member"]["content_stages"], [])
+            self.assertIsNone(self.users_col.docs["user-member"]["content_stages"])
 
     def test_bulk_apply(self):
         caller = {"id": "admin-1", "role": "admin", "full_name": "Super Admin"}

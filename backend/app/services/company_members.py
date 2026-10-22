@@ -131,7 +131,7 @@ def _overlay_membership(user: Dict[str, Any], membership: Dict[str, Any], compan
     merged["departments"] = membership.get("departments") or []
     merged["primary_department"] = membership.get("primary_department")
     merged["access"] = membership.get("access") or {}
-    merged["content_stages"] = membership.get("content_stages") or []
+    merged["content_stages"] = membership.get("content_stages")
     merged["needs_setup"] = bool(membership.get("needs_setup", False))
     merged["membership_id"] = membership.get("id")
     merged["company_id"] = company_id

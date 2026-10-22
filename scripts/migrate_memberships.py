@@ -63,13 +63,13 @@ def build_membership_doc(user_doc: Dict[str, Any]) -> Dict[str, Any]:
 
     content_stages = user_doc.get("content_stages")
     if not isinstance(content_stages, list):
-        content_stages = []
+        content_stages = None
 
     user_access = user_doc.get("access") or {}
     access = {}
     for mod in MODULE_KEYS:
         val = user_access.get(mod)
-        access[mod] = val if val is not None else False
+        access[mod] = val
 
     is_active = bool(user_doc.get("is_active", True))
     status = "active" if is_active else "removed"
