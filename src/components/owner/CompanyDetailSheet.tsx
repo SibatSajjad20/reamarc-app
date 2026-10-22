@@ -9,14 +9,16 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
 import { FormFooter } from '@/components/ui/FormFooter';
-import { Input } from '@/components/ui/input';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CompanyMark } from './CompanyMark';
 import { ownerService, type Company, type OwnerMember } from '@/services/ownerService';
 import { getRoleDisplayName } from '@/lib/roleLabel';
 import { useToast } from '@/context/ToastContext';
-import { LogIn, Palette, Settings2, ArrowRight } from 'lucide-react';
+import { Palette, Settings2, ArrowRight } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { CustomSelect } from '@/components/ui/CustomSelect';
+import { DEFAULT_TIMEZONE, getTimezoneOptions } from '@/utils/timezones';
 
 export function formatCreatedDate(dateStr?: string): string {
   if (!dateStr) return '';
@@ -29,10 +31,10 @@ interface CompanyDetailSheetProps {
   companyId: string | null;
   isOpen: boolean;
   onClose: () => void;
-  currentUserId?: string;
   currentUserCompanyId?: string;
+  memberCompanyIds?: Set<string>;
   members?: OwnerMember[];
-  onEnterCompany: (company: Company) => void;
+  onGiveAccess?: (company: Company) => void;
   onOpenBranding: (company: Company) => void;
   onSignEveryoneOut: (company: Company) => void;
   onTogglePause: (company: Company) => void;
@@ -45,8 +47,9 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
   isOpen,
   onClose,
   currentUserCompanyId,
+  memberCompanyIds = new Set(),
   members = [],
-  onEnterCompany,
+  onGiveAccess,
   onOpenBranding,
   onSignEveryoneOut,
   onTogglePause,
@@ -60,10 +63,9 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
 
   // Edit details modal state
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [editPlan, setEditPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
-  const [editTimezone, setEditTimezone] = useState('Asia/Karachi');
-  const [editPeopleLimit, setEditPeopleLimit] = useState(50);
+  const [editTimezone, setEditTimezone] = useState(DEFAULT_TIMEZONE);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const timezoneOptions = getTimezoneOptions();
 
   const loadDetail = async (id: string) => {
     setIsLoading(true);
@@ -71,9 +73,7 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
     try {
       const data = await ownerService.getCompany(id);
       setCompany(data);
-      setEditPlan(data.plan || 'starter');
-      setEditTimezone(data.timezone || 'Asia/Karachi');
-      setEditPeopleLimit(data.limits?.max_users || 50);
+      setEditTimezone(data.timezone || DEFAULT_TIMEZONE);
     } catch (err: any) {
       setError(err.message || 'Failed to load company details.');
     } finally {
@@ -96,10 +96,8 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
     setIsSavingEdit(true);
     try {
       const updated = await ownerService.updateCompany(company.id, {
-        plan: editPlan,
         timezone: editTimezone,
-        max_users: editPeopleLimit,
-      } as any);
+      });
       setCompany((prev) => (prev ? { ...prev, ...updated } : updated));
       onCompanyUpdated?.(updated);
       setIsEditOpen(false);
@@ -114,6 +112,7 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
   if (!isOpen) return null;
 
   const isOwnCompany = company ? company.id === currentUserCompanyId : false;
+  const isMember = company ? isOwnCompany || memberCompanyIds.has(company.id) : false;
   const isPaused = company?.status === 'suspended';
 
   // Map created_by to member if found
@@ -166,8 +165,9 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
                       size={40}
                     />
                     <div className="min-w-0">
-                      <h2 className="text-h2 font-semibold text-fg tracking-tight truncate">
-                        {company.name}
+                      <h2 className="text-h2 font-semibold text-fg tracking-tight truncate inline-flex items-center gap-1.5 flex-wrap">
+                        <span className="truncate">{company.name}</span>
+                        {isOwnCompany && <Badge variant="default">Current</Badge>}
                       </h2>
                       <p className="text-caption text-fg-muted mt-0.5 truncate">
                         Created {formatCreatedDate(company.created_at)}
@@ -183,14 +183,13 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
 
                 {/* Primary Action Buttons */}
                 <div className="flex items-center gap-2 pt-1 flex-wrap">
-                  {!isOwnCompany ? (
+                  {!isMember && onGiveAccess ? (
                     <Button
                       variant="primary"
                       size="sm"
-                      icon={LogIn}
-                      onClick={() => onEnterCompany(company)}
+                      onClick={() => onGiveAccess(company)}
                     >
-                      Open as owner
+                      Give access
                     </Button>
                   ) : null}
                   <Button
@@ -219,13 +218,10 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
                   <div className="text-small font-semibold text-fg tracking-tight">Details</div>
                   <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-ui">
                     <div>
-                      <dt className="text-caption text-fg-muted">Plan</dt>
-                      <dd className="font-medium text-fg capitalize mt-0.5">{company.plan || 'Starter'}</dd>
-                    </div>
-                    <div>
                       <dt className="text-caption text-fg-muted">People</dt>
                       <dd className="font-medium text-fg mt-0.5">
-                        {company.user_count ?? userList.length} of {company.limits?.max_users || 50}
+                        {company.user_count ?? userList.length}{' '}
+                        {(company.user_count ?? userList.length) === 1 ? 'person' : 'people'}
                       </dd>
                     </div>
                     <div>
@@ -352,48 +348,16 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
           maxWidth="sm"
         >
           <form onSubmit={handleSaveEdit} className="space-y-4">
-            <FormField label="Plan">
-              {({ id }) => (
-                <select
-                  id={id}
-                  value={editPlan}
-                  onChange={(e) => setEditPlan(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none"
-                >
-                  <option value="starter">Starter</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              )}
-            </FormField>
-
             <FormField label="Time zone">
               {({ id }) => (
-                <select
+                <CustomSelect
                   id={id}
+                  aria-label="Time zone"
                   value={editTimezone}
-                  onChange={(e) => setEditTimezone(e.target.value)}
-                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none"
-                >
-                  <option value="Asia/Karachi">Asia/Karachi (PKT)</option>
-                  <option value="Asia/Dubai">Asia/Dubai (GST)</option>
-                  <option value="Europe/London">Europe/London (GMT/BST)</option>
-                  <option value="America/New_York">America/New_York (EST/EDT)</option>
-                  <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              )}
-            </FormField>
-
-            <FormField label="People limit" hint="Maximum active members (1–1000).">
-              {({ id }) => (
-                <Input
-                  id={id}
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={editPeopleLimit}
-                  onChange={(e) => setEditPeopleLimit(Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)))}
+                  onChange={setEditTimezone}
+                  options={timezoneOptions}
+                  searchable
+                  searchPlaceholder="Search time zones"
                 />
               )}
             </FormField>

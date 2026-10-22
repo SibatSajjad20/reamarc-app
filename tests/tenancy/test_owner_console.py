@@ -3,11 +3,11 @@ tests/tenancy/test_owner_console.py
 Phase 6 Gate Tests: Owner Super-Admin Console (/owner)
 Verifies:
 1. Anti-enumeration: Non-owners get 404 on all /api/v1/owner/* routes.
-2. Impersonation lock: Active impersonators cannot execute owner actions (403).
+2. Impersonation lock: A leftover impersonation token cannot execute owner actions (403).
 3. Fleet management: Owner can list all companies across the fleet.
 4. Tenant provisioning: Company, admin user, workspace, and audit trail created.
 5. Status update & suspension: Suspension bumps token_version and locks tenant users.
-6. Owner enter & impersonation: Issues read-only session token with tenant scope.
+6. Owner enter/exit endpoints are gone.
 7. Cryptographic audit chain: Every owner action creates an immutable, hashed audit record.
 """
 
@@ -162,14 +162,30 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res_session.status_code, 404)
 
     async def test_02_impersonator_blocked_from_owner_console(self):
-        """Active impersonation session cannot execute owner console actions (403)."""
-        enter_res = await self.client.post(
-            f"/api/v1/owner/companies/{CID_B}/enter",
-            json={"reason": "Investigating ticket", "read_only": True},
-            headers=self.owner_headers,
+        """A leftover impersonation token cannot execute owner console actions (403)."""
+        jti = "test_imp_jti"
+        await self.db.owner_sessions.replace_one(
+            {"jti": jti},
+            {
+                "_id": jti,
+                "jti": jti,
+                "owner_user_id": self.owner_id,
+                "target_company_id": CID_B,
+                "read_only": True,
+                "revoked": False,
+                "token_hash": f"hash_{jti}",
+                "exp": datetime.now(timezone.utc).replace(year=2099),
+            },
+            upsert=True,
         )
-        self.assertEqual(enter_res.status_code, 200)
-        imp_token = enter_res.json()["impersonation_token"]
+        imp_token = create_impersonation_token(
+            user_id=self.owner_id,
+            company_id=CID_B,
+            read_only=True,
+            reason="stale-session",
+            tv=0,
+            jti=jti,
+        )
         headers = {"Authorization": f"Bearer {imp_token}"}
 
         res = await self.client.get("/api/v1/owner/companies", headers=headers)
@@ -222,6 +238,8 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(created["name"], "New Test Client")
         self.assertEqual(created["slug"], "test-new-client")
         self.assertEqual(created["status"], "active")
+        self.assertEqual(created.get("plan"), "starter")
+        self.assertEqual((created.get("limits") or {}).get("max_users"), 50)
 
         # 2. Verify admin user was created in DB
         admin_doc = await self.db.users.find_one({"email": "clientadmin@newtest.com"})
@@ -245,15 +263,16 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
 
     async def test_05_update_company_and_suspension(self):
         """Owner can update company metadata and suspend company (invalidating sessions)."""
-        # 1. Update company plan & timezone
+        # 1. Update company timezone; plan/max_users in the payload are ignored
+        prior = (await self.client.get(f"/api/v1/owner/companies/{CID_B}", headers=self.owner_headers)).json()
         update_res = await self.client.patch(
             f"/api/v1/owner/companies/{CID_B}",
-            json={"plan": "enterprise", "timezone": "Europe/Berlin"},
+            json={"plan": "enterprise", "timezone": "Europe/Berlin", "max_users": 3},
             headers=self.owner_headers,
         )
         self.assertEqual(update_res.status_code, 200)
-        self.assertEqual(update_res.json()["plan"], "enterprise")
         self.assertEqual(update_res.json()["timezone"], "Europe/Berlin")
+        self.assertEqual(update_res.json().get("plan"), prior.get("plan"))
 
         # 2. Suspend company
         suspend_res = await self.client.patch(
@@ -296,47 +315,22 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(a_res.status_code, 401)
 
     async def test_06_owner_enter_console_and_read_only_enforcement(self):
-        """Owner can enter company with impersonation token; read-only writes fail with 403."""
+        """Enter and exit endpoints are removed."""
         enter_res = await self.client.post(
             f"/api/v1/owner/companies/{CID_A}/enter",
             json={"reason": "Audit review", "read_only": True},
             headers=self.owner_headers,
         )
-        self.assertEqual(enter_res.status_code, 200)
-        enter_data = enter_res.json()
-        imp_token = enter_data["impersonation_token"]
-        self.assertTrue(enter_data["read_only"])
-
-        imp_headers = {"Authorization": f"Bearer {imp_token}"}
-
-        # 1. Can read tenant data
-        me_res = await self.client.get("/api/v1/auth/me", headers=imp_headers)
-        self.assertEqual(me_res.status_code, 200)
-        self.assertEqual(me_res.json()["company_id"], CID_A)
-
-        ws_res = await self.client.get("/api/v1/workspaces", headers=imp_headers)
-        self.assertEqual(ws_res.status_code, 200)
-
-        # 2. Write operations are strictly blocked by read-only guard (403)
-        post_res = await self.client.post(
-            "/api/v1/workspaces",
-            json={"name": "Attacker Workspace", "brandColor": "#000"},
-            headers=imp_headers,
-        )
-        self.assertEqual(post_res.status_code, 403)
-        self.assertIn("Writes are disabled during read-only owner session", post_res.json()["detail"])
+        self.assertEqual(enter_res.status_code, 404)
+        exit_res = await self.client.post("/api/v1/owner/exit", headers=self.owner_headers)
+        self.assertEqual(exit_res.status_code, 404)
 
     async def test_07_owner_audit_chain_integrity(self):
         """Audit chain passes cryptographic hash verification after owner actions."""
         # Execute several actions
         await self.client.patch(
             f"/api/v1/owner/companies/{CID_A}",
-            json={"plan": "pro"},
-            headers=self.owner_headers,
-        )
-        await self.client.post(
-            f"/api/v1/owner/companies/{CID_A}/enter",
-            json={"reason": "Chain test", "read_only": True},
+            json={"timezone": "UTC"},
             headers=self.owner_headers,
         )
         await self.client.post(
@@ -348,7 +342,7 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         audit_res = await self.client.get("/api/v1/owner/audit?limit=20", headers=self.owner_headers)
         self.assertEqual(audit_res.status_code, 200)
         logs = audit_res.json()
-        self.assertGreaterEqual(len(logs), 3)
+        self.assertGreaterEqual(len(logs), 2)
 
         # Verify cryptographic hash chain using Phase 1 verifier
         chain_valid = await verify_owner_audit_chain(self.db)

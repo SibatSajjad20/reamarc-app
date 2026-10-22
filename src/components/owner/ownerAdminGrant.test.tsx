@@ -98,7 +98,13 @@ const ownerMember: OwnerMember = {
   ],
 };
 
-describe('Owner console admin grant UI', () => {
+async function pickSelect(label: RegExp | string, option: string) {
+  fireEvent.click(screen.getByLabelText(label));
+  const opt = await screen.findByRole('button', { name: option });
+  fireEvent.click(opt);
+}
+
+describe('Companies admin grant UI', () => {
   beforeEach(() => {
     grantCompanyAccess.mockReset();
     provisionMember.mockReset();
@@ -141,10 +147,8 @@ describe('Owner console admin grant UI', () => {
     );
 
     expect(screen.queryByText('Reamarc')).toBeNull();
-    const companySelect = screen.getByLabelText(/Company/i);
-    fireEvent.change(companySelect, { target: { value: 'comp_dataviz' } });
-    const roleSelect = screen.getByLabelText(/^Role$/i);
-    fireEvent.change(roleSelect, { target: { value: 'admin' } });
+    await pickSelect(/Company/i, 'DataViz');
+    await pickSelect(/^Role$/i, 'Admin');
     expect(screen.getByText(/They'll be Admin of DataViz straight away/i)).toBeDefined();
 
     fireEvent.click(screen.getByRole('button', { name: /^Give access$/i }));
@@ -167,8 +171,8 @@ describe('Owner console admin grant UI', () => {
     fireEvent.change(screen.getByPlaceholderText('jane@example.com'), {
       target: { value: 'ada@example.com' },
     });
-    fireEvent.change(screen.getByLabelText(/Company/i), { target: { value: 'comp_dataviz' } });
-    fireEvent.change(screen.getByLabelText(/^Role$/i), { target: { value: 'admin' } });
+    await pickSelect(/Company/i, 'DataViz');
+    await pickSelect(/^Role$/i, 'Admin');
     const passwordInput = document.querySelector('input[type="password"]') as HTMLInputElement;
     fireEvent.change(passwordInput, { target: { value: 'StartingPwd1!' } });
 

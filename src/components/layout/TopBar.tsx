@@ -160,6 +160,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           directory: 'Team directory',
           compliance: 'Log compliance',
           workspaces: 'Client workspaces',
+          companies: 'Companies',
         };
         const activeLabel = adminLabels[activeAdminSection] || 'Team directory';
         return [
@@ -236,8 +237,14 @@ export const TopBar: React.FC<TopBarProps> = ({
       }
       case 'owner':
         return [
-          { label: 'Platform' },
-          { label: 'Owner Console', onClick: () => onSelectView('owner') },
+          { label: 'Admin panel' },
+          {
+            label: 'Companies',
+            onClick: () => {
+              onSelectView('admin');
+              if (onSelectAdminSection) onSelectAdminSection('companies');
+            },
+          },
         ];
       default:
         return [{ label: brandNameOf(user?.company) }];

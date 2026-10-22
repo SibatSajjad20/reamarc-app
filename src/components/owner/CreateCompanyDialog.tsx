@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { FormField } from '@/components/ui/FormField';
 import { FormFooter } from '@/components/ui/FormFooter';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Callout } from '@/components/ui/Callout';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { StartingPasswordField } from './StartingPasswordField';
 import { ownerService, type Company } from '@/services/ownerService';
 import { useToast } from '@/context/ToastContext';
+import { DEFAULT_TIMEZONE, getTimezoneOptions } from '@/utils/timezones';
 
 export function deriveSlug(name: string): string {
   return name
@@ -29,18 +31,18 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
   onSuccess,
 }) => {
   const { addToast } = useToast();
+  const timezoneOptions = useMemo(() => getTimezoneOptions(), []);
 
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [isEditingSlug, setIsEditingSlug] = useState(false);
   const [hasManuallyEditedSlug, setHasManuallyEditedSlug] = useState(false);
-  const [plan, setPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
-  const [timezone, setTimezone] = useState('Asia/Karachi');
-  const [peopleLimit, setPeopleLimit] = useState<number>(50);
+  const [timezone, setTimezone] = useState(DEFAULT_TIMEZONE);
 
   const [adminName, setAdminName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
@@ -52,16 +54,17 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
       setSlug('');
       setIsEditingSlug(false);
       setHasManuallyEditedSlug(false);
-      setPlan('starter');
-      setTimezone('Asia/Karachi');
-      setPeopleLimit(50);
+      setTimezone(DEFAULT_TIMEZONE);
       setAdminName('');
       setAdminEmail('');
       setAdminPassword('');
+      setConfirmPassword('');
       setServerError(null);
       setClientErrors({});
     }
   }, [isOpen]);
+
+  const passwordsMismatch = Boolean(adminPassword) && adminPassword !== confirmPassword;
 
   const handleNameChange = (val: string) => {
     setName(val);
@@ -96,6 +99,9 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
     } else if (adminPassword.length < 8) {
       errs.adminPassword = 'Starting password must be at least 8 characters';
     }
+    if (adminPassword !== confirmPassword) {
+      errs.confirmPassword = "Passwords don't match";
+    }
     setClientErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -110,13 +116,12 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
       const created = await ownerService.createCompany({
         name: name.trim(),
         slug: slug.trim(),
-        plan,
         timezone,
         accent_color: '#6847E0',
         admin_name: adminName.trim(),
         admin_email: adminEmail.trim(),
         admin_password: adminPassword,
-        max_users: peopleLimit,
+        confirm_password: confirmPassword,
       });
 
       addToast(
@@ -146,7 +151,6 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
       maxWidth="md"
     >
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Section: Company */}
         <div className="space-y-4">
           <div className="text-small font-semibold text-fg tracking-tight">Company</div>
 
@@ -199,56 +203,22 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
             </FormField>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <FormField label="Plan">
-              {({ id }) => (
-                <select
-                  id={id}
-                  value={plan}
-                  onChange={(e) => setPlan(e.target.value as any)}
-                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
-                >
-                  <option value="starter">Starter</option>
-                  <option value="pro">Pro</option>
-                  <option value="enterprise">Enterprise</option>
-                </select>
-              )}
-            </FormField>
-
-            <FormField label="Time zone">
-              {({ id }) => (
-                <select
-                  id={id}
-                  value={timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
-                >
-                  <option value="Asia/Karachi">Asia/Karachi (PKT)</option>
-                  <option value="Asia/Dubai">Asia/Dubai (GST)</option>
-                  <option value="Europe/London">Europe/London (GMT/BST)</option>
-                  <option value="America/New_York">America/New_York (EST/EDT)</option>
-                  <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              )}
-            </FormField>
-          </div>
-
-          <FormField label="People limit" hint="Maximum number of active users allowed (1–1000).">
+          <FormField label="Time zone">
             {({ id }) => (
-              <Input
+              <CustomSelect
                 id={id}
-                type="number"
-                min={1}
-                max={1000}
-                value={peopleLimit}
-                onChange={(e) => setPeopleLimit(Math.max(1, Math.min(1000, parseInt(e.target.value) || 1)))}
+                aria-label="Time zone"
+                value={timezone}
+                onChange={setTimezone}
+                options={timezoneOptions}
+                searchable
+                searchPlaceholder="Search time zones"
+                placeholder="Select time zone"
               />
             )}
           </FormField>
         </div>
 
-        {/* Section: First admin */}
         <div className="space-y-4 pt-2 border-t border-border">
           <div className="text-small font-semibold text-fg tracking-tight">First admin</div>
 
@@ -290,10 +260,26 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
             onChange={(pwd) => {
               setAdminPassword(pwd);
               if (clientErrors.adminPassword) setClientErrors((p) => ({ ...p, adminPassword: '' }));
+              if (clientErrors.confirmPassword && pwd === confirmPassword) {
+                setClientErrors((p) => ({ ...p, confirmPassword: '' }));
+              }
             }}
             error={clientErrors.adminPassword}
             required
             helperText="At least 10 characters. Share it with the admin yourself. They can change it from Profile. You won't see it again after this."
+          />
+
+          <StartingPasswordField
+            label="Confirm password"
+            value={confirmPassword}
+            onChange={(pwd) => {
+              setConfirmPassword(pwd);
+              if (clientErrors.confirmPassword) setClientErrors((p) => ({ ...p, confirmPassword: '' }));
+            }}
+            error={clientErrors.confirmPassword || (passwordsMismatch ? "Passwords don't match" : undefined)}
+            required
+            showGenerate={false}
+            helperText=""
           />
         </div>
 
@@ -317,6 +303,7 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
             variant="primary"
             loading={isSubmitting}
             loadingText="Creating…"
+            disabled={isSubmitting || passwordsMismatch || !confirmPassword}
           >
             Create company
           </Button>

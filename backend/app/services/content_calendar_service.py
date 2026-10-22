@@ -19,6 +19,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from fastapi import UploadFile, HTTPException, status, Request
 from fastapi.responses import Response
 from pymongo import UpdateOne, IndexModel, ASCENDING
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.schemas.content_calendar import (
     ContentCalendarItemCreate,
@@ -496,11 +497,83 @@ def format_client_serial(raw_serial: Optional[str], client_name: Optional[str], 
     return f"{prefix}-{fallback_num:03d}"
 
 
-async def get_next_serial(db, client_name: Optional[str] = None) -> str:
+async def _scan_max_serial(coll, prefix: str) -> int:
+    """Read-only scan of the highest numeric suffix for a given serial prefix."""
+    if coll is None:
+        return 0
+    pattern = rf"^{prefix}-(\d+)$"
+    max_num = 0
+    try:
+        cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
+        if hasattr(cursor, "__aiter__"):
+            async for doc in cursor:
+                s = doc.get("serial", "")
+                m = re.search(r"-(\d+)$", s)
+                if m:
+                    try:
+                        num = int(m.group(1))
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+        elif hasattr(cursor, "__iter__"):
+            for doc in cursor:
+                s = doc.get("serial", "")
+                m = re.search(r"-(\d+)$", s)
+                if m:
+                    try:
+                        num = int(m.group(1))
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return max_num
+
+
+async def peek_next_serial(db, client_name: Optional[str] = None) -> str:
     """
-    Auto-generates the next sequential serial ID formatted as:
-    'C' + client abbreviation + '-' + 3-digit number (e.g. CAT-001, CAT-002).
-    Uses atomic counter increments to prevent race conditions and duplicate serials.
+    Read-only inspection of the next sequential serial ID for a client.
+    Returns counter seq+1 (or max existing serial+1 for that company if no counter).
+    Never writes to counters or collections.
+    """
+    abbr = get_client_abbreviation(client_name)
+    prefix = f"C{abbr}"
+
+    if db is None:
+        return f"{prefix}-001"
+
+    counter_coll = None
+    if isinstance(db, dict):
+        counter_coll = db.get("content_calendar_counters")
+    else:
+        try:
+            counter_coll = db["content_calendar_counters"]
+        except Exception:
+            counter_coll = None
+
+    if counter_coll is not None and hasattr(counter_coll, "find_one"):
+        try:
+            from app.core.tenant import company_singleton_id
+            counter_id = company_singleton_id(f"serial_{abbr.upper()}")
+            counter_doc = await counter_coll.find_one({"_id": counter_id})
+            if counter_doc is not None and "seq" in counter_doc:
+                seq = int(counter_doc.get("seq", 0))
+                return f"{prefix}-{(seq + 1):03d}"
+        except Exception:
+            pass
+
+    # No counter doc yet: scan max existing serial without writing
+    coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+    max_num = await _scan_max_serial(coll, prefix)
+    return f"{prefix}-{(max_num + 1):03d}"
+
+
+async def reserve_next_serial(db, client_name: Optional[str] = None) -> str:
+    """
+    Atomically allocates and increments the next sequential serial ID for a client.
+    Keeps company_singleton_id per-company ids and first-time seeding from max existing serial.
     """
     abbr = get_client_abbreviation(client_name)
     prefix = f"C{abbr}"
@@ -524,20 +597,8 @@ async def get_next_serial(db, client_name: Optional[str] = None) -> str:
             counter_doc = await counter_coll.find_one({"_id": counter_id})
 
             if counter_doc is None:
-                coll = db[COLLECTION_NAME]
-                pattern = f"^{prefix}-(\\d+)$"
-                cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
-                max_num = 0
-                async for doc in cursor:
-                    s = doc.get("serial", "")
-                    m = re.search(r"-(\d+)$", s)
-                    if m:
-                        try:
-                            num = int(m.group(1))
-                            if num > max_num:
-                                max_num = num
-                        except ValueError:
-                            pass
+                coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+                max_num = await _scan_max_serial(coll, prefix)
                 try:
                     await counter_coll.update_one(
                         {"_id": counter_id},
@@ -559,24 +620,13 @@ async def get_next_serial(db, client_name: Optional[str] = None) -> str:
             pass
 
     # Fallback to direct collection max scan if counter collection unavailable (e.g. in test mocks)
-    coll = db[COLLECTION_NAME]
-    pattern = f"^{prefix}-(\\d+)$"
-    cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
-    max_num = 0
-    async for doc in cursor:
-        s = doc.get("serial", "")
-        m = re.search(r"-(\d+)$", s)
-        if m:
-            try:
-                num = int(m.group(1))
-                if num > max_num:
-                    max_num = num
-            except ValueError:
-                pass
-
+    coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+    max_num = await _scan_max_serial(coll, prefix)
     next_num = max_num + 1
     return f"{prefix}-{next_num:03d}"
 
+
+get_next_serial = reserve_next_serial
 
 async def create_item(
     db,
@@ -601,10 +651,16 @@ async def create_item(
     doc["assignee_id"] = None
     doc["assignee_name"] = None
     doc["revision_note"] = None
-    if not doc.get("serial") or not str(doc["serial"]).strip() or doc["serial"].upper() == "AUTO":
-        doc["serial"] = await get_next_serial(db, doc.get("client_name"))
-    else:
-        doc["serial"] = format_client_serial(doc["serial"], doc.get("client_name"))
+    client_name = doc.get("client_name")
+    raw_serial = doc.get("serial")
+    peeked = await peek_next_serial(db, client_name)
+
+    is_manual = False
+    if raw_serial and str(raw_serial).strip() and str(raw_serial).strip().upper() != "AUTO":
+        formatted_serial = format_client_serial(raw_serial, client_name)
+        if formatted_serial != peeked:
+            is_manual = True
+            doc["serial"] = formatted_serial
 
     doc["share_token"] = secrets.token_urlsafe(24)
     doc["id"] = item_id
@@ -621,7 +677,24 @@ async def create_item(
         if isinstance(v, str):
             doc[k] = sanitize_spreadsheet_string(v)
 
-    await coll.insert_one(doc)
+    max_retries = 3
+    for attempt in range(max_retries):
+        doc.pop("_id", None)
+        if not is_manual:
+            doc["serial"] = await reserve_next_serial(db, client_name)
+        try:
+            await coll.insert_one(doc)
+            break
+        except Exception as exc:
+            is_dup = (
+                isinstance(exc, DuplicateKeyError)
+                or "duplicate key" in str(exc).lower()
+                or "e11000" in str(exc).lower()
+            )
+            if is_dup and not is_manual and attempt < max_retries - 1:
+                continue
+            raise
+
     doc["id"] = item_id
     if "_id" in doc:
         del doc["_id"]
@@ -721,14 +794,18 @@ async def update_item(
             provided_serial = payload.serial
             old_serial = current_doc.get("serial")
             target_prefix = f"C{get_client_abbreviation(new_client)}-"
+            peeked = await peek_next_serial(db, new_client)
             if (
                 not provided_serial
                 or provided_serial.upper() == "AUTO"
                 or provided_serial == old_serial
                 or not provided_serial.startswith(target_prefix)
+                or provided_serial == peeked
             ):
-                new_serial = await get_next_serial(db, new_client)
+                new_serial = await reserve_next_serial(db, new_client)
                 update_data["serial"] = new_serial
+            else:
+                update_data["serial"] = format_client_serial(provided_serial, new_client)
 
     # Auto-link or synchronize workspace_id with matching active workspace for the client
     target_client = update_data.get("client_name") or current_doc.get("client_name")
@@ -779,11 +856,34 @@ async def update_item(
 
     update_data["updated_at"] = _now_iso()
 
-    result = await coll.find_one_and_update(
-        {"$or": [{"id": item_id}, {"serial": item_id}]},
-        {"$set": update_data},
-        return_document=True,
+    serial_was_reserved = bool(
+        "client_name" in update_data
+        and "serial" in update_data
+        and update_data.get("client_name") != current_doc.get("client_name")
     )
+    new_client = update_data.get("client_name")
+    max_retries = 3 if serial_was_reserved else 1
+    result = None
+    for attempt in range(max_retries):
+        if attempt > 0 and serial_was_reserved and new_client:
+            new_serial = await reserve_next_serial(db, new_client)
+            update_data["serial"] = new_serial
+        try:
+            result = await coll.find_one_and_update(
+                {"$or": [{"id": item_id}, {"serial": item_id}]},
+                {"$set": update_data},
+                return_document=True,
+            )
+            break
+        except Exception as exc:
+            is_dup = (
+                isinstance(exc, DuplicateKeyError)
+                or "duplicate key" in str(exc).lower()
+                or "e11000" in str(exc).lower()
+            )
+            if is_dup and serial_was_reserved and attempt < max_retries - 1:
+                continue
+            raise
     if result:
         presented_res = _present_doc(result)
         try:
@@ -2157,13 +2257,17 @@ async def batch_update_items(
                 old_serial = current_doc.get("serial")
                 provided_serial = clean_set.get("serial")
                 target_prefix = f"C{get_client_abbreviation(new_client)}-"
+                peeked = await peek_next_serial(db, new_client)
                 if (
                     not provided_serial
                     or provided_serial == old_serial
                     or not str(provided_serial).startswith(target_prefix)
+                    or provided_serial == peeked
                 ):
-                    new_serial = await get_next_serial(db, new_client)
+                    new_serial = await reserve_next_serial(db, new_client)
                     clean_set["serial"] = new_serial
+                else:
+                    clean_set["serial"] = format_client_serial(provided_serial, new_client)
 
         clean_set["updated_at"] = now
         operations.append(
@@ -2243,7 +2347,7 @@ async def bulk_import_items(
 
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await get_next_serial(db, c_name)
+                    serial = await reserve_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
@@ -2317,7 +2421,7 @@ async def bulk_import_items(
 
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await get_next_serial(db, c_name)
+                    serial = await reserve_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)

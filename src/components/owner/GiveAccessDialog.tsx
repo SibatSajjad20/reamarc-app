@@ -4,6 +4,7 @@ import { FormField } from '@/components/ui/FormField';
 import { FormFooter } from '@/components/ui/FormFooter';
 import { Button } from '@/components/ui/button';
 import { Callout } from '@/components/ui/Callout';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { ownerService, type Company, type OwnerMember } from '@/services/ownerService';
 import { useToast } from '@/context/ToastContext';
 
@@ -11,6 +12,7 @@ interface GiveAccessDialogProps {
   user: OwnerMember | null;
   companies: Company[];
   isOpen: boolean;
+  presetCompanyId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -19,6 +21,7 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
   user,
   companies,
   isOpen,
+  presetCompanyId,
   onClose,
   onSuccess,
 }) => {
@@ -37,11 +40,16 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-      setSelectedCompanyId('');
+      const granted = new Set(
+        (user?.memberships || []).filter((m) => m.status === 'active').map((m) => m.company_id)
+      );
+      const preset =
+        presetCompanyId && !granted.has(presetCompanyId) ? presetCompanyId : '';
+      setSelectedCompanyId(preset);
       setRole('team_member');
       setError(null);
     }
-  }, [isOpen, user]);
+  }, [isOpen, user, presetCompanyId]);
 
   if (!user) return null;
 
@@ -90,48 +98,37 @@ export const GiveAccessDialog: React.FC<GiveAccessDialogProps> = ({
       <form onSubmit={handleSubmit} className="space-y-4">
         <FormField label="Company" required error={error}>
           {({ id }) => (
-            <select
+            <CustomSelect
               id={id}
+              aria-label="Company"
               value={selectedCompanyId}
-              onChange={(e) => {
-                setSelectedCompanyId(e.target.value);
+              onChange={(val) => {
+                setSelectedCompanyId(val);
                 setError(null);
               }}
-              className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
-            >
-              <option value="">Select a company…</option>
-              {companies
-                .filter((c) => !grantedCompanyIds.has(c.id))
-                .map((c) => {
-                const isPaused = c.status === 'suspended';
-                const suffix = isPaused ? ' (Paused)' : '';
-
-                return (
-                  <option key={c.id} value={c.id} disabled={isPaused}>
-                    {c.name}
-                    {suffix}
-                  </option>
-                );
-              })}
-            </select>
+              placeholder="Select a company…"
+              options={companies
+                .filter((c) => !grantedCompanyIds.has(c.id) && c.status !== 'suspended')
+                .map((c) => ({ value: c.id, label: c.name }))}
+            />
           )}
         </FormField>
 
         <FormField label="Role">
           {({ id }) => (
-            <select
+            <CustomSelect
               id={id}
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
               aria-label="Role"
-              className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)] transition-colors"
-            >
-              <option value="admin">Admin</option>
-              <option value="hr">HR</option>
-              <option value="operations">Operations</option>
-              <option value="team_lead">Team lead</option>
-              <option value="team_member">Team member</option>
-            </select>
+              value={role}
+              onChange={setRole}
+              options={[
+                { value: 'admin', label: 'Admin' },
+                { value: 'hr', label: 'HR' },
+                { value: 'operations', label: 'Operations' },
+                { value: 'team_lead', label: 'Team lead' },
+                { value: 'team_member', label: 'Team member' },
+              ]}
+            />
           )}
         </FormField>
 

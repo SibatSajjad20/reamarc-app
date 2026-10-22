@@ -1,6 +1,6 @@
-import React, { useState, useId } from 'react';
+import React, { useState, useId, useMemo } from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { ChevronDown, Check, AlertCircle } from 'lucide-react';
+import { ChevronDown, Check, AlertCircle, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export interface SelectOption {
@@ -27,11 +27,100 @@ export interface CustomSelectProps {
   size?: 'default' | 'sm' | 'xs';
   autoOpen?: boolean;
   onClose?: () => void;
+  searchable?: boolean;
+  searchPlaceholder?: string;
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: boolean | 'true' | 'false';
   'aria-describedby'?: string;
 }
+
+const SelectMenu: React.FC<{
+  options: SelectOption[];
+  value: string;
+  onChange: (value: string) => void;
+  onClose: () => void;
+  searchable?: boolean;
+  searchPlaceholder?: string;
+}> = ({ options, value, onChange, onClose, searchable, searchPlaceholder }) => {
+  const [query, setQuery] = useState('');
+  const filtered = useMemo(() => {
+    if (!searchable) return options;
+    const q = query.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(q) ||
+        opt.value.toLowerCase().includes(q) ||
+        (opt.description || '').toLowerCase().includes(q)
+    );
+  }, [options, query, searchable]);
+
+  return (
+    <>
+      {searchable && (
+        <div className="sticky top-0 z-10 bg-surface pb-1 mb-0.5">
+          <div className="flex items-center gap-1.5 px-2 h-8 rounded-md border border-border bg-canvas">
+            <Search size={13} className="text-fg-muted shrink-0" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={searchPlaceholder || 'Search…'}
+              className="w-full bg-transparent text-ui text-fg outline-none placeholder:text-fg-faint"
+              autoFocus
+              onKeyDown={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
+      {filtered.length === 0 ? (
+        <div className="px-3 py-3 text-xs text-fg-muted text-center select-none">
+          No options available
+        </div>
+      ) : (
+        filtered.map((option) => {
+          const isSelected = option.value === value;
+          const OptionIcon = option.icon;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => {
+                onChange(option.value);
+                onClose();
+              }}
+              className={cn(
+                'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm text-ui transition-colors cursor-pointer text-left select-none',
+                isSelected
+                  ? 'bg-accent-soft text-accent-text font-medium'
+                  : 'text-fg-2 hover:bg-hover hover:text-fg'
+              )}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                {OptionIcon && (
+                  <OptionIcon
+                    size={14}
+                    className={cn('shrink-0', isSelected ? 'text-accent-text' : 'text-fg-muted')}
+                  />
+                )}
+                <div className="min-w-0">
+                  <div className="truncate">{option.label}</div>
+                  {option.description && (
+                    <div className="text-micro text-fg-muted truncate">{option.description}</div>
+                  )}
+                </div>
+              </div>
+
+              {isSelected && <Check size={14} className="text-accent shrink-0 ml-1" />}
+            </button>
+          );
+        })
+      )}
+    </>
+  );
+};
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
   value,
@@ -50,6 +139,8 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   size = 'default',
   autoOpen = false,
   onClose,
+  searchable = false,
+  searchPlaceholder,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledby,
   'aria-invalid': ariaInvalid,
@@ -75,6 +166,25 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     sm: 'h-8 px-2.5 text-small rounded-md',
     default: 'h-9 px-3 text-ui rounded-md',
   }[size];
+
+  const content = (
+    <PopoverPrimitive.Content
+      align={align === 'right' ? 'end' : 'start'}
+      sideOffset={6}
+      collisionPadding={8}
+      avoidCollisions
+      className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+    >
+      <SelectMenu
+        options={options}
+        value={value}
+        onChange={onChange}
+        onClose={() => handleOpenChange(false)}
+        searchable={searchable}
+        searchPlaceholder={searchPlaceholder}
+      />
+    </PopoverPrimitive.Content>
+  );
 
   return (
     <div className={cn('relative w-full text-left', className)}>
@@ -126,129 +236,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           </button>
         </PopoverPrimitive.Trigger>
 
-        {usePortal ? (
-          <PopoverPrimitive.Portal>
-            <PopoverPrimitive.Content
-              align={align === 'right' ? 'end' : 'start'}
-              sideOffset={6}
-              collisionPadding={8}
-              avoidCollisions
-              className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-            >
-              {options.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-fg-muted text-center select-none">
-                  No options available
-                </div>
-              ) : (
-                options.map((option) => {
-                  const isSelected = option.value === value;
-                  const OptionIcon = option.icon;
-
-                  return (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => {
-                        onChange(option.value);
-                        handleOpenChange(false);
-                      }}
-                      className={cn(
-                        'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm text-ui transition-colors cursor-pointer text-left select-none',
-                        isSelected
-                          ? 'bg-accent-soft text-accent-text font-medium'
-                          : 'text-fg-2 hover:bg-hover hover:text-fg'
-                      )}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        {OptionIcon && (
-                          <OptionIcon
-                            size={14}
-                            className={cn(
-                              'shrink-0',
-                              isSelected ? 'text-accent-text' : 'text-fg-muted'
-                            )}
-                          />
-                        )}
-                        <div className="min-w-0">
-                          <div className="truncate">{option.label}</div>
-                          {option.description && (
-                            <div className="text-micro text-fg-muted truncate">
-                              {option.description}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {isSelected && (
-                        <Check size={14} className="text-accent shrink-0 ml-1" />
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </PopoverPrimitive.Content>
-          </PopoverPrimitive.Portal>
-        ) : (
-          <PopoverPrimitive.Content
-            align={align === 'right' ? 'end' : 'start'}
-            sideOffset={6}
-            collisionPadding={8}
-            avoidCollisions
-            className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
-          >
-            {options.length === 0 ? (
-              <div className="px-3 py-3 text-xs text-fg-muted text-center select-none">
-                No options available
-              </div>
-            ) : (
-              options.map((option) => {
-                const isSelected = option.value === value;
-                const OptionIcon = option.icon;
-
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() => {
-                      onChange(option.value);
-                      handleOpenChange(false);
-                    }}
-                    className={cn(
-                      'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm text-ui transition-colors cursor-pointer text-left select-none',
-                      isSelected
-                        ? 'bg-accent-soft text-accent-text font-medium'
-                        : 'text-fg-2 hover:bg-hover hover:text-fg'
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      {OptionIcon && (
-                        <OptionIcon
-                          size={14}
-                          className={cn(
-                            'shrink-0',
-                            isSelected ? 'text-accent-text' : 'text-fg-muted'
-                          )}
-                        />
-                      )}
-                      <div className="min-w-0">
-                        <div className="truncate">{option.label}</div>
-                        {option.description && (
-                          <div className="text-micro text-fg-muted truncate">
-                            {option.description}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {isSelected && (
-                      <Check size={14} className="text-accent shrink-0 ml-1" />
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </PopoverPrimitive.Content>
-        )}
+        {usePortal ? <PopoverPrimitive.Portal>{content}</PopoverPrimitive.Portal> : content}
       </PopoverPrimitive.Root>
 
       {error && (

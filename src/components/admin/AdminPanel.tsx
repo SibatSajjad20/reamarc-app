@@ -7,6 +7,7 @@ import type { AdminSectionType } from '../../types/admin';
 import { UserManagementSection } from './sections/UserManagementSection';
 import { ComplianceRemindersSection } from './sections/ComplianceRemindersSection';
 import { WorkspacesSection } from './sections/WorkspacesSection';
+import { OwnerView } from '../views/OwnerView';
 import { AddMemberModal } from './AddMemberModal';
 import { EditMemberModal } from './EditMemberModal';
 import { Button } from '../ui/button';
@@ -37,6 +38,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
+  const isSuperAdmin = Boolean(user?.is_super_admin);
 
   const canManageMembers = isAdmin || isHR;
   const canManageWorkspaces = isAdmin || isOperations;
@@ -52,12 +54,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [propActiveSection, activeSection]);
 
   useEffect(() => {
+    if (isSuperAdmin && (activeSection === 'companies' || propActiveSection === 'companies')) {
+      return;
+    }
     if (isHR && activeSection !== 'directory') {
       setActiveSection('directory');
     } else if (isOperations && activeSection === 'compliance') {
       setActiveSection('directory');
     }
-  }, [user?.role, activeSection, isHR, isOperations]);
+  }, [user?.role, activeSection, isHR, isOperations, isSuperAdmin, propActiveSection]);
 
   const initialMembers = adminService.getCachedMembers()?.data || [];
   const initialActivitiesList = adminService.getCachedActivities()?.data || [];
@@ -265,6 +270,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             members={members}
           />
         )}
+
+        {activeSection === 'companies' && isSuperAdmin && <OwnerView />}
       </div>
 
       {/* ─── MODALS ─── */}

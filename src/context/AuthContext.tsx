@@ -74,8 +74,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchCurrentUser = useCallback(async () => {
     setIsLoading(true);
     try {
+      try {
+        sessionStorage.removeItem('reamarc_impersonation_token');
+        localStorage.removeItem('reamarc_impersonation_token');
+      } catch {
+        // Ignore
+      }
       const currentUser = await authService.getMe();
-      setUser((prev) => keepAvatarUrl(prev, currentUser));
+      const normalized = currentUser?.impersonating
+        ? { ...currentUser, impersonating: false, read_only: false }
+        : currentUser;
+      setUser((prev) => keepAvatarUrl(prev, normalized));
     } catch {
       setUser(null);
     } finally {

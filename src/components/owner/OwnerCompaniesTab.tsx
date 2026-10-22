@@ -20,6 +20,7 @@ import {
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { Button, IconButton } from '@/components/ui/button';
 import { StatusPill } from '@/components/ui/StatusPill';
+import { Badge } from '@/components/ui/badge';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
@@ -28,29 +29,33 @@ import { CompanyMark } from './CompanyMark';
 import { formatCreatedDate } from './CompanyDetailSheet';
 import { CompanyBrandingSheet } from '@/components/owner/CompanyBrandingSheet';
 import { ownerService, type Company } from '@/services/ownerService';
-import { Search, LogIn, Palette, MoreHorizontal } from 'lucide-react';
+import { Palette, MoreHorizontal, Search } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+function peopleLabel(count: number): string {
+  return `${count} ${count === 1 ? 'person' : 'people'}`;
+}
 
 export interface OwnerCompaniesTabProps {
   companies: Company[];
   isLoading: boolean;
   currentUserCompanyId?: string;
+  memberCompanyIds?: Set<string>;
   onSelectCompany: (companyId: string) => void;
-  onEnterCompany: (company: Company) => void;
+  onGiveAccess: (company: Company) => void;
   onOpenCreateModal: () => void;
   onRefreshData: () => Promise<void>;
-  onNavigateToDashboard?: () => void;
 }
 
 export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
   companies,
   isLoading,
   currentUserCompanyId,
+  memberCompanyIds = new Set(),
   onSelectCompany,
-  onEnterCompany,
+  onGiveAccess,
   onOpenCreateModal,
   onRefreshData,
-  onNavigateToDashboard,
 }) => {
   const confirm = useConfirm();
   const { addToast } = useToast();
@@ -59,7 +64,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [brandingCompany, setBrandingCompany] = useState<Company | null>(null);
 
-  // Status counts
   const counts = useMemo(() => {
     let active = 0;
     let paused = 0;
@@ -72,7 +76,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
     return { all: companies.length, active, paused, totalPeople };
   }, [companies]);
 
-  // Filtered list
   const filteredCompanies = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return companies.filter((c) => {
@@ -140,10 +143,44 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
     }
   };
 
+  const rowAction = (c: Company) => {
+    const isOwn = c.id === currentUserCompanyId;
+    const isMember = isOwn || memberCompanyIds.has(c.id);
+    if (isOwn) return null;
+    if (isMember) return null;
+    return (
+      <Button variant="secondary" size="sm" onClick={() => onGiveAccess(c)}>
+        Give access
+      </Button>
+    );
+  };
+
+  const companyNameCell = (c: Company, size: number) => {
+    const isOwn = c.id === currentUserCompanyId;
+    return (
+      <div className="flex items-center gap-3 min-w-0">
+        <CompanyMark
+          name={c.name}
+          logoUrl={c.logo_url}
+          accentColor={c.accent_color}
+          size={size}
+        />
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-medium text-fg truncate">{c.name}</span>
+            {isOwn && <Badge variant="default">Current</Badge>}
+          </div>
+          <div className="text-caption text-fg-muted mt-0.5">
+            Created {formatCreatedDate(c.created_at)}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
       <TableCard>
-        {/* Toolbar */}
         <TableToolbar>
           <div className="flex items-center gap-3 flex-1 min-w-0 flex-wrap">
             <div className="w-full sm:w-64 relative">
@@ -176,7 +213,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
           </div>
         </TableToolbar>
 
-        {/* Content */}
         {isLoading ? (
           <Table>
             <THead>
@@ -184,13 +220,12 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                 <TH>Company</TH>
                 <TH>Status</TH>
                 <TH>People</TH>
-                <TH>Plan</TH>
                 <TH>Time zone</TH>
                 <TH align="right">Actions</TH>
               </tr>
             </THead>
             <TBody>
-              <TableSkeletonRows columns={6} rows={4} />
+              <TableSkeletonRows columns={5} rows={4} />
             </TBody>
           </Table>
         ) : filteredCompanies.length === 0 ? (
@@ -221,7 +256,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
           )
         ) : (
           <>
-            {/* Desktop Table (md+) */}
             <div className="hidden md:block">
               <Table>
                 <THead>
@@ -229,7 +263,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                     <TH>Company</TH>
                     <TH>Status</TH>
                     <TH>People</TH>
-                    <TH>Plan</TH>
                     <TH>Time zone</TH>
                     <TH align="right">Actions</TH>
                   </tr>
@@ -238,10 +271,7 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                   {filteredCompanies.map((c) => {
                     const isOwn = c.id === currentUserCompanyId;
                     const isPaused = c.status === 'suspended';
-                    const maxUsers = c.limits?.max_users || 50;
                     const userCount = c.user_count || 0;
-                    const percent = Math.min(100, Math.round((userCount / maxUsers) * 100));
-                    const isNearLimit = percent >= 90;
 
                     return (
                       <TR
@@ -252,95 +282,29 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                           if (e.key === 'Enter') onSelectCompany(c.id);
                         }}
                         onClick={(e) => {
-                          // Ignore if clicking action buttons or dropdowns
                           const target = e.target as HTMLElement;
                           if (target.closest('button') || target.closest('[role="menuitem"]')) return;
                           onSelectCompany(c.id);
                         }}
                       >
-                        {/* Company */}
-                        <TD>
-                          <div className="flex items-center gap-3">
-                            <CompanyMark
-                              name={c.name}
-                              logoUrl={c.logo_url}
-                              accentColor={c.accent_color}
-                              size={28}
-                            />
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="font-medium text-fg">{c.name}</span>
-                                {isOwn && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-subtle text-fg-muted border border-border">
-                                    Your company
-                                  </span>
-                                )}
-                              </div>
-                              <div className="text-caption text-fg-muted mt-0.5">
-                                Created {formatCreatedDate(c.created_at)}
-                              </div>
-                            </div>
-                          </div>
-                        </TD>
-
-                        {/* Status */}
+                        <TD>{companyNameCell(c, 28)}</TD>
                         <TD>
                           <StatusPill
                             variant={isPaused ? 'warning' : 'success'}
                             label={isPaused ? 'Paused' : 'Active'}
                           />
                         </TD>
-
-                        {/* People */}
                         <TD>
-                          <div className="flex items-center gap-2">
-                            <span className="font-numeric text-ui text-fg whitespace-nowrap">
-                              <strong className="font-semibold">{userCount}</strong> of {maxUsers}
-                            </span>
-                            <div className="w-16 h-1.5 rounded-full bg-subtle overflow-hidden shrink-0">
-                              <div
-                                style={{ width: `${percent}%` }}
-                                className={cn(
-                                  'h-full rounded-full transition-all',
-                                  isNearLimit ? 'bg-warning-dot' : 'bg-accent'
-                                )}
-                              />
-                            </div>
-                          </div>
+                          <span className="font-numeric text-ui text-fg whitespace-nowrap">
+                            {peopleLabel(userCount)}
+                          </span>
                         </TD>
-
-                        {/* Plan */}
-                        <TD>
-                          <span className="capitalize text-ui text-fg">{c.plan || 'Starter'}</span>
-                        </TD>
-
-                        {/* Time zone */}
                         <TD>
                           <span className="text-ui text-fg-2">{c.timezone || 'Asia/Karachi'}</span>
                         </TD>
-
-                        {/* Actions */}
                         <TD align="right">
                           <div className="inline-flex items-center gap-1.5 justify-end">
-                            {isOwn ? (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => onNavigateToDashboard?.()}
-                              >
-                                Go to dashboard
-                              </Button>
-                            ) : (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                icon={LogIn}
-                                onClick={() => onEnterCompany(c)}
-                              >
-                                Open
-                              </Button>
-                            )}
-
+                            {rowAction(c)}
                             <Button
                               variant="secondary"
                               size="sm"
@@ -349,7 +313,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                             >
                               Branding
                             </Button>
-
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <IconButton
@@ -362,9 +325,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                               <DropdownMenuContent align="end" className="w-52">
                                 <DropdownMenuItem onClick={() => onSelectCompany(c.id)}>
                                   View details
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => onEnterCompany(c)}>
-                                  Open as owner (read-only)
                                 </DropdownMenuItem>
                                 <DropdownMenuItem onClick={() => setBrandingCompany(c)}>
                                   Branding
@@ -400,12 +360,10 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
               </Table>
             </div>
 
-            {/* Mobile Cards (<md) */}
             <div className="block md:hidden divide-y divide-border">
               {filteredCompanies.map((c) => {
                 const isOwn = c.id === currentUserCompanyId;
                 const isPaused = c.status === 'suspended';
-                const maxUsers = c.limits?.max_users || 50;
                 const userCount = c.user_count || 0;
 
                 return (
@@ -419,54 +377,16 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <CompanyMark
-                          name={c.name}
-                          logoUrl={c.logo_url}
-                          accentColor={c.accent_color}
-                          size={32}
-                        />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-medium text-fg text-ui truncate">{c.name}</span>
-                            {isOwn && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium bg-subtle text-fg-muted border border-border">
-                                Your company
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-caption text-fg-muted mt-0.5">
-                            {userCount} of {maxUsers} people ·{' '}
-                            <span className="capitalize">{c.plan || 'Starter'}</span>
-                          </div>
-                        </div>
-                      </div>
+                      {companyNameCell(c, 32)}
                       <StatusPill
                         variant={isPaused ? 'warning' : 'success'}
                         label={isPaused ? 'Paused' : 'Active'}
                       />
                     </div>
+                    <div className="text-caption text-fg-muted">{peopleLabel(userCount)}</div>
 
                     <div className="flex items-center gap-2 pt-1 justify-end flex-wrap">
-                      {isOwn ? (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => onNavigateToDashboard?.()}
-                        >
-                          Go to dashboard
-                        </Button>
-                      ) : (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          icon={LogIn}
-                          onClick={() => onEnterCompany(c)}
-                        >
-                          Open
-                        </Button>
-                      )}
-
+                      {rowAction(c)}
                       <Button
                         variant="secondary"
                         size="sm"
@@ -475,7 +395,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                       >
                         Branding
                       </Button>
-
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <IconButton
@@ -488,9 +407,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
                         <DropdownMenuContent align="end" className="w-52">
                           <DropdownMenuItem onClick={() => onSelectCompany(c.id)}>
                             View details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => onEnterCompany(c)}>
-                            Open as owner (read-only)
                           </DropdownMenuItem>
                           <DropdownMenuItem onClick={() => setBrandingCompany(c)}>
                             Branding
@@ -526,7 +442,6 @@ export const OwnerCompaniesTab: React.FC<OwnerCompaniesTabProps> = ({
         )}
       </TableCard>
 
-      {/* Branding Drawer */}
       <CompanyBrandingSheet
         company={brandingCompany}
         onClose={() => setBrandingCompany(null)}

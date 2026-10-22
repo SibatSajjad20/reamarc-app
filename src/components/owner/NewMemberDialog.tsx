@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Callout } from '@/components/ui/Callout';
 import { StartingPasswordField } from './StartingPasswordField';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { ownerService, type Company } from '@/services/ownerService';
 import { useToast } from '@/context/ToastContext';
 
@@ -146,40 +147,35 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <FormField label="Company" required error={clientErrors.companyId}>
             {({ id }) => (
-              <select
+              <CustomSelect
                 id={id}
+                aria-label="Company"
                 value={companyId}
-                onChange={(e) => {
-                  setCompanyId(e.target.value);
+                onChange={(val) => {
+                  setCompanyId(val);
                   if (clientErrors.companyId) setClientErrors((p) => ({ ...p, companyId: '' }));
                 }}
-                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none"
-              >
-                <option value="">Select company…</option>
-                {activeCompanies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+                options={activeCompanies.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Select company…"
+              />
             )}
           </FormField>
 
           <FormField label="Role">
             {({ id }) => (
-              <select
+              <CustomSelect
                 id={id}
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
                 aria-label="Role"
-                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-fg text-ui outline-none"
-              >
-                <option value="admin">Admin</option>
-                <option value="hr">HR</option>
-                <option value="operations">Operations</option>
-                <option value="team_lead">Team lead</option>
-                <option value="team_member">Team member</option>
-              </select>
+                value={role}
+                onChange={setRole}
+                options={[
+                  { value: 'admin', label: 'Admin' },
+                  { value: 'hr', label: 'HR' },
+                  { value: 'operations', label: 'Operations' },
+                  { value: 'team_lead', label: 'Team lead' },
+                  { value: 'team_member', label: 'Team member' },
+                ]}
+              />
             )}
           </FormField>
 

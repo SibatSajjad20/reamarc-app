@@ -4,7 +4,7 @@ export interface Company {
   id: string;
   name: string;
   slug: string;
-  plan: 'starter' | 'pro' | 'enterprise';
+  plan?: 'starter' | 'pro' | 'enterprise';
   status: 'active' | 'suspended';
   timezone: string;
   accent_color: string;
@@ -22,13 +22,12 @@ export interface Company {
 export interface CreateCompanyPayload {
   name: string;
   slug: string;
-  plan: 'starter' | 'pro' | 'enterprise';
   timezone: string;
   accent_color: string;
   admin_name: string;
   admin_email: string;
   admin_password?: string;
-  max_users?: number;
+  confirm_password?: string;
 }
 
 export interface OwnerAuditEvent {
@@ -87,19 +86,6 @@ export const ownerService = {
 
   async updateCompany(id: string, payload: Partial<Company>) {
     return apiClient.patch<Company>(`/owner/companies/${id}`, payload);
-  },
-
-  async enterCompany(id: string, reason = 'Support / Inspection', readOnly = true) {
-    return apiClient.post<{
-      impersonation_token: string;
-      company: Company;
-      read_only: boolean;
-      expires_in_minutes: number;
-    }>(`/owner/companies/${id}/enter`, { reason, read_only: readOnly });
-  },
-
-  async exitCompany() {
-    return apiClient.post<{ ok: boolean; message: string }>('/owner/exit');
   },
 
   async resetTokenVersion(id: string) {
