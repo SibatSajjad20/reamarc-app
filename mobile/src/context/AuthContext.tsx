@@ -283,7 +283,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
-      await api('/auth/logout', { method: 'POST' });
+      await api('/auth/logout', {
+        method: 'POST',
+        body: JSON.stringify({ device_uuid: deviceUuid }),
+      });
     } catch {
       /* ignore */
     }

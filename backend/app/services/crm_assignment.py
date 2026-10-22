@@ -295,10 +295,18 @@ async def _require_crm_assignee(user_id: str) -> Tuple[str, str]:
     return user_id, name
 
 
-def _email_html(body: str, crm_url: str) -> str:
+async def _email_html(body: str, crm_url: str) -> str:
+    from app.services.email_service import branded_message_html, resolve_sender_identity
+
+    identity = await resolve_sender_identity()
     safe_body = html_module.escape(body or "")
     safe_url = html_module.escape(crm_url, quote=True)
-    return f'<p>{safe_body}</p><p><a href="{safe_url}">Open CRM</a></p>'
+    return branded_message_html(
+        f"<p>{safe_body}</p>",
+        identity=identity,
+        cta_url=safe_url,
+        cta_label="Open CRM",
+    )
 
 
 async def notify_users(
@@ -326,7 +334,7 @@ async def notify_users(
 
         users = await _load_users(ids)
         crm_url = f"{settings.APP_FRONTEND_URL.rstrip('/')}/crm"
-        html = _email_html(body, crm_url)
+        html = await _email_html(body, crm_url)
         for uid in ids:
             email = (users.get(uid) or {}).get("email")
             name = (users.get(uid) or {}).get("full_name") or "there"

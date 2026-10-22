@@ -103,6 +103,71 @@ DEFAULT_SCHEDULER_SETTINGS: Dict[str, Any] = {
     ],
 }
 
+REAMARC_HOST_NAME = DEFAULT_SCHEDULER_SETTINGS["host_name"]
+REAMARC_HOST_EMAIL = DEFAULT_SCHEDULER_SETTINGS["host_email"]
+REAMARC_OFFICE_ADDRESS = DEFAULT_SCHEDULER_SETTINGS["office_address"]
+REAMARC_OFFICE_MAP_URL = DEFAULT_SCHEDULER_SETTINGS["office_map_url"]
+
+
+async def scheduler_brand_context() -> Dict[str, Any]:
+    """Brand, admin reply email, and whether the current tenant is Reamarc."""
+    from app.core.integrations import current_company_id, is_reamarc_company
+    from app.core.tenant import get_global_db
+    from app.services.company_branding import brand_name_of, company_admin_reply_email
+
+    cid = current_company_id()
+    gdb = get_global_db()
+    company = None
+    if cid and gdb is not None:
+        try:
+            company = await gdb.companies.find_one({"id": cid})
+            if not company:
+                company = await gdb.companies.find_one({"slug": cid})
+        except Exception:
+            company = None
+    reamarc_flag = is_reamarc_company(cid)
+    if company:
+        brand = brand_name_of(company)
+        if not reamarc_flag and brand == "Reamarc":
+            brand = str(company.get("display_name") or company.get("name") or "").strip() or "Company"
+    else:
+        brand = "Reamarc" if reamarc_flag else "Company"
+    reamarc = reamarc_flag
+    admin_email = ""
+    if reamarc:
+        admin_email = REAMARC_HOST_EMAIL
+    elif cid:
+        admin_email = str(
+            (company or {}).get("contact_email")
+            or (company or {}).get("support_email")
+            or ""
+        ).strip()
+        if not admin_email:
+            admin_email = str(await company_admin_reply_email(cid) or "").strip()
+    return {
+        "cid": cid,
+        "brand": brand,
+        "reamarc": reamarc,
+        "company": company,
+        "admin_email": admin_email,
+    }
+
+
+async def default_scheduler_settings() -> Dict[str, Any]:
+    """Reamarc keeps its public booking copy. Other companies get neutral blanks."""
+    ctx = await scheduler_brand_context()
+    seed = dict(DEFAULT_SCHEDULER_SETTINGS)
+    if ctx["reamarc"]:
+        return seed
+    seed["host_name"] = ctx["brand"]
+    seed["host_email"] = ctx["admin_email"]
+    seed["office_address"] = ""
+    seed["office_map_url"] = ""
+    seed["hr_whatsapp"] = ""
+    seed["services"] = []
+    seed["careers_roles"] = []
+    return seed
+
 
 def _sanitize_text(value: Any, *, max_len: int = 200, allow_newlines: bool = False) -> str:
     text = str(value or "")
@@ -150,6 +215,20 @@ def is_https_url(raw: Any) -> bool:
         return False
 
 
+def _ics_prodid(brand: str, *, reamarc: bool) -> str:
+    if reamarc:
+        return "Reamarc AI"
+    text = _sanitize_text(brand, max_len=80) or "Meeting Scheduler"
+    return text.replace("/", " ").replace("\\", " ")
+
+
+def _ics_uid_host(brand: str, *, reamarc: bool) -> str:
+    if reamarc:
+        return "reamarc.com"
+    slug = re.sub(r"[^a-z0-9.-]", "", str(brand or "scheduler").lower())
+    return (slug or "scheduler") + ".invalid"
+
+
 def _scheduler_tz(settings_doc: Dict[str, Any]) -> ZoneInfo:
     name = str(settings_doc.get("timezone") or "Asia/Karachi").strip() or "Asia/Karachi"
     try:
@@ -179,8 +258,8 @@ def verify_ics_token(token: str, lead_id: str, start_time: str) -> bool:
 async def get_scheduler_settings() -> Dict[str, Any]:
     """Retrieve scheduler configuration with fallback to company defaults."""
     db = _db()
+    seed = await default_scheduler_settings()
     try:
-        seed = dict(DEFAULT_SCHEDULER_SETTINGS)
         await db.crm_scheduler_settings.update_one(
             {"key": "crm_scheduler_settings"},
             {"$setOnInsert": seed},
@@ -190,8 +269,8 @@ async def get_scheduler_settings() -> Dict[str, Any]:
         pass
     doc = await db.crm_scheduler_settings.find_one({"key": "crm_scheduler_settings"}, {"_id": 0})
     if not doc:
-        return dict(DEFAULT_SCHEDULER_SETTINGS)
-    merged = dict(DEFAULT_SCHEDULER_SETTINGS)
+        return seed
+    merged = dict(seed)
     merged.update(doc)
     return merged
 
@@ -592,6 +671,8 @@ def _build_google_calendar_url(
     location: str,
     start_dt: datetime,
     end_dt: datetime,
+    *,
+    sprop: Optional[str] = None,
 ) -> str:
     """Build one-click 'Add to Google Calendar' URL."""
     fmt = "%Y%m%dT%H%M%SZ"
@@ -604,7 +685,7 @@ def _build_google_calendar_url(
         "dates": f"{start_utc}/{end_utc}",
         "details": description,
         "location": location,
-        "sprop": "website:reamarc.com",
+        "sprop": sprop or "website:scheduler",
     }
     return f"https://calendar.google.com/calendar/render?{urllib.parse.urlencode(params)}"
 
@@ -621,12 +702,19 @@ def generate_ics_calendar(
     host_email: str,
     attendee_name: str,
     attendee_email: str,
+    brand_name: Optional[str] = None,
+    reamarc: Optional[bool] = None,
 ) -> str:
     """Generate RFC 5545 iCalendar (.ics) string for Outlook, Apple Calendar, and mobile devices."""
     fmt = "%Y%m%dT%H%M%SZ"
     start_utc = start_dt.astimezone(timezone.utc).strftime(fmt)
     end_utc = end_dt.astimezone(timezone.utc).strftime(fmt)
     now_utc = datetime.now(timezone.utc).strftime(fmt)
+    from app.core.integrations import is_reamarc_company, current_company_id
+
+    is_reamarc = reamarc if reamarc is not None else is_reamarc_company(current_company_id())
+    prodid = _ics_prodid(brand_name or ("Reamarc AI" if is_reamarc else "Meeting Scheduler"), reamarc=is_reamarc)
+    uid_host = _ics_uid_host(brand_name or "", reamarc=is_reamarc)
 
     def _esc(t: str) -> str:
         return str(t or "").replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
@@ -636,11 +724,11 @@ def generate_ics_calendar(
 
     return f"""BEGIN:VCALENDAR
 VERSION:2.0
-PRODID:-//Reamarc AI//Meeting Scheduler//EN
+PRODID:-//{_esc(prodid)}//Meeting Scheduler//EN
 CALSCALE:GREGORIAN
 METHOD:REQUEST
 BEGIN:VEVENT
-UID:reamarc-meeting-{_esc(lead_id)}@reamarc.com
+UID:meeting-{_esc(lead_id)}@{uid_host}
 DTSTAMP:{now_utc}
 DTSTART:{start_utc}
 DTEND:{end_utc}
@@ -704,12 +792,15 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
     start_iso = start_dt.isoformat()
     end_iso = end_dt.isoformat()
 
+    brand_ctx = await scheduler_brand_context()
     event_title = _sanitize_text(sched_settings.get("title") or "Digital Services Consultancy Session", max_len=200)
-    host_name = _sanitize_text(sched_settings.get("host_name") or "Muhammad Faizan Khan", max_len=120)
+    host_fallback_name = REAMARC_HOST_NAME if brand_ctx["reamarc"] else brand_ctx["brand"]
+    host_name = _sanitize_text(sched_settings.get("host_name") or host_fallback_name, max_len=120)
+    host_email_raw = sched_settings.get("host_email") or brand_ctx["admin_email"]
     try:
-        host_email = validate_email_address(sched_settings.get("host_email") or "faizan@reamarc.com")
+        host_email = validate_email_address(host_email_raw) if host_email_raw else ""
     except HTTPException:
-        host_email = "faizan@reamarc.com"
+        host_email = brand_ctx["admin_email"] if not brand_ctx["reamarc"] else REAMARC_HOST_EMAIL
 
     try:
         company = require_company_name(_sanitize_text(payload.get("company"), max_len=160))
@@ -775,8 +866,10 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         "in_person": "In-Person",
     }
     meeting_mode_label = mode_labels.get(meeting_mode, "Google Meet")
-    office_address = _sanitize_text(sched_settings.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan", max_len=300)
-    office_map_url = sched_settings.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
+    office_fallback = REAMARC_OFFICE_ADDRESS if brand_ctx["reamarc"] else ""
+    map_fallback = REAMARC_OFFICE_MAP_URL if brand_ctx["reamarc"] else ""
+    office_address = _sanitize_text(sched_settings.get("office_address") or office_fallback, max_len=300)
+    office_map_url = sched_settings.get("office_map_url") or map_fallback
 
     qa_list = [
         {"question": "Company / Business Name", "answer": company},
@@ -895,11 +988,12 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         f"Project Brief: {note or 'N/A'}"
     )
     google_cal_url = _build_google_calendar_url(
-        title=f"{event_title} - Reamarc",
+        title=f"{event_title} - {brand_ctx['brand']}",
         description=cal_desc,
         location=cal_loc,
         start_dt=start_dt,
         end_dt=end_dt,
+        sprop="website:reamarc.com" if brand_ctx["reamarc"] else "website:scheduler",
     )
     ics_token = build_ics_token(lead_id, start_iso)
     ics_path = f"/crm/public/scheduler/ics/{ics_token}"
@@ -955,11 +1049,17 @@ def build_booking_confirmation_html(
     ics_download_url: Optional[str] = None,
     note: Optional[str] = None,
     company: Optional[str] = None,
+    brand_name: Optional[str] = None,
+    reamarc: bool = True,
 ) -> str:
     """Render a branded HTML booking confirmation. Meeting links are sent later on WhatsApp."""
     event_name = html_escape.escape(str(meeting_info.get("event_name") or "Digital Services Consultancy Session"))
-    host_name = html_escape.escape(str(meeting_info.get("host_name") or "Muhammad Faizan Khan"))
-    host_email = html_escape.escape(str(meeting_info.get("host_email") or "faizan@reamarc.com"))
+    host_fallback = REAMARC_HOST_NAME if reamarc else (brand_name or "Host")
+    email_fallback = REAMARC_HOST_EMAIL if reamarc else ""
+    office_fallback = REAMARC_OFFICE_ADDRESS if reamarc else ""
+    map_fallback = REAMARC_OFFICE_MAP_URL if reamarc else ""
+    host_name = html_escape.escape(str(meeting_info.get("host_name") or host_fallback))
+    host_email = html_escape.escape(str(meeting_info.get("host_email") or email_fallback))
     clean_cal_url = html_escape.escape(google_cal_url or "#")
     date_str = html_escape.escape(str(meeting_info.get("date") or ""))
     slot_time = html_escape.escape(str(meeting_info.get("slot_time") or ""))
@@ -969,8 +1069,9 @@ def build_booking_confirmation_html(
 
     meeting_mode = str(meeting_info.get("meeting_mode") or "google_meet").lower()
     mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
-    office_address = html_escape.escape(str(meeting_info.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan"))
-    office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"))
+    office_address = html_escape.escape(str(meeting_info.get("office_address") or office_fallback))
+    office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or map_fallback))
+    footer_brand = html_escape.escape(brand_name or ("Reamarc AI" if reamarc else "Notifications"))
 
     if meeting_mode == "in_person":
         location_row = f"""<div style="margin-bottom: 8px;">
@@ -1096,7 +1197,7 @@ def build_booking_confirmation_html(
 
     <!-- Footer -->
     <div style="background-color: #f1f5f9; padding: 18px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-      <p style="margin: 0;">Reamarc AI &bull; Strategy &amp; Digital Solutions</p>
+      <p style="margin: 0;">{footer_brand if not reamarc else "Reamarc AI &bull; Strategy &amp; Digital Solutions"}</p>
       <p style="margin: 4px 0 0 0; color: #94a3b8;">Questions or need to reschedule? Simply reply directly to this email.</p>
     </div>
 
@@ -1216,6 +1317,7 @@ async def send_booking_confirmation_emails(
     # 1. Send Attendee Confirmation Email
     if attendee_email:
         try:
+            brand_ctx = await scheduler_brand_context()
             attendee_html = build_booking_confirmation_html(
                 attendee_name=attendee_name,
                 meeting_info=meeting_info,
@@ -1223,9 +1325,13 @@ async def send_booking_confirmation_emails(
                 ics_download_url=ics_download_url,
                 note=note,
                 company=company,
+                brand_name=brand_ctx["brand"],
+                reamarc=brand_ctx["reamarc"],
             )
             event_title = meeting_info.get("event_name", "Consultancy Session")
-            host_name = meeting_info.get("host_name", "Muhammad Faizan Khan")
+            host_name = meeting_info.get("host_name") or (
+                REAMARC_HOST_NAME if brand_ctx["reamarc"] else brand_ctx["brand"]
+            )
             subject = f"Confirmed: {event_title} with {host_name}"
 
             ok = await EmailService.send_html_email(

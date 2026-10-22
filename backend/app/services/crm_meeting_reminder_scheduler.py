@@ -30,7 +30,8 @@ def build_meeting_reminder_10m_html(
 ) -> str:
     """Render a responsive, high-converting HTML reminder email for the upcoming meeting."""
     event_name = html_escape.escape(str(meeting_info.get("event_name") or "Digital Services Consultancy Session"))
-    host_name = html_escape.escape(str(meeting_info.get("host_name") or "Muhammad Faizan Khan"))
+    host_fallback = "Muhammad Faizan Khan" if (identity is None or identity.get("_reamarc")) else str(identity.get("company_name") or "Host")
+    host_name = html_escape.escape(str(meeting_info.get("host_name") or host_fallback))
     date_str = html_escape.escape(str(meeting_info.get("date") or ""))
     slot_time = html_escape.escape(str(meeting_info.get("slot_time") or ""))
     time_label = html_escape.escape(str(meeting_info.get("time_label") or slot_time))
@@ -39,8 +40,13 @@ def build_meeting_reminder_10m_html(
 
     meeting_mode = str(meeting_info.get("meeting_mode") or "google_meet").lower()
     mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
-    office_address = html_escape.escape(str(meeting_info.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan"))
-    office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"))
+    office_fallback = ""
+    map_fallback = ""
+    if identity is None or identity.get("_reamarc"):
+        office_fallback = "Reamarc Office, Rawalpindi HQ, Pakistan"
+        map_fallback = "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
+    office_address = html_escape.escape(str(meeting_info.get("office_address") or office_fallback))
+    office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or map_fallback))
 
     branded = bool(identity and not identity.get("_reamarc"))
     brand_footer = "Reamarc AI &bull; Strategy &amp; Digital Solutions"
@@ -203,10 +209,10 @@ async def run_meeting_reminder_tick() -> int:
         if 0 <= diff_minutes <= 15:
             attendee_name = str(lead.get("name") or "there").strip()
             event_name = meeting.get("event_name", "Consultancy Session")
-            host_name = meeting.get("host_name", "Muhammad Faizan Khan")
 
             from app.services.email_service import resolve_sender_identity
             identity = await resolve_sender_identity()
+            host_name = meeting.get("host_name") or identity.get("company_name") or "Host"
             html_body = build_meeting_reminder_10m_html(
                 attendee_name=attendee_name,
                 meeting_info=meeting,

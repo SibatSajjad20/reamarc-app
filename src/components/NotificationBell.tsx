@@ -18,6 +18,7 @@ import {
 import { viewForNotificationKind } from '@/utils/notificationRoute';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
+import { shouldSwitchCompanyForPush } from '@/utils/notificationCompany';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { emitInvalidation, useCacheInvalidation } from '@/utils/cacheBus';
@@ -29,6 +30,8 @@ interface InboxItem {
   kind?: string;
   created_at?: string;
   read?: boolean;
+  company_id?: string;
+  data?: { company_id?: string; type?: string };
 }
 
 export interface NotificationBellProps {
@@ -102,7 +105,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   className,
 }) => {
   const { addToast } = useToast();
-  const { user } = useAuth();
+  const { user, switchCompany } = useAuth();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<InboxItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -205,11 +208,23 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   };
 
   const openItem = (item: InboxItem) => {
-    onSelectView(viewForNotificationKind(item.kind, user?.role));
-    setOpen(false);
-    if (!item.read) {
-      void markOneRead(item.id);
+    const target = shouldSwitchCompanyForPush(
+      user?.company_id,
+      { company_id: item.company_id || item.data?.company_id },
+      user?.companies,
+    );
+    const go = () => {
+      onSelectView(viewForNotificationKind(item.kind, user?.role));
+      setOpen(false);
+      if (!item.read) {
+        void markOneRead(item.id);
+      }
+    };
+    if (target && switchCompany) {
+      void switchCompany(target).finally(go);
+      return;
     }
+    go();
   };
 
   const filteredItems = activeTab === 'unread' ? items.filter((item) => !item.read) : items;

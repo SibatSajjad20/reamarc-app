@@ -53,7 +53,7 @@ export function InboxSync() {
       clearInterval(interval);
       sub.remove();
     };
-  }, [user?.id]);
+  }, [user?.id, user?.company_id]);
 
   return null;
 }

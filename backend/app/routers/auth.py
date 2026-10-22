@@ -694,6 +694,17 @@ def _logout_target(request: Request) -> tuple[Optional[str], list[str]]:
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     user_id, session_ids = _logout_target(request)
+    if user_id and _wants_json_tokens(request):
+        device_uuid = (request.headers.get("X-Device-UUID") or request.headers.get("x-device-uuid") or "").strip()
+        if not device_uuid:
+            try:
+                payload = await request.json()
+            except Exception:
+                payload = None
+            if isinstance(payload, dict):
+                device_uuid = str(payload.get("device_uuid") or "").strip()
+        from app.services.device_registry import clear_push_token_on_logout
+        await clear_push_token_on_logout(user_id, device_uuid or None)
     if user_id:
         from app.core.tenant import get_global_db
         gdb = get_global_db()

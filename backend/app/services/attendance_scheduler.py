@@ -654,16 +654,6 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
 
     _attendance_scheduler = AsyncIOScheduler(timezone=PK_TZ)
 
-    from app.services.attendance_golive import purge_pre_go_live_attendance
-
-    _attendance_scheduler.add_job(
-        purge_pre_go_live_attendance,
-        CronTrigger(hour=0, minute=0, timezone=PK_TZ),
-        id="attendance_go_live_purge",
-        name="Purge 19-20 Aug attendance at go-live midnight PKT",
-        replace_existing=True,
-    )
-
     # Schedule daily job at 00:01 PKT
     _attendance_scheduler.add_job(
         run_midnight_attendance_job_now,

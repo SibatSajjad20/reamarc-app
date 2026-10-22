@@ -46,6 +46,54 @@ def _valid_reply_to(raw: Optional[str]) -> Optional[str]:
     return email
 
 
+def branded_message_html(
+    body_html: str,
+    *,
+    identity: Optional[Dict[str, Any]] = None,
+    cta_url: Optional[str] = None,
+    cta_label: str = "Open",
+) -> str:
+    """Wrap a short HTML fragment in the same logo/accent/footer shell as log reminders."""
+    identity = identity or {}
+    reamarc = bool(identity.get("_reamarc"))
+    brand = str(identity.get("company_name") or identity.get("from_name") or "")
+    if not brand:
+        from app.core.integrations import current_company_id, is_reamarc_company
+        brand = settings.SMTP_FROM_NAME if (reamarc or is_reamarc_company(current_company_id())) else "Notifications"
+    color = str(identity.get("accent_color") or "#4f46e5")
+    logo_html = _logo_block(identity.get("logo_url") if not reamarc else None, brand)
+    cta = ""
+    if cta_url:
+        cta = (
+            f'<p style="margin: 20px 0 0 0;"><a href="{cta_url}" '
+            f'style="display: inline-block; background-color: {color}; color: #ffffff; '
+            f'font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; '
+            f'text-decoration: none;">{cta_label}</a></p>'
+        )
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fafafa; margin: 0; padding: 24px 12px; color: #18181b;">
+  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden;">
+    <div style="background: linear-gradient(135deg, {color} 0%, {color} 100%); padding: 28px 24px; text-align: left;">
+      {logo_html}
+      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800;">{brand}</h1>
+    </div>
+    <div style="padding: 32px 28px; font-size: 14px; line-height: 1.6; color: #52525b;">
+      {body_html}
+      {cta}
+    </div>
+    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
+      <p style="font-size: 11px; color: #71717a; margin: 0;">{brand}</p>
+    </div>
+  </div>
+</body>
+</html>"""
+
+
 def _logo_block(logo_url: Optional[str], company_name: str) -> str:
     if not logo_url or not str(logo_url).startswith("https://"):
         return ""
@@ -81,9 +129,11 @@ async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
             "_reamarc": True,
         }
 
-    from app.services.company_branding import brand_name_of
-
-    company_name = brand_name_of(company) if company else sanitize_from_name("")
+    company_name = ""
+    if company:
+        company_name = str(company.get("display_name") or company.get("name") or "").strip()
+    if not company_name:
+        company_name = "Notifications"
     from_name = sanitize_from_name(company_name)
     reply_to = _valid_reply_to(
         (company or {}).get("contact_email") or (company or {}).get("support_email")
@@ -171,7 +221,11 @@ def _build_reminder_html(
 ) -> str:
     app_url = action_url or f"{settings.APP_FRONTEND_URL}/daily-log"
     missing_dates_formatted = ", ".join(missing_dates) if missing_dates else "today"
-    brand_name = company_name or settings.SMTP_FROM_NAME
+    if company_name:
+        brand_name = company_name
+    else:
+        from app.core.integrations import current_company_id, is_reamarc_company
+        brand_name = settings.SMTP_FROM_NAME if is_reamarc_company(current_company_id()) else "Notifications"
     color = accent_color or "#4f46e5"
     logo_html = _logo_block(logo_url, brand_name)
     custom_note_block = (

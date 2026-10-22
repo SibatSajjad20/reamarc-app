@@ -30,7 +30,7 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* keep last count */
     }
-  }, [user]);
+  }, [user, user?.company_id]);
 
   const markAllRead = useCallback(async () => {
     try {
@@ -45,7 +45,7 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
     refreshUnread();
     const id = setInterval(refreshUnread, 15000);
     return () => clearInterval(id);
-  }, [refreshUnread]);
+  }, [refreshUnread, user?.company_id]);
 
   return (
     <InboxContext.Provider value={{ unreadCount, refreshUnread, markAllRead }}>

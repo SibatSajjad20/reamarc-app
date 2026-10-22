@@ -219,6 +219,13 @@ COMPANY_UNIQUE_INDEXES: List[Dict[str, Any]] = [
         "new_keys": [("company_id", 1), ("key", 1)],
         "name": "uniq_company_system_config_key",
     },
+    {
+        "collection": "web_push_subscriptions",
+        "old_names": ["idx_web_push_endpoint"],
+        "old_keys": [[("endpoint", 1)]],
+        "new_keys": [("endpoint", 1), ("company_id", 1)],
+        "name": "uniq_web_push_endpoint_company",
+    },
 ]
 
 

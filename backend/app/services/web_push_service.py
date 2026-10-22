@@ -202,8 +202,17 @@ async def _ensure_indexes(db) -> None:
     if _INDEX_READY or db is None:
         return
     try:
-        # Global unique: one browser endpoint maps to one subscription across companies.
-        await db.web_push_subscriptions.create_index("endpoint", unique=True, name="idx_web_push_endpoint")
+        from app.core.index_migration import ensure_company_unique_index
+
+        raw = db.web_push_subscriptions
+        inner = getattr(raw, "_coll", raw)
+        await ensure_company_unique_index(
+            inner,
+            ["idx_web_push_endpoint"],
+            [[("endpoint", 1)]],
+            [("endpoint", 1), ("company_id", 1)],
+            "uniq_web_push_endpoint_company",
+        )
         await db.web_push_subscriptions.create_index("user_id", name="idx_web_push_user")
         _INDEX_READY = True
     except Exception as err:
@@ -251,16 +260,10 @@ async def upsert_subscription(
             upsert=True,
         )
     except DuplicateKeyError:
-        # Endpoint unique is global; reassign the existing row to this user/company.
-        from app.core.tenant import get_tenant_context
-        raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
-        if raw_db is None:
-            raise
-        set_fields = dict(update["$set"])
-        ctx = get_tenant_context()
-        if ctx and ctx.company_id:
-            set_fields["company_id"] = ctx.company_id
-        await raw_db.web_push_subscriptions.update_one({"endpoint": endpoint}, {"$set": set_fields})
+        await db.web_push_subscriptions.update_one(
+            {"endpoint": endpoint, "user_id": user_id},
+            {"$set": update["$set"]},
+        )
     owned = (
         await db.web_push_subscriptions.find({"user_id": user_id}, {"_id": 0, "endpoint": 1, "updated_at": 1})
         .sort("updated_at", -1)
@@ -357,26 +360,44 @@ async def send_web_push(
         return 0
     if not subs:
         return 0
-    payload = json.dumps(
-        {
-            "title": (title or "Reamarc")[:120],
-            "body": (body or "")[:500],
-            "path": notification_path(kind, data),
-            "kind": (kind or "custom")[:60],
-        },
-        separators=(",", ":"),
-    )
+    from app.services.push_service import _multi_company_user_ids, company_prefixed_title
+
+    brand = str((data or {}).get("company_name") or "").strip()
+    fallback_title = brand or "Notifications"
+    multi_ids = await _multi_company_user_ids([sub.get("user_id") for sub in subs if sub.get("user_id")])
+    path = notification_path(kind, data)
+    company_id = str((data or {}).get("company_id") or "")[:80]
     sent = 0
+    raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
     for sub in subs:
+        uid = sub.get("user_id")
+        display_title = company_prefixed_title(
+            title or fallback_title, brand, multi_company=uid in multi_ids
+        )
+        payload = json.dumps(
+            {
+                "title": display_title[:120],
+                "body": (body or "")[:500],
+                "path": path,
+                "kind": (kind or "custom")[:60],
+                "company_id": company_id,
+                "company_name": brand,
+            },
+            separators=(",", ":"),
+        )
         try:
             outcome = await asyncio.to_thread(_deliver_one, sub, payload)
         except Exception:
             logger.warning("Web push worker failed")
             continue
         if outcome == "gone":
-            await db.web_push_subscriptions.delete_one(
-                {"user_id": sub.get("user_id"), "endpoint": sub.get("endpoint")}
-            )
+            endpoint = sub.get("endpoint")
+            if raw_db is not None and endpoint:
+                await raw_db.web_push_subscriptions.delete_many({"endpoint": endpoint})
+            else:
+                await db.web_push_subscriptions.delete_one(
+                    {"user_id": uid, "endpoint": endpoint}
+                )
         elif outcome == "ok":
             sent += 1
     return sent

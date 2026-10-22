@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { InboxProvider } from '../src/context/InboxContext';
 import { InboxSync } from '../src/lib/inboxSync';
+import { shouldSwitchCompanyForPush } from '../src/lib/notificationCompany';
 import { TruckLoader } from '../src/ui/TruckLoader';
 import { colors } from '../src/theme';
 
@@ -39,7 +40,7 @@ async function setupAndroidNotificationChannel() {
 }
 
 function Gate({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, loading, switchCompany } = useAuth();
   const segments = useSegments();
   const router = useRouter();
 
@@ -53,13 +54,28 @@ function Gate({ children }: { children: React.ReactNode }) {
 
   React.useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response?.notification?.request?.content?.data;
-      if (data?.type === 'crm_lead' && data?.lead_id) {
-        router.push({ pathname: '/pipeline/lead/[id]', params: { id: String(data.lead_id) } });
-      }
+      const data = (response?.notification?.request?.content?.data || {}) as {
+        type?: string;
+        lead_id?: string;
+        company_id?: string;
+      };
+      const run = async () => {
+        const target = shouldSwitchCompanyForPush(user?.company_id, data, user?.companies);
+        if (target) {
+          try {
+            await switchCompany(target);
+          } catch {
+            /* stay on current company */
+          }
+        }
+        if (data?.type === 'crm_lead' && data?.lead_id) {
+          router.push({ pathname: '/pipeline/lead/[id]', params: { id: String(data.lead_id) } });
+        }
+      };
+      void run();
     });
     return () => sub.remove();
-  }, [router]);
+  }, [router, user?.company_id, user?.companies, switchCompany]);
 
   if (loading) {
     return (

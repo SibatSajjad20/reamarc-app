@@ -21,6 +21,38 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _raw_mobile_devices(db):
+    raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
+    if raw_db is not None:
+        return raw_db.mobile_devices
+    return db.mobile_devices
+
+
+async def _clear_foreign_push_bindings(db, user_id: str, device_uuid: str, push_token: Optional[str]) -> None:
+    """Drop this phone's Expo token from every other person's device rows, any company."""
+    raw = _raw_mobile_devices(db)
+    clauses = [{"device_uuid": device_uuid}]
+    token = (push_token or "").strip()
+    if token:
+        clauses.append({"push_token": token})
+    await raw.update_many(
+        {"user_id": {"$ne": user_id}, "$or": clauses},
+        {"$set": {"push_token": None}},
+    )
+
+
+async def clear_push_token_on_logout(user_id: str, device_uuid: Optional[str] = None) -> None:
+    db = get_database()
+    if db is None or not user_id:
+        return
+    raw = _raw_mobile_devices(db)
+    query: dict = {"user_id": user_id}
+    uuid_clean = (device_uuid or "").strip()
+    if uuid_clean:
+        query["device_uuid"] = uuid_clean
+    await raw.update_many(query, {"$set": {"push_token": None, "last_seen": _now_iso()}})
+
+
 def _format_device(doc: dict, user_doc: Optional[dict] = None) -> dict:
     user_name = None
     user_email = None
@@ -53,7 +85,7 @@ async def assert_device_login_allowed(user_id: str, device_uuid: str) -> None:
     if not uuid_clean:
         return
 
-    owned = await db.mobile_devices.find_one(
+    owned = await _raw_mobile_devices(db).find_one(
         {"device_uuid": uuid_clean, "is_active": True},
         {"_id": 0},
     )
@@ -107,6 +139,9 @@ async def register_device(
             updates["push_token"] = push_token.strip()
         await db.mobile_devices.update_one({"id": existing["id"]}, {"$set": updates})
         existing.update(updates)
+        await _clear_foreign_push_bindings(
+            db, user_id, uuid_clean, existing.get("push_token")
+        )
         return _format_device(existing, user)
 
     doc = {
@@ -122,6 +157,7 @@ async def register_device(
     }
     await db.mobile_devices.insert_one(doc)
     doc.pop("_id", None)
+    await _clear_foreign_push_bindings(db, user_id, uuid_clean, doc.get("push_token"))
     return _format_device(doc, user)
 
 

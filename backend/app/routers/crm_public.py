@@ -136,6 +136,13 @@ async def get_public_scheduler_config(request: Request):
         comp_name = comp.get("name") if comp else "Reamarc"
         comp_logo = comp.get("logo_url") if comp else None
         comp_accent = comp.get("accent_color") if comp else "#6847E0"
+        from app.core.integrations import is_reamarc_company
+
+        if not is_reamarc_company(cid):
+            comp_name = str((comp or {}).get("display_name") or (comp or {}).get("name") or "").strip() or "Company"
+        services = sched_settings.get("services") or []
+        careers = sched_settings.get("careers_roles") or []
+        hr_whatsapp = sched_settings.get("hr_whatsapp") or ""
         return {
             "title": sched_settings.get("title"),
             "description": sched_settings.get("description"),
@@ -143,17 +150,9 @@ async def get_public_scheduler_config(request: Request):
             "duration_minutes": sched_settings.get("duration_minutes", 30),
             "timezone": sched_settings.get("timezone", "Asia/Karachi"),
             "working_days": sched_settings.get("working_days", [1, 2, 3, 4, 5]),
-            "services": sched_settings.get("services", []),
-            "hr_whatsapp": sched_settings.get("hr_whatsapp", "+923265550022"),
-            "careers_roles": sched_settings.get("careers_roles", [
-                "Full-Stack Developer",
-                "UI/UX & Product Designer",
-                "Performance Marketer (Meta / Google Ads)",
-                "Video Editor & Motion Designer",
-                "AI & Automation Engineer",
-                "Technical Copywriter",
-                "Other Position",
-            ]),
+            "services": services,
+            "hr_whatsapp": hr_whatsapp,
+            "careers_roles": careers,
             "company_name": comp_name,
             "company_logo": comp_logo,
             "accent_color": comp_accent,
@@ -280,6 +279,10 @@ async def download_scheduler_ics(request: Request, token: str):
         except Exception:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid meeting timestamps.")
 
+        from app.core.integrations import is_reamarc_company
+        from app.services.company_branding import brand_name_of
+
+        company_doc = await gdb.companies.find_one({"id": cid})
         ics_content = crm_scheduler.generate_ics_calendar(
             lead_id=lead_id,
             title=m.get("event_name", "Consultancy Session"),
@@ -291,6 +294,8 @@ async def download_scheduler_ics(request: Request, token: str):
             host_email=m.get("host_email", "host@example.com"),
             attendee_name=lead.get("name", "Client"),
             attendee_email=lead.get("email", ""),
+            brand_name=brand_name_of(company_doc),
+            reamarc=is_reamarc_company(cid),
         )
         safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", lead_id) or "session"
         return PlainTextResponse(

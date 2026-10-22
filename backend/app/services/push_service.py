@@ -308,6 +308,44 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str, data: Opt
     return sent
 
 
+async def _multi_company_user_ids(user_ids: Iterable[str]) -> set:
+    from app.core.tenant import get_global_db
+
+    ids = [uid for uid in dict.fromkeys(user_ids) if uid]
+    if not ids:
+        return set()
+    gdb = get_global_db()
+    if gdb is None:
+        return set()
+    cursor = gdb.company_memberships.find(
+        {"user_id": {"$in": ids}, "status": "active"},
+        {"user_id": 1, "_id": 0},
+    )
+    docs = []
+    if hasattr(cursor, "to_list"):
+        docs = cursor.to_list(len(ids) * 20)
+        if hasattr(docs, "__await__"):
+            docs = await docs
+    elif hasattr(cursor, "__aiter__"):
+        docs = [row async for row in cursor]
+    counts: dict = {}
+    for row in docs or []:
+        uid = row.get("user_id")
+        if uid:
+            counts[uid] = counts.get(uid, 0) + 1
+    return {uid for uid, n in counts.items() if n > 1}
+
+
+def company_prefixed_title(title: str, company_name: Optional[str], *, multi_company: bool) -> str:
+    brand = str(company_name or "").strip()
+    if not multi_company or not brand:
+        return title
+    prefix = f"[{brand}] "
+    if str(title or "").startswith(prefix):
+        return title
+    return prefix + (title or "")
+
+
 async def dispatch_to_users(
     user_ids: Optional[List[str]],
     title: str,
@@ -345,13 +383,13 @@ async def dispatch_to_users(
     data = payload_data
 
     devices = await active_devices(user_ids)
-    tokens = []
+    tokens_by_user: dict = {}
     device_user_ids = set()
     for dev in devices:
         uid = dev.get("user_id")
         token = (dev.get("push_token") or "").strip()
         if token:
-            tokens.append(token)
+            tokens_by_user.setdefault(uid, []).append(token)
         if uid:
             device_user_ids.add(uid)
 
@@ -367,7 +405,7 @@ async def dispatch_to_users(
     else:
         inbox_ids = list(dict.fromkeys([*device_user_ids, *browser_user_ids]))
 
-    if not inbox_ids and not tokens:
+    if not inbox_ids and not tokens_by_user:
         return {
             "sent": 0,
             "skipped": 0,
@@ -376,10 +414,13 @@ async def dispatch_to_users(
             "message": "No recipients. The employee must open the mobile app or allow browser notifications.",
         }
 
+    multi_ids = await _multi_company_user_ids(inbox_ids)
+    brand = str(data.get("company_name") or "").strip()
+
     for uid in inbox_ids:
         await store_notification(
             user_id=uid,
-            title=title,
+            title=company_prefixed_title(title, brand, multi_company=uid in multi_ids),
             body=body,
             kind=kind,
             sender_id=sender_id,
@@ -389,7 +430,14 @@ async def dispatch_to_users(
             item=item,
         )
 
-    sent = await send_expo_push(tokens, title, body, data=data)
+    sent = 0
+    for uid, user_tokens in tokens_by_user.items():
+        sent += await send_expo_push(
+            user_tokens,
+            company_prefixed_title(title, brand, multi_company=uid in multi_ids),
+            body,
+            data=data,
+        )
     web_targets = inbox_ids if user_ids is not None else browser_user_ids
     try:
         web_sent = await send_web_push(web_targets, title, body, kind=kind, data=data, item=item)
