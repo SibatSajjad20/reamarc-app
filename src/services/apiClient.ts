@@ -146,6 +146,11 @@ class ApiClient {
     this.activeWorkspaceId = workspaceId;
   }
 
+  /** Refresh the HttpOnly session once. Used by raw upload fetches that skip request(). */
+  public refreshSessionOnce(): Promise<boolean> {
+    return this.tryRefreshSession();
+  }
+
   private async tryRefreshSession(): Promise<boolean> {
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = (async () => {

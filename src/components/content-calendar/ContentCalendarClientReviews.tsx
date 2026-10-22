@@ -18,6 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
+import { getBackendFileUrl } from '../../utils/fileUrl';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -395,9 +396,10 @@ export const ContentCalendarClientReviews: React.FC = () => {
                           previewAsset.kind === 'video' ? (
                             <div className="relative w-full h-full">
                               <video
-                                src={previewAsset.url}
+                                src={getBackendFileUrl(previewAsset.url) || previewAsset.url}
                                 className="w-full h-full object-cover"
                                 preload="metadata"
+                                playsInline
                               />
                               <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/35 transition-colors">
                                 <div className="w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center">
@@ -407,7 +409,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                             </div>
                           ) : (
                             <img
-                              src={previewAsset.thumbnail_url || previewAsset.url}
+                              src={getBackendFileUrl(previewAsset.thumbnail_url || previewAsset.url) || previewAsset.thumbnail_url || previewAsset.url}
                               alt={item.content_concept || 'Campaign asset'}
                               className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
                             />

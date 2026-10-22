@@ -1,5 +1,19 @@
-import { API_BASE_URL } from '../services/apiClient';
+import { API_BASE_URL, apiClient } from '../services/apiClient';
 import { notifyFileUrl } from '../lib/notify';
+
+async function fetchWithSessionRetry(url: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  const response = await fetch(url, {
+    ...init,
+    credentials: 'include',
+  });
+  if (response.status === 401 && !retried) {
+    const refreshed = await apiClient.refreshSessionOnce();
+    if (refreshed) {
+      return fetchWithSessionRetry(url, init, true);
+    }
+  }
+  return response;
+}
 
 /**
  * Returns the backend URL for an authenticated /uploads path only.
@@ -51,9 +65,8 @@ export const fetchAuthenticatedMediaObjectUrl = async (
   const uploadsPath = extractUploadsPath(url);
   if (!uploadsPath) return null;
   const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
-  const response = await fetch(`${API_BASE_URL}/uploads/${cleanKey}`, {
+  const response = await fetchWithSessionRetry(`${API_BASE_URL}/uploads/${cleanKey}`, {
     method: 'GET',
-    credentials: 'include',
     headers: { 'X-Requested-With': 'XMLHttpRequest' },
   });
   if (!response.ok) return null;
@@ -173,9 +186,8 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
   for (const targetUrl of candidateUrls) {
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchWithSessionRetry(targetUrl, {
         method: 'GET',
-        credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       attemptCount += 1;
@@ -435,9 +447,8 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
 
   for (const targetUrl of candidateUrls) {
     try {
-      const response = await fetch(targetUrl, {
+      const response = await fetchWithSessionRetry(targetUrl, {
         method: 'GET',
-        credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
       attemptCount += 1;

@@ -104,12 +104,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem('reamarc_active_view', initialView);
       window.history.replaceState(null, '', `/${initialView}`);
     }
+    // Cookie domain moved to vercel.app with the same-origin rewrite — one fresh
+    // login is required. Keep the login payload even if a parallel 401 refresh
+    // races, so the screen does not bounce back to the form.
     setUser(res.user);
     try {
       const currentUser = await authService.getMe();
       setUser(currentUser);
     } catch {
-      // Login user payload is enough to render; /auth/me refresh is best-effort.
+      setUser(res.user);
     }
     closeAuthModal();
   };

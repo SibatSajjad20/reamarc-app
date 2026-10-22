@@ -21,7 +21,12 @@ import { Textarea } from '../ui/textarea';
 import { StatusPill } from '../ui/StatusPill';
 import { EmptyState } from '../ui/EmptyState';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
+import { getBackendFileUrl } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
+
+function sameOriginMediaUrl(url?: string | null): string {
+  return getBackendFileUrl(url || undefined) || url || '';
+}
 
 interface Props {
   theme?: 'dark' | 'light';
@@ -64,10 +69,10 @@ function waitForMedia(
 
     if (isVideo) {
       const video = document.createElement('video');
-      video.preload = 'auto';
+      video.preload = 'metadata';
       video.oncanplaythrough = finish;
       video.onerror = finish;
-      video.src = url;
+      video.src = sameOriginMediaUrl(url);
       video.load();
       return;
     }
@@ -75,7 +80,7 @@ function waitForMedia(
     const img = new Image();
     img.onload = finish;
     img.onerror = finish;
-    img.src = url;
+    img.src = sameOriginMediaUrl(url);
   });
 }
 
@@ -439,13 +444,13 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                     )}
                     {activeAsset.kind === 'video' ? (
                       <video
-                        key={activeAsset.url}
-                        src={activeAsset.url}
-                        controls={isMediaReady}
+                        key={sameOriginMediaUrl(activeAsset.url)}
+                        src={sameOriginMediaUrl(activeAsset.url)}
+                        controls
                         playsInline
-                        preload="auto"
+                        preload="metadata"
                         onCanPlayThrough={() => {
-                          readyMediaUrlRef.current = activeAsset.url;
+                          readyMediaUrlRef.current = sameOriginMediaUrl(activeAsset.url);
                           setIsMediaReady(true);
                         }}
                         onError={() => setIsMediaReady(true)}
@@ -456,8 +461,8 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       />
                     ) : (
                       <img
-                        key={activeAsset.url}
-                        src={activeAsset.url}
+                        key={sameOriginMediaUrl(activeAsset.url)}
+                        src={sameOriginMediaUrl(activeAsset.url)}
                         alt={activeAsset.filename || 'Creative asset'}
                         onLoad={() => {
                           readyMediaUrlRef.current = activeAsset.url;
@@ -507,7 +512,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         {asset.thumbnail_url || asset.kind === 'image' ? (
                           <>
                             <img
-                              src={asset.thumbnail_url || asset.url}
+                              src={sameOriginMediaUrl(asset.thumbnail_url || asset.url)}
                               alt={asset.filename || `Asset ${idx + 1}`}
                               className="w-full h-full object-cover"
                             />

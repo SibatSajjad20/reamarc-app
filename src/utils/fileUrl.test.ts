@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE_URL } from '../services/apiClient';
 import { notifyFileUrl } from '../lib/notify';
-import { downloadFileAttachment, extractUploadsPath, getBackendFileUrl, openFileAttachment } from './fileUrl';
+import { downloadFileAttachment, extractUploadsPath, fetchAuthenticatedMediaObjectUrl, getBackendFileUrl, openFileAttachment } from './fileUrl';
 
 vi.mock('../lib/notify', () => ({
   notifyFileUrl: vi.fn(),
@@ -119,5 +119,27 @@ describe('fileUrl attachment fetch order', () => {
       '_blank',
       'noopener,noreferrer',
     );
+  });
+
+  it('retries authenticated media fetch once after a 401 refresh', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockResolvedValueOnce(new Response(null, { status: 401 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(new Uint8Array([0, 1, 2, 3]), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        }),
+      );
+
+    const objectUrl = await fetchAuthenticatedMediaObjectUrl('/uploads/abc123/still.png', 'still.png');
+
+    expect(objectUrl).toBe('blob:test');
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      '/api/v1/uploads/abc123/still.png',
+      '/api/v1/auth/refresh',
+      '/api/v1/uploads/abc123/still.png',
+    ]);
   });
 });
