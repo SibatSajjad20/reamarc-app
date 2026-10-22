@@ -155,6 +155,23 @@ class ApiClient {
     return this.tryRefreshSession();
   }
 
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (init.signal) {
+      if (init.signal.aborted) {
+        controller.abort();
+      } else {
+        init.signal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async tryRefreshSession(): Promise<boolean> {
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = (async () => {
@@ -164,7 +181,7 @@ class ApiClient {
           'Content-Type': 'application/json',
           'X-Requested-With': 'XMLHttpRequest',
         };
-        const res = await fetch(`${this.baseUrl}/auth/refresh`, {
+        const res = await this.fetchWithTimeout(`${this.baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
           headers,
@@ -172,7 +189,7 @@ class ApiClient {
         });
         if (res.ok) return true;
         // Another tab may already have rotated this browser's cookie.
-        const me = await fetch(`${this.baseUrl}/auth/me`, {
+        const me = await this.fetchWithTimeout(`${this.baseUrl}/auth/me`, {
           method: 'GET',
           credentials: 'include',
           headers,

@@ -71,26 +71,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthModalOpen(false);
   }, []);
 
+  const clearStaleAuthStorage = useCallback(() => {
+    apiClient.setWorkspaceId(null);
+    try {
+      localStorage.removeItem('reamarc_active_workspace_id');
+      sessionStorage.removeItem('reamarc_active_workspace_id');
+      localStorage.removeItem('reamarc_selected_workspace_id');
+      sessionStorage.removeItem('reamarc_selected_workspace_id');
+      localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
+      localStorage.removeItem('reamarc_token');
+      sessionStorage.removeItem('reamarc_token');
+    } catch {
+      // storage blocked: ignore
+    }
+  }, []);
+
   const fetchCurrentUser = useCallback(async () => {
     setIsLoading(true);
     try {
-      try {
-        sessionStorage.removeItem('reamarc_impersonation_token');
-        localStorage.removeItem('reamarc_impersonation_token');
-      } catch {
-        // Ignore
-      }
-      const currentUser = await authService.getMe();
+      const currentUser = await Promise.race([
+        authService.getMe(),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => reject(new Error('auth-bootstrap-timeout')), 10_000);
+        }),
+      ]);
       const normalized = currentUser?.impersonating
         ? { ...currentUser, impersonating: false, read_only: false }
         : currentUser;
       setUser((prev) => keepAvatarUrl(prev, normalized));
     } catch {
       setUser(null);
+      clearStaleAuthStorage();
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [clearStaleAuthStorage]);
 
   useEffect(() => {
     apiClient.setOnUnauthorized(() => {
@@ -100,6 +116,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     fetchCurrentUser();
   }, [fetchCurrentUser]);
+
+  useEffect(() => {
+    const safety = window.setTimeout(() => {
+      setIsLoading((still) => (still ? false : still));
+    }, 12_000);
+    return () => window.clearTimeout(safety);
+  }, []);
 
   useEffect(() => {
     if (!user?.id || user.role === 'client') return;
@@ -141,6 +164,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       setUser(res.user);
     }
+    setIsLoading(false);
     closeAuthModal();
   };
 
