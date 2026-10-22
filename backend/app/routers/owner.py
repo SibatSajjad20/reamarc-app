@@ -18,10 +18,11 @@ from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.config import settings
+from app.core.limiter import limiter
 from app.core.owner_audit import record_owner_audit_event
 from app.core.security import (
     get_password_hash,
@@ -514,6 +515,48 @@ async def patch_owner_company_branding(
     if "accent_color" in body:
         kwargs["accent_color"] = body["accent_color"]
     res = await cb.update_branding(**kwargs)
+    res["writes_enabled"] = True
+    return res
+
+
+@router.post("/companies/{company_id}/branding/logo")
+@limiter.limit("10/minute")
+async def upload_owner_company_logo(
+    request: Request,
+    company_id: str,
+    file=File(...),
+    current_user: dict = Depends(require_owner),
+):
+    if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Multi-tenancy disabled.")
+    from app.services import company_branding as cb
+    res = await cb.upload_logo(
+        company_id,
+        file,
+        actor_user_id=current_user["id"],
+        via="owner_console",
+        require_existing=True,
+    )
+    res["writes_enabled"] = True
+    return res
+
+
+@router.delete("/companies/{company_id}/branding/logo")
+@limiter.limit("10/minute")
+async def delete_owner_company_logo(
+    request: Request,
+    company_id: str,
+    current_user: dict = Depends(require_owner),
+):
+    if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Multi-tenancy disabled.")
+    from app.services import company_branding as cb
+    res = await cb.remove_logo(
+        company_id,
+        actor_user_id=current_user["id"],
+        via="owner_console",
+        require_existing=True,
+    )
     res["writes_enabled"] = True
     return res
 

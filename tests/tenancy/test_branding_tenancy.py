@@ -12,11 +12,14 @@ Verifies:
 from __future__ import annotations
 
 import asyncio
+import io
 import os
 import unittest
+from unittest.mock import AsyncMock, patch
 import sys
 from pathlib import Path
 import httpx
+from PIL import Image
 
 backend_dir = str(Path(__file__).resolve().parent.parent.parent / "backend")
 root_dir = str(Path(__file__).resolve().parent.parent.parent)
@@ -28,7 +31,7 @@ if root_dir not in sys.path:
 from app.config import settings
 from app.database import db_instance
 from app.main import app
-from app.core.security import create_access_token, _AUTH_CACHE
+from app.core.security import create_access_token, get_password_hash, _AUTH_CACHE
 from tests.tenancy.seed import (
     seed_tenancy_async,
     clean_tenancy_async,
@@ -170,6 +173,130 @@ class TestBrandingTenancy(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Reamarc Team", ps_content)
         self.assertNotIn("Join Reamarc", ps_content)
         self.assertIn("config.company_name", ps_content)
+
+
+def _png_bytes(w: int = 200, h: int = 200) -> bytes:
+    img = Image.new("RGBA", (w, h), (255, 0, 0, 255))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class TestOwnerBrandingLogo(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        settings.MONGODB_DB_NAME = "reamarc_test_db"
+        settings.MULTI_TENANT_ENABLED = True
+        _AUTH_CACHE.clear()
+
+        from app.core.limiter import limiter
+        limiter.enabled = False
+
+        from motor.motor_asyncio import AsyncIOMotorClient
+        self.client_mongo = AsyncIOMotorClient("mongodb://localhost:27017")
+        self.db = self.client_mongo["reamarc_test_db"]
+        db_instance.client = self.client_mongo
+        db_instance.db = self.db
+
+        await clean_tenancy_async(self.db)
+        await seed_tenancy_async(self.db)
+
+        self.owner_id = "usr_owner_faizan"
+        self.owner_email = "faizan@reamarc.com"
+        await self.db.users.replace_one(
+            {"id": self.owner_id},
+            {
+                "_id": self.owner_id,
+                "id": self.owner_id,
+                "email": self.owner_email,
+                "name": "Faizan Owner",
+                "full_name": "Faizan Owner",
+                "role": "admin",
+                "is_super_admin": True,
+                "company_id": "company_reamarc",
+                "is_active": True,
+                "token_version": 0,
+                "hashed_password": get_password_hash("SuperSecretOwnerPass1!"),
+            },
+            upsert=True,
+        )
+
+        self.transport = httpx.ASGITransport(app=app)
+        self.client = httpx.AsyncClient(
+            transport=self.transport,
+            base_url="http://testserver",
+            headers={"host": "testserver"},
+        )
+        self.owner_headers = {
+            "Authorization": f"Bearer {create_access_token({'sub': self.owner_id, 'email': self.owner_email, 'cid': 'company_reamarc', 'tv': 0, 'ctv': 0, 'is_super_admin': True})}"
+        }
+        self.admin_headers = {
+            "Authorization": f"Bearer {create_access_token({'sub': 'tnt_user_a_admin', 'email': 'admin@a.test', 'cid': CID_A, 'tv': 0, 'ctv': 0, 'role': 'admin'})}"
+        }
+
+        async def fake_upload(data, **kwargs):
+            pid = f"{kwargs['folder']}/{kwargs['public_id']}"
+            url = f"https://res.cloudinary.com/demo/image/upload/{pid}.png"
+            return url, pid
+
+        self.cloud_patches = [
+            patch("app.services.cloudinary_service.upload_image", side_effect=fake_upload),
+            patch("app.services.cloudinary_service.destroy", new_callable=AsyncMock),
+            patch("app.services.cloudinary_service.is_configured", return_value=True),
+            patch("app.services.company_branding.cloudinary_service.upload_image", side_effect=fake_upload),
+            patch("app.services.company_branding.cloudinary_service.destroy", new_callable=AsyncMock),
+            patch("app.services.company_branding.cloudinary_service.is_configured", return_value=True),
+        ]
+        for p in self.cloud_patches:
+            p.start()
+
+    async def asyncTearDown(self):
+        for p in reversed(getattr(self, "cloud_patches", [])):
+            p.stop()
+        from app.core.limiter import limiter
+        limiter.enabled = True
+        await self.client.aclose()
+        await clean_tenancy_async(self.db)
+        self.client_mongo.close()
+
+    async def test_owner_can_upload_and_remove_logo(self):
+        path = f"/api/v1/owner/companies/{CID_A}/branding/logo"
+        upload = await self.client.post(
+            path,
+            headers=self.owner_headers,
+            files={"file": ("logo.png", _png_bytes(), "image/png")},
+        )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        body = upload.json()
+        self.assertTrue(body.get("writes_enabled"))
+        self.assertTrue(body.get("has_logo") or body.get("logo_url"))
+
+        removed = await self.client.delete(path, headers=self.owner_headers)
+        self.assertEqual(removed.status_code, 200, removed.text)
+        removed_body = removed.json()
+        self.assertTrue(removed_body.get("writes_enabled"))
+        self.assertFalse(removed_body.get("has_logo"))
+
+    async def test_non_owner_cannot_upload_or_remove_logo(self):
+        path = f"/api/v1/owner/companies/{CID_A}/branding/logo"
+        upload = await self.client.post(
+            path,
+            headers=self.admin_headers,
+            files={"file": ("logo.png", _png_bytes(), "image/png")},
+        )
+        self.assertEqual(upload.status_code, 404)
+        removed = await self.client.delete(path, headers=self.admin_headers)
+        self.assertEqual(removed.status_code, 404)
+
+    async def test_unknown_company_logo_is_404(self):
+        path = "/api/v1/owner/companies/does-not-exist/branding/logo"
+        upload = await self.client.post(
+            path,
+            headers=self.owner_headers,
+            files={"file": ("logo.png", _png_bytes(), "image/png")},
+        )
+        self.assertEqual(upload.status_code, 404, upload.text)
+        removed = await self.client.delete(path, headers=self.owner_headers)
+        self.assertEqual(removed.status_code, 404, removed.text)
 
 
 if __name__ == "__main__":

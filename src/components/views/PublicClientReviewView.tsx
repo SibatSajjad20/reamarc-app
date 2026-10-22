@@ -192,7 +192,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     try {
       const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(token)}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
         body: JSON.stringify({
           action: 'approve',
           reviewer_name: reviewerName.trim() || undefined,
@@ -228,7 +232,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     try {
       const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(token)}/action`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'omit',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        },
         body: JSON.stringify({
           action: 'request_revision',
           reviewer_name: reviewerName.trim() || undefined,

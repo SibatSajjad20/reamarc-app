@@ -143,8 +143,8 @@ function AppInner() {
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
-  const canSeeAttendance = !isClient && (eff ? !!eff.attendance : perms.canAccessAttendance);
-  const canSeeDailyLog = !isClient && (eff ? !!eff.daily_log : perms.canAccessDailyLog);
+  const canSeeAttendance = !isClient && (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance));
+  const canSeeDailyLog = !isClient && (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog));
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

@@ -232,6 +232,10 @@ def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool)
 
 @app.middleware("http")
 async def csrf_protection_middleware(request: Request, call_next):
+    public_review_prefix = f"{settings.API_V1_STR}/content-calendar/public/"
+    if request.url.path.startswith(public_review_prefix):
+        return await call_next(request)
+
     has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
     has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
     if should_enforce_csrf(method=request.method, has_auth_cookie=has_auth_cookie, has_bearer=has_bearer):

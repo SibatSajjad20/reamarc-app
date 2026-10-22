@@ -279,7 +279,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
-    const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
+    const effAttendance = isAdmin || (user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance);
     if (isAdmin || !effAttendance || !perms.isAttendanceTracked) {
       return;
     }
@@ -371,7 +371,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 5. Load Weekly Stat Strips (Logged)
   const loadWeeklyStats = useCallback(async () => {
-    const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+    const effDailyLog = isAdmin || (user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog);
     if (isAdmin || !isLogger || !user?.id || !effDailyLog || !perms.isDailyLogTracked) return;
 
     const startIso = weekDates[0]?.date;
@@ -550,8 +550,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
 
     try {
-      const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
-      const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+      const effAttendance = isAdmin || (user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance);
+      const effDailyLog = isAdmin || (user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog);
       if (!effAttendance && !effDailyLog) return;
 
       // 1. Worked hours from timesheet (query months touched)

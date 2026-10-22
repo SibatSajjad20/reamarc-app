@@ -341,6 +341,32 @@ describe('Multi-Company Phase 2 Frontend Verification', () => {
     });
   });
 
+  describe('admin attendance and daily log visibility', () => {
+    it('shows Attendance and Daily log when effective_access has both false', () => {
+      currentUserState = {
+        ...mockUser,
+        role: 'admin',
+        effective_access: {
+          attendance: false,
+          daily_log: false,
+        },
+      };
+
+      renderWithProviders(
+        <Sidebar
+          currentView="dashboard"
+          onSelectView={vi.fn()}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText('Attendance')).toBeDefined();
+      expect(screen.getByText('Daily log')).toBeDefined();
+    });
+  });
+
   describe('company switcher for 2+ memberships', () => {
     it('renders the switcher listing both companies', async () => {
       currentUserState = {

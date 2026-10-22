@@ -232,8 +232,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.canAccessContentCalendar;
   const canSeeWebsitePipeline = eff ? !!eff.website : perms.canAccessWebsitePipeline;
-  const canSeeAttendance = eff ? !!eff.attendance : perms.canAccessAttendance;
-  const canSeeDailyLog = eff ? !!eff.daily_log : perms.canAccessDailyLog;
+  const canSeeAttendance = isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance);
+  const canSeeDailyLog = isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog);
   const isManagementRole = isAdmin || isHR || isOperations;
 
   const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
