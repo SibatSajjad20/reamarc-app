@@ -3,7 +3,6 @@ backend/app/routers/owner.py
 Owner Super-Admin Console Endpoints (/api/v1/owner/*)
 Provides full multi-tenant fleet visibility and management for Faizan:
 - List, view, create, update, and suspend tenant companies.
-- One-click owner impersonation into company consoles (read-only by default).
 - Immediate session revocation via company token version bumping.
 - Cryptographically chained owner audit log retrieval.
 """
@@ -12,20 +11,19 @@ from __future__ import annotations
 
 import re
 import uuid
-import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, EmailStr, Field, model_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.config import settings
 from app.core.owner_audit import record_owner_audit_event
 from app.core.security import (
-    create_impersonation_token,
     get_password_hash,
     require_owner,
     invalidate_auth_cache,
@@ -112,7 +110,7 @@ async def require_owner_console(
 
 router = APIRouter(
     prefix="/owner",
-    tags=["Owner Console"],
+    tags=["Companies"],
     dependencies=[Depends(require_owner_console)],
 )
 
@@ -121,32 +119,57 @@ router = APIRouter(
 # SCHEMAS
 # ==============================================================================
 
+def _validate_iana_timezone(value: Optional[str]) -> Optional[str]:
+    if value is None or value == "":
+        return value
+    try:
+        ZoneInfo(value)
+    except Exception:
+        raise ValueError(
+            f"Unknown timezone '{value}'. Use a valid IANA timezone such as Asia/Karachi."
+        )
+    return value
+
+
 class CompanyCreateRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     slug: str = Field(..., min_length=2, max_length=50)
-    plan: str = Field("starter", pattern=r"^(starter|pro|enterprise)$")
-    timezone: str = Field("Asia/Karachi", min_length=2, max_length=50)
+    plan: Optional[Any] = None
+    timezone: str = Field("Asia/Karachi", min_length=2, max_length=64)
     accent_color: str = Field("#6847E0", pattern=r"^#(?:[0-9a-fA-F]{3}){1,2}$")
     admin_name: str = Field(..., min_length=2, max_length=100)
     admin_email: EmailStr
     admin_password: str = Field(..., min_length=8)
-    max_users: int = Field(50, ge=1, le=10000)
+    confirm_password: Optional[str] = None
+    max_users: Optional[Any] = None
+
+    @field_validator("timezone")
+    @classmethod
+    def _tz_create(cls, v: str) -> str:
+        parsed = _validate_iana_timezone(v)
+        return parsed or "Asia/Karachi"
+
+    @model_validator(mode="after")
+    def _confirm_password(self) -> "CompanyCreateRequest":
+        if self.confirm_password is not None and self.confirm_password != self.admin_password:
+            raise ValueError("Passwords don't match")
+        return self
 
 
 class CompanyUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=2, max_length=100)
     slug: Optional[str] = Field(None, min_length=2, max_length=50)
-    plan: Optional[str] = Field(None, pattern=r"^(starter|pro|enterprise)$")
+    plan: Optional[Any] = None
     status: Optional[str] = Field(None, pattern=r"^(active|suspended)$")
-    timezone: Optional[str] = Field(None, min_length=2, max_length=50)
+    timezone: Optional[str] = Field(None, min_length=2, max_length=64)
     accent_color: Optional[str] = Field(None, pattern=r"^#(?:[0-9a-fA-F]{3}){1,2}$")
     logo_url: Optional[str] = Field(None, pattern=r"^https://res\.cloudinary\.com/.*$")
-    max_users: Optional[int] = Field(None, ge=1, le=10000)
+    max_users: Optional[Any] = None
 
-
-class OwnerEnterRequest(BaseModel):
-    reason: str = Field("Inspection / Support", max_length=255)
-    read_only: bool = True
+    @field_validator("timezone")
+    @classmethod
+    def _tz_update(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_iana_timezone(v)
 
 
 class GrantCompanyAccessRequest(BaseModel):
@@ -271,12 +294,12 @@ async def create_company(
             "id": company_id,
             "name": body.name.strip(),
             "slug": slug_clean,
-            "plan": body.plan,
+            "plan": "starter",
             "status": "active",
             "timezone": body.timezone or "Asia/Karachi",
             "accent_color": body.accent_color or "#6847E0",
             "logo_url": None,
-            "limits": {"max_users": body.max_users or 50},
+            "limits": {"max_users": 50},
             "token_version": 0,
             "creation_id": creation_id,
             "created_at": now,
@@ -339,7 +362,6 @@ async def create_company(
             details={
                 "name": body.name,
                 "slug": slug_clean,
-                "plan": body.plan,
                 "admin_email": email_clean,
             },
         )
@@ -425,16 +447,12 @@ async def update_company(
         if slug_dup:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slug already in use.")
         update_fields["slug"] = slug_clean
-    if body.plan is not None:
-        update_fields["plan"] = body.plan
     if body.timezone is not None:
         update_fields["timezone"] = body.timezone
     if body.accent_color is not None:
         update_fields["accent_color"] = body.accent_color
     if body.logo_url is not None:
         update_fields["logo_url"] = body.logo_url
-    if body.max_users is not None:
-        update_fields["limits.max_users"] = body.max_users
 
     inc_fields: Dict[str, Any] = {}
     if body.status is not None:
@@ -463,94 +481,6 @@ async def update_company(
 
     updated = await gdb.companies.find_one({"id": company_id}, {"_id": 0})
     return updated
-
-
-@router.post("/companies/{company_id}/enter")
-async def enter_company_console(
-    company_id: str,
-    body: OwnerEnterRequest,
-    current_user: dict = Depends(require_owner),
-) -> Dict[str, Any]:
-    """
-    Issue an owner impersonation token into a tenant console.
-    Defaults to read_only=True (60m).
-    """
-    gdb = get_global_db()
-    company = await gdb.companies.find_one({"id": company_id}, {"_id": 0})
-    if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
-
-    jti = uuid.uuid4().hex
-    now = datetime.now(timezone.utc)
-    from datetime import timedelta
-    duration_minutes = 60 if body.read_only else 30
-    exp = now + timedelta(minutes=duration_minutes)
-
-    owner_tv = current_user.get("token_version", 0)
-
-    token = create_impersonation_token(
-        user_id=current_user["id"],
-        company_id=company_id,
-        read_only=body.read_only,
-        reason=body.reason,
-        tv=owner_tv,
-        jti=jti,
-    )
-    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-    session_doc = {
-        "_id": jti,
-        "jti": jti,
-        "token_hash": token_hash,
-        "owner_id": current_user["id"],
-        "company_id": company_id,
-        "ro": body.read_only,
-        "exp": exp.isoformat(),
-        "revoked": False,
-        "created_at": now.isoformat(),
-    }
-    await gdb.owner_sessions.insert_one(session_doc)
-
-    await record_owner_audit_event(
-        global_db=gdb,
-        action="enter_company",
-        actor_user_id=current_user["id"],
-        target_company_id=company_id,
-        details={
-            "reason": body.reason,
-            "read_only": body.read_only,
-            "jti": jti,
-        },
-    )
-
-    return {
-        "impersonation_token": token,
-        "company": company,
-        "read_only": body.read_only,
-        "expires_in_minutes": duration_minutes,
-    }
-
-
-@router.post("/exit")
-async def exit_owner_session(
-    request: Request,
-    current_user: dict = Depends(require_owner),
-) -> Dict[str, Any]:
-    """Revoke current impersonation session in owner_sessions."""
-    gdb = get_global_db()
-    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
-    if not token:
-        token = request.cookies.get("access_token", "")
-    from app.core.security import decode_access_token
-    payload = decode_access_token(token) if token else None
-    jti = payload.get("jti") if payload else None
-    if jti:
-        await gdb.owner_sessions.update_one(
-            {"$or": [{"_id": jti}, {"jti": jti}]},
-            {"$set": {"revoked": True, "revoked_at": datetime.now(timezone.utc).isoformat()}},
-        )
-    invalidate_auth_cache(user_id=current_user["id"])
-    return {"ok": True, "message": "Impersonation session exited."}
 
 
 @router.get("/companies/{company_id}/branding")

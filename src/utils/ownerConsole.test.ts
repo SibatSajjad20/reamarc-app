@@ -11,7 +11,7 @@ import {
 } from '../components/owner/OwnerActivityTab';
 import type { Company, OwnerAuditEvent, OwnerMember } from '../services/ownerService';
 
-describe('Owner Console Unit Tests', () => {
+describe('Companies unit tests', () => {
   describe('getCompanyInitials', () => {
     it('handles single word company name', () => {
       expect(getCompanyInitials('Reamarc')).toBe('R');

@@ -188,4 +188,4 @@ export interface UpdateWorkspacePayload {
 export type AdminCreateWorkspacePayload = CreateWorkspacePayload;
 export type AdminUpdateWorkspacePayload = UpdateWorkspacePayload;
 
-export type AdminSectionType = 'directory' | 'compliance' | 'workspaces';
+export type AdminSectionType = 'directory' | 'compliance' | 'workspaces' | 'companies';

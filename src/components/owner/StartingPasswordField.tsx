@@ -61,6 +61,7 @@ export interface StartingPasswordFieldProps {
   error?: string;
   id?: string;
   autoFocus?: boolean;
+  showGenerate?: boolean;
 }
 
 export const StartingPasswordField: React.FC<StartingPasswordFieldProps> = ({
@@ -72,6 +73,7 @@ export const StartingPasswordField: React.FC<StartingPasswordFieldProps> = ({
   error,
   id,
   autoFocus = false,
+  showGenerate = true,
 }) => {
   const { addToast } = useToast();
   const generatedId = useId();
@@ -105,14 +107,18 @@ export const StartingPasswordField: React.FC<StartingPasswordFieldProps> = ({
         <label htmlFor={fieldId} className="block text-label font-medium text-fg">
           {label} {required && <span className="text-danger-fg">*</span>}
         </label>
-        <button
-          type="button"
-          onClick={handleGenerate}
-          className="text-xs font-medium text-accent hover:text-accent-hover inline-flex items-center gap-1 cursor-pointer select-none"
-        >
-          <Sparkles size={13} aria-hidden="true" />
-          <span>Generate</span>
-        </button>
+        {showGenerate ? (
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="text-xs font-medium text-accent hover:text-accent-hover inline-flex items-center gap-1 cursor-pointer select-none"
+          >
+            <Sparkles size={13} aria-hidden="true" />
+            <span>Generate</span>
+          </button>
+        ) : (
+          <span />
+        )}
       </div>
 
       <div className="relative flex items-center">

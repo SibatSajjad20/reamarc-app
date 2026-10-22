@@ -1,8 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button, IconButton } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
@@ -21,30 +20,22 @@ import { GiveAccessDialog } from '@/components/owner/GiveAccessDialog';
 import { SetStartingPasswordDialog } from '@/components/owner/SetStartingPasswordDialog';
 import { CompanyDetailSheet } from '@/components/owner/CompanyDetailSheet';
 import { CompanyBrandingSheet } from '@/components/owner/CompanyBrandingSheet';
-import { Plus, UserPlus, LogOut } from 'lucide-react';
-import type { ViewType } from '@/types';
+import { Plus, UserPlus } from 'lucide-react';
+import { companiesPathForTab, companiesTabFromPath } from '@/utils/companiesRoutes';
 
-interface OwnerViewProps {
-  onNavigateView?: (view: ViewType) => void;
-}
-
-export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
+export const OwnerView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
 
-  // Tab state synced with URL sub-path
   const getInitialTab = (): 'companies' | 'members' | 'activity' => {
     if (typeof window !== 'undefined') {
-      const pathname = window.location.pathname.toLowerCase();
-      if (pathname === '/owner/members' || pathname.endsWith('/members')) return 'members';
-      if (pathname === '/owner/activity' || pathname.endsWith('/activity')) return 'activity';
+      return companiesTabFromPath(window.location.pathname);
     }
     return 'companies';
   };
 
   const [activeTab, setActiveTab] = useState<'companies' | 'members' | 'activity'>(getInitialTab);
 
-  // Data state
   const [companies, setCompanies] = useState<Company[]>([]);
   const [auditLogs, setAuditLogs] = useState<OwnerAuditEvent[]>([]);
   const [members, setMembers] = useState<OwnerMember[]>([]);
@@ -54,34 +45,41 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
   const [auditLimit, setAuditLimit] = useState<number>(50);
   const [isLoadingMoreAudit, setIsLoadingMoreAudit] = useState<boolean>(false);
 
-  // Modals & Sheets
   const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
   const [isNewMemberOpen, setIsNewMemberOpen] = useState(false);
   const [giveAccessUser, setGiveAccessUser] = useState<OwnerMember | null>(null);
+  const [giveAccessPresetCompanyId, setGiveAccessPresetCompanyId] = useState<string | undefined>();
   const [setPasswordUser, setSetPasswordUser] = useState<OwnerMember | null>(null);
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [brandingSheetCompany, setBrandingSheetCompany] = useState<Company | null>(null);
 
-  // Member filter preset / highlight state
   const [presetMemberCompanyFilter, setPresetMemberCompanyFilter] = useState<string | null>(null);
   const [highlightUserId, setHighlightUserId] = useState<string | null>(null);
 
-  // Sync tab change to URL
+  const currentUserMember = useMemo(
+    () => members.find((m) => m.id === user?.id) || null,
+    [members, user?.id]
+  );
+
+  const memberCompanyIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (user?.company_id) ids.add(user.company_id);
+    if (user?.company?.id) ids.add(user.company.id);
+    (currentUserMember?.memberships || [])
+      .filter((m) => m.status === 'active')
+      .forEach((m) => ids.add(m.company_id));
+    (user?.companies || []).forEach((c) => ids.add(c.id));
+    return ids;
+  }, [user, currentUserMember]);
+
   const handleTabChange = (val: string) => {
     const nextTab = val as 'companies' | 'members' | 'activity';
     setActiveTab(nextTab);
     if (typeof window !== 'undefined') {
-      const targetPath =
-        nextTab === 'companies'
-          ? '/owner'
-          : nextTab === 'members'
-          ? '/owner/members'
-          : '/owner/activity';
-      window.history.replaceState(null, '', targetPath);
+      window.history.replaceState(null, '', companiesPathForTab(nextTab));
     }
   };
 
-  // Listen to popstate (browser back/forward)
   useEffect(() => {
     const handlePopState = () => {
       setActiveTab(getInitialTab());
@@ -90,13 +88,7 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Main data loader
   const loadData = useCallback(async () => {
-    if (user?.impersonating) {
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
     setLoadError(null);
 
@@ -108,7 +100,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
       setCompanies(comps);
       setAuditLogs(logs);
 
-      // Fetch members with fail-closed support check
       try {
         const mems = await ownerService.getMembers();
         setMembers(mems || []);
@@ -118,7 +109,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
           setHasMembersSupport(false);
           setMembers([]);
         } else {
-          // Keep members support enabled but keep list empty
           setMembers([]);
         }
       }
@@ -127,13 +117,12 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [user?.impersonating]);
+  }, []);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  // Load more audit events (up to 200)
   const handleLoadMoreAudit = async () => {
     const nextLimit = Math.min(200, auditLimit + 50);
     setIsLoadingMoreAudit(true);
@@ -148,66 +137,35 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
     }
   };
 
-  // Impersonate / Enter company
-  const handleEnterCompany = async (comp: Company) => {
-    addToast(`Opening ${comp.name}…`, undefined, 'info');
-    try {
-      const res = await ownerService.enterCompany(comp.id, 'Inspection / Support', true);
-      sessionStorage.setItem('reamarc_impersonation_token', res.impersonation_token);
-      sessionStorage.removeItem('reamarc_impersonation_token');
-      localStorage.removeItem('reamarc_impersonation_token');
-      window.location.href = '/dashboard';
-    } catch (err: any) {
-      addToast(`Couldn't open ${comp.name}`, err.message, 'error');
-    }
+  const openGiveAccess = (member: OwnerMember, companyId?: string) => {
+    setGiveAccessPresetCompanyId(companyId);
+    setGiveAccessUser(member);
   };
 
-  // Exit from banner inside OwnerView (if reached while impersonating)
-  const handleExitImpersonation = async () => {
-    try {
-      await ownerService.exitCompany();
-    } catch {
-      // Ignore exit error and clear locally
-    } finally {
-      sessionStorage.removeItem('reamarc_impersonation_token');
-      localStorage.removeItem('reamarc_impersonation_token');
-      window.location.href = '/owner';
-    }
+  const handleGiveAccessForCompany = (company: Company) => {
+    if (!currentUserMember && !user) return;
+    const member: OwnerMember = currentUserMember || {
+      id: user!.id,
+      email: user!.email,
+      name: user!.name || user!.full_name || user!.email,
+      full_name: user!.full_name || user!.name || user!.email,
+      is_active: true,
+      is_super_admin: true,
+      company_id: user!.company_id,
+      memberships: [],
+    };
+    openGiveAccess(member, company.id);
   };
 
-  // Handle new member creation callback
   const handleNewMemberCreated = ({ userId, companyId }: { userId: string; companyId: string }) => {
     setPresetMemberCompanyFilter(companyId);
     setActiveTab('members');
+    window.history.replaceState(null, '', companiesPathForTab('members'));
     setHighlightUserId(userId);
     setTimeout(() => setHighlightUserId(null), 2000);
     void loadData();
   };
 
-  // If user is currently impersonating and opened OwnerView, guard with EmptyState
-  if (user?.impersonating) {
-    const compName = user.company?.name || user.company_id || 'the company';
-    return (
-      <div className="flex-1 flex items-center justify-center p-6 bg-canvas">
-        <EmptyState
-          title={`You're inside ${compName}`}
-          description="Exit to use the owner console."
-          action={
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={LogOut}
-              onClick={handleExitImpersonation}
-            >
-              Exit
-            </Button>
-          }
-        />
-      </div>
-    );
-  }
-
-  // Header primary action button based on current tab
   const headerAction =
     activeTab === 'companies' ? (
       <>
@@ -254,25 +212,22 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-canvas overflow-y-auto">
       <div className="max-w-[1400px] w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
-        {/* PageHeader (A1) */}
         <PageHeader
-          title="Owner console"
-          description="Companies on this platform and who can open them. Only you can see this page."
+          title="Companies"
+          description="Companies on this platform and who can access them. Only you can see this page."
           actions={headerAction}
         />
 
-        {/* Global load error state */}
         {loadError ? (
           <div className="py-12">
             <ErrorState
-              title="Couldn't load the owner console"
+              title="Couldn't load companies"
               message="Check your connection and try again. Nothing was changed."
               onRetry={loadData}
               retryLabel="Try again"
             />
           </div>
         ) : (
-          /* Tabs (Radix Tabs from ui/tabs.tsx) */
           <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <TabsList>
               <TabsTrigger
@@ -294,21 +249,19 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
               <TabsTrigger value="activity">Activity log</TabsTrigger>
             </TabsList>
 
-            {/* Companies Tab */}
             <TabsContent value="companies" className="pt-2">
               <OwnerCompaniesTab
                 companies={companies}
                 isLoading={isLoading}
-                currentUserCompanyId={user?.company_id}
+                currentUserCompanyId={user?.company_id || user?.company?.id}
+                memberCompanyIds={memberCompanyIds}
                 onSelectCompany={(cid) => setDetailCompanyId(cid)}
-                onEnterCompany={handleEnterCompany}
+                onGiveAccess={handleGiveAccessForCompany}
                 onOpenCreateModal={() => setIsCreateCompanyOpen(true)}
                 onRefreshData={loadData}
-                onNavigateToDashboard={() => onNavigateView?.('dashboard')}
               />
             </TabsContent>
 
-            {/* Members Tab */}
             {hasMembersSupport && (
               <TabsContent value="members" className="pt-2">
                 <OwnerMembersTab
@@ -316,7 +269,7 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
                   companies={companies}
                   isLoading={isLoading}
                   onRefreshData={loadData}
-                  onOpenGiveAccess={(m) => setGiveAccessUser(m)}
+                  onOpenGiveAccess={(m) => openGiveAccess(m)}
                   onOpenSetPassword={(m) => setSetPasswordUser(m)}
                   onOpenNewMemberModal={() => setIsNewMemberOpen(true)}
                   highlightUserId={highlightUserId}
@@ -325,7 +278,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
               </TabsContent>
             )}
 
-            {/* Activity Log Tab */}
             <TabsContent value="activity" className="pt-2">
               <OwnerActivityTab
                 logs={auditLogs}
@@ -341,9 +293,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         )}
       </div>
 
-      {/* Dialogs & Sheets */}
-
-      {/* New Company Dialog */}
       <CreateCompanyDialog
         isOpen={isCreateCompanyOpen}
         onClose={() => setIsCreateCompanyOpen(false)}
@@ -353,15 +302,14 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         }}
       />
 
-      {/* Company Detail Sheet */}
       <CompanyDetailSheet
         companyId={detailCompanyId}
         isOpen={Boolean(detailCompanyId)}
         onClose={() => setDetailCompanyId(null)}
-        currentUserId={user?.id}
-        currentUserCompanyId={user?.company_id}
+        currentUserCompanyId={user?.company_id || user?.company?.id}
+        memberCompanyIds={memberCompanyIds}
         members={members}
-        onEnterCompany={handleEnterCompany}
+        onGiveAccess={handleGiveAccessForCompany}
         onOpenBranding={(comp) => {
           setDetailCompanyId(null);
           setBrandingSheetCompany(comp);
@@ -389,24 +337,27 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         onManageInMembers={(cid) => {
           setPresetMemberCompanyFilter(cid);
           setActiveTab('members');
+          window.history.replaceState(null, '', companiesPathForTab('members'));
         }}
         onCompanyUpdated={async () => {
           await loadData();
         }}
       />
 
-      {/* Give Access Dialog */}
       <GiveAccessDialog
         user={giveAccessUser}
         companies={companies}
         isOpen={Boolean(giveAccessUser)}
-        onClose={() => setGiveAccessUser(null)}
+        presetCompanyId={giveAccessPresetCompanyId}
+        onClose={() => {
+          setGiveAccessUser(null);
+          setGiveAccessPresetCompanyId(undefined);
+        }}
         onSuccess={async () => {
           await loadData();
         }}
       />
 
-      {/* Set Starting Password Dialog */}
       <SetStartingPasswordDialog
         user={setPasswordUser}
         isOpen={Boolean(setPasswordUser)}
@@ -416,7 +367,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         }}
       />
 
-      {/* New Member Dialog */}
       <NewMemberDialog
         companies={companies}
         isOpen={isNewMemberOpen}
@@ -424,7 +374,6 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         onSuccess={handleNewMemberCreated}
       />
 
-      {/* Branding Sheet (triggered from Company Detail Sheet) */}
       <CompanyBrandingSheet
         company={brandingSheetCompany}
         onClose={() => setBrandingSheetCompany(null)}

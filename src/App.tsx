@@ -16,7 +16,6 @@ import { CrmView } from './components/views/CrmView';
 import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
 import { WebsitePipelineView } from './components/views/WebsitePipelineView';
-import { OwnerView } from './components/views/OwnerView';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
@@ -45,6 +44,7 @@ import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AccessDenied } from './components/ui/AccessDenied';
 import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
+import { isOwnerLegacyPath, ownerPathToCompaniesPath } from './utils/companiesRoutes';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -201,6 +201,7 @@ function AppInner() {
       const pathname = window.location.pathname.toLowerCase().replace(/^\/+|\/+$/g, '');
       const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
       const currentPath = pathname || hash;
+      const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
 
       if (
         currentPath.startsWith('book') ||
@@ -239,7 +240,7 @@ function AppInner() {
       } else if (currentPath === 'admin' || currentPath.startsWith('admin/')) {
         const segments = currentPath.split('/');
         const sub = segments[1];
-        if (sub && ['directory', 'compliance', 'workspaces'].includes(sub)) {
+        if (sub && ['directory', 'compliance', 'workspaces', 'companies'].includes(sub)) {
           setActiveAdminSection(sub as AdminSectionType);
         }
         setCurrentView('admin');
@@ -356,24 +357,20 @@ function AppInner() {
         setCurrentView('settings');
         setActiveSettingsSection('profile');
         localStorage.setItem('reamarc_active_view', 'settings');
-      } else if (currentPath === 'owner' || currentPath.startsWith('owner/')) {
-        if (user?.is_super_admin) {
-          const sub = currentPath.startsWith('owner/') ? currentPath.slice(6) : '';
-          if (!['members', 'activity'].includes(sub)) {
-            window.history.replaceState(null, '', '/owner');
-          }
-          setCurrentView('owner');
-          localStorage.setItem('reamarc_active_view', 'owner');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
-        }
+      } else if (isOwnerLegacyPath(currentPath)) {
+        const dest = ownerPathToCompaniesPath(currentPath);
+        window.history.replaceState(null, '', dest);
+        setActiveAdminSection('companies');
+        setCurrentView('admin');
+        localStorage.setItem('reamarc_active_view', 'admin');
       } else {
         // Root / or unknown path
-        const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
-        if (!currentSaved || !v1Views.includes(currentSaved)) {
+        if (currentSaved === 'owner') {
+          window.history.replaceState(null, '', '/admin/companies');
+          setActiveAdminSection('companies');
+          setCurrentView('admin');
+          localStorage.setItem('reamarc_active_view', 'admin');
+        } else if (!currentSaved || !v1Views.includes(currentSaved)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -413,7 +410,7 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
-        } else if (currentSaved === 'admin' && !canSeeAdmin) {
+        } else if (currentSaved === 'admin' && !canSeeAdmin && !user?.is_super_admin) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -469,18 +466,24 @@ function AppInner() {
     if (canSeeDailyLog) allowedViews.push('daily-log');
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
-    if (canSeeAdmin) allowedViews.push('admin');
-    if (user?.is_super_admin) allowedViews.push('owner');
+    if (canSeeAdmin || user?.is_super_admin) allowedViews.push('admin');
     allowedViews.push('settings');
 
-    const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
+    let requestedView = view;
+    let requestedSub = subSection;
+    if (view === 'owner') {
+      requestedView = 'admin';
+      requestedSub = 'companies';
+    }
+
+    const targetView = allowedViews.includes(requestedView) ? requestedView : getDefaultViewForUser();
 
     if (targetView !== 'settings') {
       setLastNonSettingsView(targetView);
     }
 
-    if (targetView === 'admin' && subSection && ['directory', 'compliance', 'workspaces'].includes(subSection)) {
-      setActiveAdminSection(subSection as AdminSectionType);
+    if (targetView === 'admin' && requestedSub && ['directory', 'compliance', 'workspaces', 'companies'].includes(requestedSub)) {
+      setActiveAdminSection(requestedSub as AdminSectionType);
     }
     if (targetView === 'attendance' && subSection && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals', 'timesheet', 'requests'].includes(subSection)) {
       setActiveAttendanceSection(subSection as AttendanceSubSection);
@@ -495,8 +498,8 @@ function AppInner() {
     try {
       if (targetView === 'settings') {
         window.history.pushState(null, '', `/settings/${activeSettingsSection || 'profile'}`);
-      } else if (targetView === 'admin' && subSection) {
-        window.history.pushState(null, '', `/admin/${subSection}`);
+      } else if (targetView === 'admin' && requestedSub) {
+        window.history.pushState(null, '', `/admin/${requestedSub}`);
       } else if (targetView === 'attendance' && subSection) {
         window.history.pushState(null, '', `/attendance/${subSection}`);
       } else if (targetView === 'crm' && subSection) {
@@ -719,10 +722,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
@@ -776,10 +776,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
               setIsMobileNavOpen(false);
             }}
             activeWebsiteSection={activeWebsiteSection}
@@ -830,10 +827,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
@@ -1011,11 +1005,13 @@ function AppInner() {
           )}
 
           {currentView === 'admin' && (
-            canSeeAdmin ? (
+            activeAdminSection === 'companies' && !user?.is_super_admin ? (
+              <AccessDenied module="Companies" />
+            ) : canSeeAdmin || user?.is_super_admin ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <AdminPanel
                 activeSection={activeAdminSection}
-                onSectionChange={setActiveAdminSection}
+                onSectionChange={(section) => handleSelectView('admin', section)}
                 onAddWorkspace={() => navigateToClientPage({ mode: 'new', returnTo: 'admin-workspaces' })}
                 onEditWorkspace={(ws) => navigateToClientPage({ mode: 'edit', id: ws.id, returnTo: 'admin-workspaces' })}
               />
@@ -1036,15 +1032,7 @@ function AppInner() {
             </div>
           )}
 
-          {currentView === 'owner' && (
-            user?.is_super_admin ? (
-              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-                <OwnerView onNavigateView={handleSelectView} />
-              </div>
-            ) : (
-              <AccessDenied module="Owner Console" />
-            )
-          )}
+          {currentView === 'owner' && <AccessDenied module="Companies" />}
         </ErrorBoundary>
       </AppShell>
 
@@ -1063,8 +1051,7 @@ function AppInner() {
           if (currentView !== 'attendance') handleSelectView('attendance');
         }}
         onSelectAdminSection={(section) => {
-          setActiveAdminSection(section);
-          if (currentView !== 'admin') handleSelectView('admin');
+          handleSelectView('admin', section);
         }}
         onSelectWebsiteSection={(section) => {
           setActiveWebsiteSection(section);

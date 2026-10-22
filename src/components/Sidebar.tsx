@@ -265,6 +265,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'directory' as AdminSectionType, label: 'Team directory', visible: true },
     { id: 'compliance' as AdminSectionType, label: 'Log compliance', visible: isAdmin },
     { id: 'workspaces' as AdminSectionType, label: 'Client workspaces', visible: isAdmin || isOperations },
+    { id: 'companies' as AdminSectionType, label: 'Companies', visible: Boolean(user?.is_super_admin) },
   ].filter((item) => item.visible);
 
   const websitePipelineSubItems = [
@@ -498,7 +499,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'admin',
       label: 'Admin',
       items: [
-        ...(canSeeAdmin
+        ...(canSeeAdmin || user?.is_super_admin
           ? [
               {
                 id: 'admin' as ViewType,
@@ -521,15 +522,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         },
                       }))
                     : undefined,
-              },
-            ]
-          : []),
-        ...(user?.is_super_admin && !user?.impersonating
-          ? [
-              {
-                id: 'owner' as ViewType,
-                label: 'Owner Console',
-                icon: Building2,
               },
             ]
           : []),
@@ -591,7 +583,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
                     </div>
                     <span className="block text-xs text-fg-muted leading-4 truncate">
-                      {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
+                      {user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                     </span>
                   </div>
                 </button>
@@ -649,15 +641,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {user?.is_super_admin && (
                   <>
                     <DropdownMenuSeparator className="my-1" />
-                    {!user?.impersonating && (
                     <DropdownMenuItem
-                      onClick={() => onSelectView('owner' as ViewType)}
+                      onClick={() => {
+                        onSelectAdminSection?.('companies');
+                      }}
                       className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs font-medium text-fg hover:text-accent rounded-md"
                     >
                       <Shield size={14} className="text-accent shrink-0" />
-                      <span>Owner console</span>
+                      <span>Companies</span>
                     </DropdownMenuItem>
-                    )}
                   </>
                 )}
               </DropdownMenuContent>
@@ -678,7 +670,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {brandNameOf(user?.company)}
                 </span>
                 <span className="block text-xs text-fg-muted leading-4 truncate">
-                  {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
+                  {user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                 </span>
               </div>
             </>
@@ -1193,17 +1185,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               <DropdownMenuSeparator />
-
-              {/* Owner Console (Faizan super-admin only) */}
-              {user?.is_super_admin && (
-                <DropdownMenuItem
-                  onClick={() => onSelectView('owner')}
-                  className="text-[13px] gap-2.5 cursor-pointer font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
-                >
-                  <Shield size={16} />
-                  <span>Owner Console</span>
-                </DropdownMenuItem>
-              )}
 
               {/* 2. Settings */}
               <DropdownMenuItem

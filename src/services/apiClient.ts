@@ -174,7 +174,7 @@ class ApiClient {
     return this.refreshPromise;
   }
 
-  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false, endpoint?: string): Record<string, string> {
+  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false, _endpoint?: string): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
@@ -184,10 +184,11 @@ class ApiClient {
     };
 
     if (typeof window !== 'undefined') {
-      const isAuthEndpoint = endpoint && (endpoint.includes('/auth/login') || endpoint.includes('/auth/logout'));
-      const impToken = sessionStorage.getItem('reamarc_impersonation_token') || localStorage.getItem('reamarc_impersonation_token');
-      if (impToken && !headers['Authorization'] && !isAuthEndpoint) {
-        headers['Authorization'] = `Bearer ${impToken}`;
+      try {
+        sessionStorage.removeItem('reamarc_impersonation_token');
+        localStorage.removeItem('reamarc_impersonation_token');
+      } catch {
+        // Ignore storage access errors
       }
     }
 
@@ -196,9 +197,11 @@ class ApiClient {
 
   public request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     if (typeof window !== 'undefined') {
-      const impToken = sessionStorage.getItem('reamarc_impersonation_token') || localStorage.getItem('reamarc_impersonation_token');
-      if (impToken && endpoint.startsWith('/owner/') && endpoint !== '/owner/exit') {
-        return Promise.reject(new Error('Cannot call owner endpoints while impersonating'));
+      try {
+        sessionStorage.removeItem('reamarc_impersonation_token');
+        localStorage.removeItem('reamarc_impersonation_token');
+      } catch {
+        // Stale impersonation tokens should not crash the client.
       }
     }
     const isGet = (!options.method || options.method.toUpperCase() === 'GET') && !options.signal;
