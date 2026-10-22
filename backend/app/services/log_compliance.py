@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.database import get_database
+from app.services.company_members import company_member_user
 from app.models.attendance import NON_LEAVE_REQUEST_TYPES
 from app.models.user import UserRole
 
@@ -851,7 +852,7 @@ async def recompute_day_score(
     if db is None:
         return None
 
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    user = await company_member_user(user_id, db=db)
     if not user:
         return None
 
@@ -923,6 +924,7 @@ async def recompute_day_score(
         {"user_id": user_id, "date": date_str},
         {"_id": 0},
     )
+    role = str(user.get("role") or "team_member").lower()
     score = {
         "id": (existing_score or {}).get("id") or f"dls-{uuid.uuid4().hex[:12]}",
         "user_id": user_id,

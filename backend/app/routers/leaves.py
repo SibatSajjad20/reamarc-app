@@ -227,6 +227,13 @@ async def delete_leave_request(
     Allowed if the current user is the applicant or an Admin.
     HR and Operations cannot delete someone else's request.
     """
+    from app.database import get_database
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+    existing = await db.leave_requests.find_one({"id": id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Leave request not found.")
     success = await attendance_service.delete_leave_request(
         request_id=id,
         current_user=current_user,
@@ -259,5 +266,7 @@ async def update_leave_opening_balance(
     current_user: dict = Depends(require_hr_or_admin),
 ):
     from app.services import leave_balance
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(current_user, user_id)
     return await leave_balance.update_opening_balance(user_id, payload)
 

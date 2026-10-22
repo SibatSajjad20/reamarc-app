@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from app.database import get_database
 from app.services.crm_form_fields import form_answer_rows, is_no_website, pull_form_answers
@@ -28,6 +29,7 @@ from app.services.crm_access import (
     visibility_filter,
 )
 from app.services.crm_phone import normalize_phone_e164, wa_me_url
+from app.services.company_members import company_member_user, company_member_users
 
 logger = logging.getLogger("app.crm")
 
@@ -183,45 +185,53 @@ def serialize_activity(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 async def ensure_default_pipeline() -> Dict[str, Any]:
     db = _db()
+    now = _now()
+    seed_stages = [dict(s) for s in DEFAULT_STAGES]
+    try:
+        await db.crm_pipeline.update_one(
+            {"id": "default"},
+            {"$setOnInsert": {"id": "default", "stages": seed_stages, "updated_at": now}},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        pass
     existing = await db.crm_pipeline.find_one({"id": "default"}, {"_id": 0})
+    if not existing:
+        existing = {"id": "default", "stages": seed_stages, "updated_at": now}
     lead_stage_ids = {s["id"] for s in DEFAULT_STAGES}
-    if existing:
-        stages = existing.get("stages") or []
-        needs_update = False
-        cleaned: List[Dict[str, Any]] = []
-        for s in stages:
-            sid = s.get("id")
-            # Drop legacy commercial stages now owned by the deal pipeline
-            if sid in ("proposal_sent", "negotiation"):
-                needs_update = True
-                continue
-            if sid == "session_booked" and s.get("name") != "Meeting Booked":
-                s = {**s, "name": "Meeting Booked"}
-                needs_update = True
-            elif sid == "session_done" and s.get("name") != "Meeting Completed":
-                s = {**s, "name": "Meeting Completed"}
-                needs_update = True
-            if sid in lead_stage_ids:
-                cleaned.append(s)
-            else:
-                needs_update = True
-        # Ensure all default stages exist
-        have = {s.get("id") for s in cleaned}
-        for s in DEFAULT_STAGES:
-            if s["id"] not in have:
-                cleaned.append(dict(s))
-                needs_update = True
-        cleaned.sort(key=lambda x: int(x.get("order") or 99))
-        if needs_update or cleaned != stages:
-            await db.crm_pipeline.update_one(
-                {"id": "default"},
-                {"$set": {"stages": cleaned, "updated_at": _now()}},
-            )
-            existing["stages"] = cleaned
-        return existing
-    doc = {"id": "default", "stages": DEFAULT_STAGES, "updated_at": _now()}
-    await db.crm_pipeline.insert_one(doc)
-    return doc
+    stages = existing.get("stages") or []
+    needs_update = False
+    cleaned: List[Dict[str, Any]] = []
+    for s in stages:
+        sid = s.get("id")
+        # Drop legacy commercial stages now owned by the deal pipeline
+        if sid in ("proposal_sent", "negotiation"):
+            needs_update = True
+            continue
+        if sid == "session_booked" and s.get("name") != "Meeting Booked":
+            s = {**s, "name": "Meeting Booked"}
+            needs_update = True
+        elif sid == "session_done" and s.get("name") != "Meeting Completed":
+            s = {**s, "name": "Meeting Completed"}
+            needs_update = True
+        if sid in lead_stage_ids:
+            cleaned.append(s)
+        else:
+            needs_update = True
+    # Ensure all default stages exist
+    have = {s.get("id") for s in cleaned}
+    for s in DEFAULT_STAGES:
+        if s["id"] not in have:
+            cleaned.append(dict(s))
+            needs_update = True
+    cleaned.sort(key=lambda x: int(x.get("order") or 99))
+    if needs_update or cleaned != stages:
+        await db.crm_pipeline.update_one(
+            {"id": "default"},
+            {"$set": {"stages": cleaned, "updated_at": _now()}},
+        )
+        existing["stages"] = cleaned
+    return existing
 
 
 async def append_activity(
@@ -254,8 +264,7 @@ async def append_activity(
 async def _user_label(user_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     if not user_id:
         return None, None
-    db = _db()
-    doc = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "full_name": 1, "name": 1, "email": 1})
+    doc = await company_member_user(user_id, db=_db())
     if not doc:
         return user_id, None
     return user_id, str(doc.get("full_name") or doc.get("name") or doc.get("email") or user_id)
@@ -265,10 +274,7 @@ async def _assert_can_see(user: Dict[str, Any], lead: Dict[str, Any]) -> None:
     assignee = None
     assigned_to = lead.get("assigned_to")
     if assigned_to and is_sales_team_lead(user) and assigned_to != user.get("id"):
-        assignee = await _db().users.find_one(
-            {"id": assigned_to},
-            {"_id": 0, "id": 1, "role": 1, "department": 1},
-        )
+        assignee = await company_member_user(assigned_to, db=_db())
     if lead_visible_to(user, lead, assignee):
         return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
@@ -317,12 +323,12 @@ async def get_lead_or_404(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
 async def list_assignees() -> List[Dict[str, Any]]:
     from app.services.crm_access import is_crm_user
 
-    db = _db()
-    cursor = db.users.find(
+    users = await company_member_users(
         {"is_active": {"$ne": False}, "role": {"$nin": ["client", "hr"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=_db(),
+        projection={"_id": 0, "hashed_password": 0},
+        limit=400,
     )
-    users = await cursor.to_list(400)
     out = []
     for u in users:
         if not is_crm_user(u):
@@ -508,9 +514,12 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign leads to others.")
         from app.services.crm_access import is_crm_user
 
-        assignee = await db.users.find_one({"id": assigned_to}, {"_id": 0, "hashed_password": 0})
-        if not assignee or not is_crm_user(assignee):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
+        assignee = await company_member_user(assigned_to, db=_db())
+        if not assignee or assignee.get("needs_setup") or not is_crm_user(assignee):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assignee is not an active, set-up member of this company.",
+            )
         assigned_to = assignee.get("id")
         assigned_name = str(assignee.get("full_name") or assignee.get("name") or assignee.get("email") or assigned_to)
     elif not can_assign_leads(user):
@@ -684,11 +693,12 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed leads cannot be reassigned.")
     from app.services.crm_access import is_crm_user
 
-    assignee = await db.users.find_one({"id": target_user_id}, {"_id": 0, "hashed_password": 0})
-    if not assignee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found.")
-    if not is_crm_user(assignee):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
+    assignee = await company_member_user(target_user_id, db=_db())
+    if not assignee or assignee.get("needs_setup") or not is_crm_user(assignee):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assignee is not an active, set-up member of this company.",
+        )
     uid = assignee.get("id")
     name = str(assignee.get("full_name") or assignee.get("name") or assignee.get("email") or uid)
     now = _now()

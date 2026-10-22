@@ -63,7 +63,7 @@ export function exportMonthlyAttendanceWorkbook({
   summaryRows,
   summaryStats,
   employeeTimesheets = {},
-  companyName = 'Reamarc',
+  companyName = '',
 }: ExportOptions): void {
   const monthName = MONTH_NAMES[month - 1] || `Month-${month}`;
   const wb = XLSX.utils.book_new();
@@ -75,7 +75,8 @@ export function exportMonthlyAttendanceWorkbook({
   const summarySheetData: any[][] = [];
 
   // Title Block
-  summarySheetData.push([`${companyName.toUpperCase()} - MONTHLY ATTENDANCE & PUNCTUALITY SUMMARY`]);
+  const titlePrefix = companyName ? `${companyName.toUpperCase()} - ` : '';
+  summarySheetData.push([`${titlePrefix}MONTHLY ATTENDANCE & PUNCTUALITY SUMMARY`]);
   summarySheetData.push([`Month & Year: ${monthName} ${year}`, '', `Generated: ${new Date().toLocaleString()}`]);
   summarySheetData.push([
     `Total Headcount: ${summaryRows.length}`,
@@ -388,6 +389,7 @@ export function exportMonthlyAttendanceWorkbook({
   });
 
   // Write and trigger download in browser
-  const filename = `Reamarc_Attendance_Summary_${year}_${String(month).padStart(2, '0')}.xlsx`;
+  const prefix = companyName ? companyName.replace(/[^a-zA-Z0-9_-]/g, '_') : 'Attendance';
+  const filename = `${prefix}_Attendance_Summary_${year}_${String(month).padStart(2, '0')}.xlsx`;
   XLSX.writeFile(wb, filename);
 }

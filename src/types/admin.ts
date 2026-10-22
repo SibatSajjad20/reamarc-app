@@ -19,6 +19,13 @@ export interface AdminMember {
   created_at?: string;
   workspace_ids?: string[];
   avatar_url?: string | null;
+  needs_setup?: boolean;
+  company_id?: string | null;
+  is_super_admin?: boolean;
+  login_managed_elsewhere?: boolean;
+  can_edit?: boolean;
+  can_edit_identity?: boolean;
+  can_edit_role?: boolean;
 }
 
 export type AdminUser = AdminMember;
@@ -181,4 +188,4 @@ export interface UpdateWorkspacePayload {
 export type AdminCreateWorkspacePayload = CreateWorkspacePayload;
 export type AdminUpdateWorkspacePayload = UpdateWorkspacePayload;
 
-export type AdminSectionType = 'directory' | 'compliance' | 'workspaces';
+export type AdminSectionType = 'directory' | 'compliance' | 'workspaces' | 'companies';

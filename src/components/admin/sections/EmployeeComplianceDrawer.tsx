@@ -1,3 +1,5 @@
+import { useAuth } from '../../../context/AuthContext';
+import { brandNameOf } from '../../../utils/branding';
 import React, { useEffect, useState } from 'react';
 import {
   AlertTriangle,
@@ -45,6 +47,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
   isSendingReminder = false,
   canRemind = true,
 }) => {
+  const { user } = useAuth();
   const [data, setData] = useState<EmployeeComplianceDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -164,7 +167,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                   {member.phone && (
                     <a
                       href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                        `Hi ${member.full_name}, reminder to submit your Daily Log on Reamarc.`
+                        `Hi ${member.full_name}, reminder to submit your Daily Log on ${brandNameOf(user?.company)}.`
                       )}`}
                       target="_blank"
                       rel="noreferrer"

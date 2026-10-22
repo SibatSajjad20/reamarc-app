@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.database import get_database
+from app.core.tenant import get_global_db
 from app.services.access import (
     MODULES,
     VALID_CONTENT_STAGES,
@@ -46,11 +47,18 @@ async def run_access_settings_migration(
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    gdb = get_global_db()
+    mig_coll = getattr(gdb, "migrations", None) if gdb is not None else getattr(db, "migrations", None)
+
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    mig_marker_id = f"{MIGRATION_ID}:{ctx.company_id}" if (ctx and ctx.company_id) else MIGRATION_ID
+
     # Check marker document
-    if not force:
-        marker = await db.migrations.find_one({"id": MIGRATION_ID})
+    if not force and mig_coll is not None:
+        marker = await mig_coll.find_one({"id": mig_marker_id})
         if marker:
-            logger.info("Migration %s already applied at %s", MIGRATION_ID, marker.get("applied_at"))
+            logger.info("Migration %s already applied at %s", mig_marker_id, marker.get("applied_at"))
             return {
                 "status": "ALREADY_APPLIED",
                 "marker": marker,
@@ -139,14 +147,18 @@ async def run_access_settings_migration(
 
         # Insert migration marker
         marker_doc = {
-            "id": MIGRATION_ID,
+            "id": mig_marker_id,
+            "migration_id": MIGRATION_ID,
             "applied_at": now_iso,
             "users_processed": users_processed,
             "roles_normalized": roles_normalized_count,
             "stages_carried": stages_carried_count,
             "overrides_ignored": overrides_ignored,
         }
-        await db.migrations.update_one({"id": MIGRATION_ID}, {"$set": marker_doc}, upsert=True)
+        if ctx and ctx.company_id:
+            marker_doc["company_id"] = ctx.company_id
+        if mig_coll is not None:
+            await mig_coll.update_one({"id": mig_marker_id}, {"$set": marker_doc}, upsert=True)
 
     summary = {
         "status": "DRY_RUN" if dry_run else "APPLIED",

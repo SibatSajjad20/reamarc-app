@@ -164,7 +164,9 @@ class AccessApiTests(unittest.TestCase):
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required.")
             return caller
 
+        from app.core.security import get_current_user
         app.dependency_overrides[require_admin] = _override_require_admin
+        app.dependency_overrides[get_current_user] = _override_require_admin
         return app
 
     def test_non_admins_get_403_on_every_route(self):
@@ -190,7 +192,7 @@ class AccessApiTests(unittest.TestCase):
         app = self._build_app(caller)
         client = TestClient(app)
 
-        with patch("app.routers.access.get_database", return_value=self.mock_db):
+        with patch("app.routers.access.get_database", return_value=self.mock_db), patch("app.routers.access.settings.MULTI_COMPANY_ENABLED", False):
             resp = client.get("/api/v1/access/users")
             self.assertEqual(resp.status_code, 200)
             data = resp.json()

@@ -411,9 +411,11 @@ async def get_security_settings(
         safe_dict["office_longitude"] = None
         safe_dict["geofence_radius_meters"] = None
         return PublicSecuritySettingsSchema(**safe_dict)
+    from app.core.integrations import current_company_id, is_reamarc_company
+    locked = get_built_in_office_ips() if is_reamarc_company(current_company_id()) else []
     return SecuritySettingsResponse(
         **full.model_dump(),
-        locked_office_ips=get_built_in_office_ips(),
+        locked_office_ips=locked,
     )
 
 
@@ -424,9 +426,11 @@ async def update_security_settings(
 ):
     """Updates IP Whitelist and GPS Geofencing security settings (Admin/HR only)."""
     updated = await attendance_service.update_security_settings(settings_in)
+    from app.core.integrations import current_company_id, is_reamarc_company
+    locked = get_built_in_office_ips() if is_reamarc_company(current_company_id()) else []
     return SecuritySettingsResponse(
         **updated.model_dump(),
-        locked_office_ips=get_built_in_office_ips(),
+        locked_office_ips=locked,
     )
 
 

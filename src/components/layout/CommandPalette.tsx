@@ -117,6 +117,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   }, [currentView]);
 
   const handleSelectPage = (view: ViewType) => {
+    if (view === 'owner') {
+      onSelectAdminSection?.('companies');
+      onOpenChange(false);
+      return;
+    }
     onSelectView(view);
     onOpenChange(false);
   };
@@ -136,6 +141,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     portal: { label: 'Client portal', icon: CircleCheck },
     profile: { label: 'Settings', icon: Settings },
     settings: { label: 'Settings', icon: Settings },
+    owner: { label: 'Companies', icon: Building2 },
   };
 
   return (
@@ -270,13 +276,26 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               <span>Exceptions</span>
             </CommandItem>
           )}
-          {canSeeAdmin && (
+          {(canSeeAdmin || user?.is_super_admin) && (
             <CommandItem
               onSelect={() => handleSelectPage('admin')}
               className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
             >
               <Shield size={16} className="text-fg-muted shrink-0" />
               <span>{adminLabel}</span>
+            </CommandItem>
+          )}
+          {user?.is_super_admin && (
+            <CommandItem
+              value="companies owner console"
+              onSelect={() => {
+                onSelectAdminSection?.('companies');
+                onOpenChange(false);
+              }}
+              className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+            >
+              <Building2 size={16} className="text-fg-muted shrink-0" />
+              <span>Companies</span>
             </CommandItem>
           )}
           {isClient && (
@@ -420,7 +439,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                 </>
               )}
 
-              {canSeeAdmin && (
+              {(canSeeAdmin || user?.is_super_admin) && (
                 <>
                   <CommandItem
                     onSelect={() => {
@@ -457,6 +476,19 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     >
                       <Shield size={16} className="text-fg-muted shrink-0" />
                       <span>Admin: Client workspaces</span>
+                    </CommandItem>
+                  )}
+                  {user?.is_super_admin && (
+                    <CommandItem
+                      value="admin companies owner"
+                      onSelect={() => {
+                        onSelectAdminSection?.('companies');
+                        onOpenChange(false);
+                      }}
+                      className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+                    >
+                      <Shield size={16} className="text-fg-muted shrink-0" />
+                      <span>Admin: Companies</span>
                     </CommandItem>
                   )}
                 </>

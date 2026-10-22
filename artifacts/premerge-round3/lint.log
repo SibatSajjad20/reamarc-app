@@ -1,0 +1,1789 @@
+
+> cagent@0.0.0 lint
+> npx oxlint && node scripts/check-tokens.mjs
+
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'loadCredentials'
+    ,-[src/components/modals/AdAccountCredentialsModal.tsx:81:6]
+ 76 |     if (isOpen) {
+ 77 |       loadCredentials();
+    :       ^^^^^^^|^^^^^^^
+    :              `-- useEffect uses `loadCredentials` here
+ 78 |       setAccountName(selectedWorkspace?.name || '');
+ 79 |       setVerificationResult(null);
+ 80 |     }
+ 81 |   }, [isOpen, selectedWorkspace]);
+    :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 82 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[src/components/crm/CrmProposalModal.tsx:139:17]
+ 138 | 
+ 139 | export function dealFormConfigToPayload(config: CrmDealFormConfig, lead?: CrmLead | null): CrmDealCreatePayload {
+     :                 ^^^^^^^^^^^^^^^^^^^^^^^
+ 140 |   const services = config.services?.length
+     `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/crm/CrmStatusBadge.tsx:8:17]
+ 7 | 
+ 8 | export function leadOperationalStatus(lead: Pick<
+   :                 ^^^^^^^^^^^^^^^^^^^^^
+ 9 |   CrmLead,
+   `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/crm/CrmLostReasonModal.tsx:7:14]
+ 6 | 
+ 7 | export const LEAD_LOST_REASON_OPTIONS = [
+   :              ^^^^^^^^^^^^^^^^^^^^^^^^
+ 8 |   { value: 'budget', label: 'Budget / Price' },
+   `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/crm/CrmLostReasonModal.tsx:17:14]
+ 16 | 
+ 17 | export const DEAL_LOST_REASON_OPTIONS = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^^
+ 18 |   { value: 'budget', label: 'Budget / Price' },
+    `----
+
+  ! eslint(no-unused-vars): Parameter 'event' is declared but never used. Unused parameters should start with a '_'.
+   ,-[public/sw.js:3:35]
+ 2 | 
+ 3 | self.addEventListener('install', (event) => {
+   :                                   ^^|^^
+   :                                     `-- 'event' is declared here
+ 4 |   self.skipWaiting();
+   `----
+  help: Consider removing this parameter.
+
+  ! eslint(no-unused-vars): Function 'isRewritableApiHost' is declared but never used.
+    ,-[mobile/src/theme.ts:37:10]
+ 36 | 
+ 37 | function isRewritableApiHost(hostname: string): boolean {
+    :          ^^^^^^^^^|^^^^^^^^^
+    :                   `-- 'isRewritableApiHost' is declared here
+ 38 |   return (
+    `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-useless-escape): Unnecessary escape character '-'
+   ,-[src/components/crm/leadFieldValidation.ts:1:37]
+ 1 | const NAME_RE = /^[\p{L}][\p{L}'’.\-]{1,}(?:\s+[\p{L}][\p{L}'’.\-]{1,})+$/u;
+   :                                   ^^
+ 2 | const EMAIL_RE = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+   `----
+  help: Replace `\-` with `-`.
+
+  ! eslint(no-useless-escape): Unnecessary escape character '-'
+   ,-[src/components/crm/leadFieldValidation.ts:1:68]
+ 1 | const NAME_RE = /^[\p{L}][\p{L}'’.\-]{1,}(?:\s+[\p{L}][\p{L}'’.\-]{1,})+$/u;
+   :                                                                ^^
+ 2 | const EMAIL_RE = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+   `----
+  help: Replace `\-` with `-`.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'user'
+    ,-[mobile/src/lib/inboxSync.tsx:17:10]
+ 16 |   useEffect(() => {
+ 17 |     if (!user) return;
+    :          ^^|^
+    :            `-- useEffect uses `user` here
+ 18 |     let cancelled = false;
+    `----
+    ,-[mobile/src/lib/inboxSync.tsx:56:6]
+ 55 |     };
+ 56 |   }, [user?.id]);
+    :      ^^^^^^^^^^
+ 57 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'selectedFolder'
+     ,-[src/components/ui/DriveAttach.tsx:102:6]
+  98 |       setSelectedFolder(defaultFolder);
+  99 |     } else if (folders && folders.length > 0 && !selectedFolder) {
+     :                                                  ^^^^^^^|^^^^^^
+     :                                                         `-- useEffect uses `selectedFolder` here
+ 100 |       setSelectedFolder(folders[0].value);
+ 101 |     }
+ 102 |   }, [defaultFolder, folders]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^
+ 103 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'linkNameError'
+     ,-[src/components/ui/DriveAttach.tsx:114:6]
+ 112 |   useEffect(() => {
+ 113 |     if (linkNameError) setLinkNameError(null);
+     :         ^^^^^^|^^^^^^
+     :               `-- useEffect uses `linkNameError` here
+ 114 |   }, [linkName]);
+     :      ^^^^^^^^^^
+ 115 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'linkUrlWarning', and 'linkUrlError'
+     ,-[src/components/ui/DriveAttach.tsx:119:6]
+ 116 |   useEffect(() => {
+ 117 |     if (linkUrlError) setLinkUrlError(null);
+     :         ^^^^^^^^^^^^
+ 118 |     if (linkUrlWarning) setLinkUrlWarning(null);
+     :         ^^^^^^^^^^^^^^
+ 119 |   }, [linkUrl]);
+     :      ^^^^^^^^^
+ 120 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/content-calendar/ContentCalendarModal.tsx:27:17]
+ 26 | 
+ 27 | export function findMatchingClient(
+    :                 ^^^^^^^^^^^^^^^^^^
+ 28 |   clientName: string | undefined | null,
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/owner/StartingPasswordField.tsx:7:17]
+ 6 | 
+ 7 | export function calculatePasswordStrength(pwd: string): number {
+   :                 ^^^^^^^^^^^^^^^^^^^^^^^^^
+ 8 |   if (!pwd) return 0;
+   `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/owner/StartingPasswordField.tsx:17:17]
+ 16 | 
+ 17 | export function generateStrongPassword(): string {
+    :                 ^^^^^^^^^^^^^^^^^^^^^^
+ 18 |   const uppers = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'lead.outcome', 'lead.form_completed_at', and 'lead'
+     ,-[src/components/crm/CrmLeadDrawer.tsx:284:6]
+ 280 |     setTrashReason('');
+ 281 |     if (lead && !lead.form_completed_at && !lead.outcome) {
+     :         ^^^^     ^^^^                       ^^^^
+ 282 |       setFormOpen(true);
+ 283 |     }
+ 284 |   }, [lead?.id]);
+     :      ^^^^^^^^^^
+ 285 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'lead', and 'lead.deals'
+     ,-[src/components/crm/CrmLeadDrawer.tsx:322:6]
+ 286 |   useEffect(() => {
+ 287 |     if (!lead) {
+     :          ^^^^
+ 288 |       setDeals([]);
+ 289 |       setDealsLoading(false);
+ 290 |       return;
+ 291 |     }
+ 292 | 
+ 293 |     if (lead.deals && lead.deals.length > 0) {
+     :         ^^^^
+ 294 |       setDeals(lead.deals);
+ 295 |       setDealsLoading(false);
+ 296 |       return;
+ 297 |     }
+ 298 | 
+ 299 |     let cancelled = false;
+ 300 |     const controller = new AbortController();
+ 301 |     setDeals([]);
+ 302 |     setDealsLoading(true);
+ 303 |     const leadId = lead.id;
+ 304 | 
+ 305 |     crmService
+ 306 |       .listDeals(leadId, { signal: controller.signal })
+ 307 |       .then((res) => {
+ 308 |         if (!cancelled) setDeals(res.deals || []);
+ 309 |       })
+ 310 |       .catch((err: any) => {
+ 311 |         if (err?.name === 'AbortError' || err?.status === 499) return;
+ 312 |         if (!cancelled) setDeals([]);
+ 313 |       })
+ 314 |       .finally(() => {
+ 315 |         if (!cancelled) setDealsLoading(false);
+ 316 |       });
+ 317 | 
+ 318 |     return () => {
+ 319 |       cancelled = true;
+ 320 |       controller.abort();
+ 321 |     };
+ 322 |   }, [lead?.id, lead?.deals?.length]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 323 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'updateIndicator'
+    ,-[src/components/ui/SegmentedControl.tsx:97:6]
+ 92 |       // Reposition on container resize without triggering animation lag
+ 93 |       updateIndicator(false);
+    :       ^^^^^^^|^^^^^^^
+    :              `-- useEffect uses `updateIndicator` here
+ 94 |     });
+ 95 |     ro.observe(groupRef.current);
+ 96 |     return () => ro.disconnect();
+ 97 |   }, [activeValue]);
+    :      ^^^^^^^^^^^^^
+ 98 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'TouchableWithoutFeedback' is imported but never used.
+    ,-[mobile/app/(tabs)/index.tsx:16:3]
+ 15 |   TextInput,
+ 16 |   TouchableWithoutFeedback,
+    :   ^^^^^^^^^^^^|^^^^^^^^^^^
+    :               `-- 'TouchableWithoutFeedback' is imported here
+ 17 |   View,
+    `----
+  help: Consider removing this import.
+
+  ! react-hooks(exhaustive-deps): React hook useMemo depends on `rows`, which changes every render
+      ,-[mobile/app/(tabs)/index.tsx:1374:7]
+ 1293 | 
+ 1294 |   const rows = matrix?.rows || [];
+      :         ^^|^
+      :           `-- `rows` is declared here
+ 1295 | 
+ 1296 |   const selectedDateObj = parseDate(selectedDate);
+ 1297 |   const isSelectedSunday = selectedDateObj.getDay() === 0;
+ 1298 |   const isSelectedFirstSat = selectedDateObj.getDay() === 6 && selectedDateObj.getDate() <= 7;
+ 1299 | 
+ 1300 |   // Detect if day is marked as company holiday from rows or notes
+ 1301 |   const isHolidayDate = rows.length > 0 && rows.every((r) => {
+ 1302 |     const cin = r.check_in || r.punch_in;
+ 1303 |     return !cin && (
+ 1304 |       r.status === 'holiday' ||
+ 1305 |       r.status_badge === 'Holiday' ||
+ 1306 |       String(r.notes || '').toLowerCase().includes('holiday')
+ 1307 |     );
+ 1308 |   });
+ 1309 | 
+ 1310 |   const isWholeDayOff = isSelectedSunday || isSelectedFirstSat || isHolidayDate;
+ 1311 |   const offDayTitle = isHolidayDate
+ 1312 |     ? (rows.find((r) => r.notes)?.notes || 'Company Holiday')
+ 1313 |     : isSelectedSunday
+ 1314 |     ? 'Sunday Off'
+ 1315 |     : isSelectedFirstSat
+ 1316 |     ? '1st Saturday Off'
+ 1317 |     : 'Rest Day';
+ 1318 | 
+ 1319 |   // Derive counts directly matching desktop daily matrix
+ 1320 |   const totalEmployees = matrix?.total_employees ?? matrix?.summary?.total_headcount ?? (rows.length || 0);
+ 1321 |   const presentCount = matrix?.present_count ?? matrix?.summary?.present ?? 0;
+ 1322 |   const onTimeCount = matrix?.summary?.on_time ?? Math.max(0, presentCount - (matrix?.late_count || matrix?.summary?.late || 0));
+ 1323 |   const lateCount = matrix?.late_count ?? matrix?.summary?.late ?? 0;
+ 1324 |   const wfhCount = matrix?.wfh_count ?? matrix?.summary?.wfh ?? 0;
+ 1325 |   const leaveCount = matrix?.leave_count ?? matrix?.summary?.leaves ?? 0;
+ 1326 | 
+ 1327 |   // Real absences: strictly 0 on Sundays/holidays/off-days
+ 1328 |   const actualAbsentCount = isWholeDayOff
+ 1329 |     ? 0
+ 1330 |     : (matrix?.absent_count !== undefined
+ 1331 |         ? matrix.absent_count
+ 1332 |         : Math.max(0, totalEmployees - presentCount - wfhCount - leaveCount));
+ 1333 | 
+ 1334 |   const attendancePercent =
+ 1335 |     totalEmployees > 0 && !isWholeDayOff ? Math.round((presentCount / totalEmployees) * 100) : 0;
+ 1336 | 
+ 1337 |   const filteredEmployees = useMemo(() => {
+ 1338 |     return rows.filter((e) => {
+ 1339 |       const name = e.employee_name || '';
+ 1340 |       const dept = e.department || '';
+ 1341 |       const matchesSearch =
+ 1342 |         !search ||
+ 1343 |         name.toLowerCase().includes(search.toLowerCase()) ||
+ 1344 |         dept.toLowerCase().includes(search.toLowerCase());
+ 1345 |       if (!matchesSearch) return false;
+ 1346 | 
+ 1347 |       const cin = e.check_in || e.punch_in;
+ 1348 |       const isPres = Boolean(cin);
+ 1349 |       const isLate = Boolean(e.status === 'late' || (e.status !== 'wfh' && e.is_late));
+ 1350 |       const isWfh = Boolean(e.status === 'wfh' || e.is_wfh_approved || e.status_badge === 'WFH');
+ 1351 |       const isLeave =
+ 1352 |         ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'short_leave', 'on_leave'].includes(
+ 1353 |           String(e.status || ''),
+ 1354 |         ) ||
+ 1355 |         e.status_badge === 'Leave' ||
+ 1356 |         e.status_badge === 'Annual Leave' ||
+ 1357 |         e.status_badge === 'Sick Leave';
+ 1358 | 
+ 1359 |       const isSundayOff = !isPres && !isWfh && !isLeave && (e.status === 'sunday_off' || e.status_badge === 'Sunday Off' || isSelectedSunday);
+ 1360 |       const isFirstSatOff = !isPres && !isWfh && !isLeave && (e.status === 'first_saturday_off' || e.status_badge === '1st Sat Off' || isSelectedFirstSat);
+ 1361 |       const isHoliday = !isPres && !isWfh && !isLeave && (e.status === 'holiday' || e.status_badge === 'Holiday' || String(e.notes || '').toLowerCase().includes('holiday') || isHolidayDate);
+ 1362 |       const isOff = isSundayOff || isFirstSatOff || isHoliday;
+ 1363 |       const isActualAbsent = !isPres && !isWfh && !isLeave && !isOff;
+ 1364 | 
+ 1365 |       if (filter === 'all') return true;
+ 1366 |       if (filter === 'present') return isPres;
+ 1367 |       if (filter === 'late') return isLate;
+ 1368 |       if (filter === 'wfh') return isWfh;
+ 1369 |       if (filter === 'leave') return isLeave;
+ 1370 |       if (filter === 'off_day') return isOff;
+ 1371 |       if (filter === 'absent') return isActualAbsent;
+ 1372 |       return true;
+ 1373 |     });
+ 1374 |   }, [rows, search, filter, isSelectedSunday, isSelectedFirstSat, isHolidayDate]);
+      :       ^^|^
+      :         `-- it will always cause this hook to re-evaluate
+ 1375 | 
+      `----
+  help: Try memoizing this variable with `useRef` or `useCallback`.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+    ,-[src/components/attendance/ShiftPolicySettingsModal.tsx:95:18]
+ 94 |           }
+ 95 |         } catch (err: any) {
+    :                  ^|^
+    :                   `-- 'err' is declared here
+ 96 |           // Keep defaults
+    `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+     ,-[src/components/attendance/ShiftPolicySettingsModal.tsx:136:14]
+ 135 |       onSuccess();
+ 136 |     } catch (err: any) {
+     :              ^|^
+     :               `-- 'err' is declared here
+ 137 |         addToast('Error', 'Failed to save shift.', 'error');
+     `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'user.company.accent_color', 'user.company', and 'user.company.display_name'
+    ,-[src/components/settings/sections/CompanyBrandingForm.tsx:96:6]
+ 81 |           setError(apiMessage(err, 'Could not load branding.'));
+ 82 |           if (user?.company) {
+    :               ^^^^
+ 83 |             setDisplayName(user.company.display_name || '');
+    :                            ^^^^^^^^^^^^
+ 84 |             const accent = user.company.accent_color || '#6847E0';
+    :                            ^^^^^^^^^^^^
+ 85 |             setAccentColor(accent);
+ 86 |             setHexDraft(accent);
+ 87 |           }
+ 88 |         }
+ 89 |       } finally {
+ 90 |         if (!cancelled) setLoading(false);
+ 91 |       }
+ 92 |     })();
+ 93 |     return () => {
+ 94 |       cancelled = true;
+ 95 |     };
+ 96 |   }, [adapter, hydrate]);
+    :      ^^^^^^^^^^^^^^^^^^
+ 97 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/admin/sections/UserManagementSection.tsx:53:14]
+ 52 | 
+ 53 | export const SYSTEM_DEPARTMENTS = [...CANONICAL_DEPARTMENTS];
+    :              ^^^^^^^^^^^^^^^^^^
+ 54 | 
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/admin/sections/UserManagementSection.tsx:55:14]
+ 54 | 
+ 55 | export const SYSTEM_ROLES = [
+    :              ^^^^^^^^^^^^
+ 56 |   { id: 'admin', label: 'Admin' },
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useMemo has a missing dependency: 'linkedClientWorkspaces'
+     ,-[src/components/admin/sections/UserManagementSection.tsx:150:6]
+ 118 |       const effectiveDept = isGlobalRole ? 'All' : m.department || '';
+ 119 |       const clientNames = linkedClientWorkspaces(m).map((w) => w.name).join(' ');
+     :                           ^^^^^^^^^^^|^^^^^^^^^^
+     :                                      `-- useMemo uses `linkedClientWorkspaces` here
+ 120 | 
+ 121 |       const matchesSearch =
+ 122 |         !q ||
+ 123 |         (m.full_name && m.full_name.toLowerCase().includes(q)) ||
+ 124 |         (m.email && m.email.toLowerCase().includes(q)) ||
+ 125 |         (m.phone && m.phone.toLowerCase().includes(q)) ||
+ 126 |         (effectiveDept && effectiveDept.toLowerCase().includes(q)) ||
+ 127 |         (m.role && m.role.toLowerCase().includes(q)) ||
+ 128 |         clientNames.toLowerCase().includes(q);
+ 129 | 
+ 130 |       const matchesRole = roleFilter === 'all' || m.role.toLowerCase() === roleFilter.toLowerCase();
+ 131 |       const memberDepts =
+ 132 |         Array.isArray(m.departments) && m.departments.length > 0
+ 133 |           ? m.departments.map((d) => d.toLowerCase())
+ 134 |           : (m.department || '')
+ 135 |               .toLowerCase()
+ 136 |               .split(/[,;/]|\band\b|&/i)
+ 137 |               .map((s) => s.trim())
+ 138 |               .filter(Boolean);
+ 139 | 
+ 140 |       const matchesDept =
+ 141 |         directoryTab === 'clients' ||
+ 142 |         departmentFilter === 'all' ||
+ 143 |         (isGlobalRole && departmentFilter === 'All') ||
+ 144 |         (!isGlobalRole &&
+ 145 |           (memberDepts.includes(departmentFilter.toLowerCase()) ||
+ 146 |             (m.department || '').toLowerCase() === departmentFilter.toLowerCase()));
+ 147 | 
+ 148 |       return matchesSearch && matchesRole && matchesDept;
+ 149 |     });
+ 150 |   }, [tabMembers, searchQuery, roleFilter, departmentFilter, directoryTab, workspaceMap]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 151 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useMemo has unnecessary dependency: workspaceMap
+     ,-[src/components/admin/sections/UserManagementSection.tsx:150:6]
+ 149 |     });
+ 150 |   }, [tabMembers, searchQuery, roleFilter, departmentFilter, directoryTab, workspaceMap]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 151 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/content-calendar/ContentCalendarImportModal.tsx:28:14]
+ 27 | 
+ 28 | export const deriveClientAbbr = (clientName?: string): string => {
+    :              ^^^^^^^^^^^^^^^^
+ 29 |   if (!clientName) return 'AT';
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'currentItem'
+     ,-[src/components/content-calendar/ContentCalendarDrawer.tsx:136:6]
+ 118 |   useEffect(() => {
+ 119 |     if (!isOpen || !currentItem) return;
+     :                     ^^^^^|^^^^^
+     :                          `-- useEffect uses `currentItem` here
+ 120 |     if (!actionsFor(actor, currentItem).some((action) => action.needsAssignee)) return;
+ 121 |     let cancelled = false;
+ 122 |     const isCreative = ['Creative Production', 'Creative Revision'].includes(currentItem.stage);
+ 123 |     const fetcher = isCreative
+ 124 |       ? contentCalendarService.getCreativeAssignees()
+ 125 |       : contentCalendarService.getContentAssignees();
+ 126 |     fetcher
+ 127 |       .then((res) => {
+ 128 |         if (!cancelled) setAssignees(res.assignees || []);
+ 129 |       })
+ 130 |       .catch(() => {
+ 131 |         if (!cancelled) setAssignees([]);
+ 132 |       });
+ 133 |     return () => {
+ 134 |       cancelled = true;
+ 135 |     };
+ 136 |   }, [isOpen, currentItem?.stage, currentItem?.id, actor]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 137 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[mobile/src/context/InboxContext.tsx:57:17]
+ 56 | 
+ 57 | export function useInbox() {
+    :                 ^^^^^^^^
+ 58 |   const ctx = useContext(InboxContext);
+    `----
+
+  ! eslint(no-unused-vars): Parameter 'onClose' is declared but never used. Unused parameters should start with a '_'.
+    ,-[src/components/ui/FormDialogLayout.tsx:96:3]
+ 95 |   icon,
+ 96 |   onClose,
+    :   ^^^|^^^
+    :      `-- 'onClose' is declared here
+ 97 |   className,
+    `----
+  help: Consider removing this parameter.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[mobile/src/context/AuthContext.tsx:304:17]
+ 303 | 
+ 304 | export function useAuth() {
+     :                 ^^^^^^^
+ 305 |   const ctx = useContext(AuthContext);
+     `----
+
+  ! eslint(no-unused-vars): Identifier 'ActivityIndicator' is imported but never used.
+   ,-[mobile/app/(tabs)/pipeline.tsx:3:3]
+ 2 | import {
+ 3 |   ActivityIndicator,
+   :   ^^^^^^^^|^^^^^^^^
+   :           `-- 'ActivityIndicator' is imported here
+ 4 |   Alert,
+   `----
+  help: Consider removing this import.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/owner/OwnerActivityTab.tsx:21:17]
+ 20 | 
+ 21 | export function formatAuditWhen(dateStr?: string): string {
+    :                 ^^^^^^^^^^^^^^^
+ 22 |   if (!dateStr) return '';
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/owner/OwnerActivityTab.tsx:34:17]
+ 33 | 
+ 34 | export function formatAuditSentence(
+    :                 ^^^^^^^^^^^^^^^^^^^
+ 35 |   event: OwnerAuditEvent,
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/ModuleLoadGate.tsx:36:17]
+ 35 | 
+ 36 | export function useModuleLoadBlocked() {
+    :                 ^^^^^^^^^^^^^^^^^^^^
+ 37 |   return useContext(ModuleLoadGateContext).blocked;
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/ModuleLoadGate.tsx:41:17]
+ 40 | /** Blocks clicks on the open module until it has finished its first load. Later refreshes stay clickable. */
+ 41 | export function useModuleLoadGate(isLoading: boolean) {
+    :                 ^^^^^^^^^^^^^^^^^
+ 42 |   const { acquire, release } = useContext(ModuleLoadGateContext);
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'activeCompanies'
+    ,-[src/components/owner/NewMemberDialog.tsx:50:6]
+ 44 |       setPhone('');
+ 45 |       setCompanyId(activeCompanies[0]?.id || '');
+    :                    ^^^^^^^|^^^^^^^
+    :                           `-- useEffect uses `activeCompanies` here
+ 46 |       setPassword('');
+ 47 |       setClientErrors({});
+ 48 |       setServerError(null);
+ 49 |     }
+ 50 |   }, [isOpen]);
+    :      ^^^^^^^^
+ 51 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'setSelectedIndex'
+     ,-[src/components/content-calendar/CreativeAssetGallery.tsx:202:6]
+ 193 |       if (e.key === 'ArrowLeft') {
+ 194 |         setSelectedIndex((prev) => (prev > 0 ? prev - 1 : assets.length - 1));
+     :         ^^^^^^^^|^^^^^^^
+     :                 `-- useEffect uses `setSelectedIndex` here
+ 195 |       }
+ 196 |       if (e.key === 'ArrowRight') {
+ 197 |         setSelectedIndex((prev) => (prev < assets.length - 1 ? prev + 1 : 0));
+ 198 |       }
+ 199 |     };
+ 200 |     window.addEventListener('keydown', handleKeyDown);
+ 201 |     return () => window.removeEventListener('keydown', handleKeyDown);
+ 202 |   }, [isLightboxOpen, assets.length]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 203 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has a missing dependency: 'handleFilesUpload'
+     ,-[src/components/content-calendar/CreativeAssetGallery.tsx:451:5]
+ 447 |       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+ 448 |         void handleFilesUpload(e.dataTransfer.files);
+     :              ^^^^^^^^|^^^^^^^^
+     :                      `-- useCallback uses `handleFilesUpload` here
+ 449 |       }
+ 450 |     },
+ 451 |     [readOnly],
+     :     ^^^^^^^^^^
+ 452 |   );
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/BrandingProvider.tsx:18:14]
+ 17 | 
+ 18 | export const useBranding = () => useContext(BrandingContext);
+    :              ^^^^^^^^^^^
+ 19 | 
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/BrandingProvider.tsx:49:17]
+ 48 | 
+ 49 | export function applyAccent(accentColor: string): void {
+    :                 ^^^^^^^^^^^
+ 50 |   const root = document.documentElement;
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[src/context/AuthContext.tsx:273:14]
+ 272 | 
+ 273 | export const useAuth = (): AuthContextType => {
+     :              ^^^^^^^
+ 274 |   const context = useContext(AuthContext);
+     `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'user'
+     ,-[src/context/AuthContext.tsx:246:6]
+ 233 |   useEffect(() => {
+ 234 |     if (!user) return;
+     :          ^^|^
+     :            `-- useEffect uses `user` here
+ 235 |     try {
+ 236 |       const params = new URLSearchParams(window.location.search);
+ 237 |       const targetCompany = params.get('switch');
+ 238 |       if (targetCompany && targetCompany !== user.company_id) {
+ 239 |         params.delete('switch');
+ 240 |         const newSearch = params.toString();
+ 241 |         const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
+ 242 |         window.history.replaceState(null, '', newUrl);
+ 243 |         void switchCompany(targetCompany);
+ 244 |       }
+ 245 |     } catch {}
+ 246 |   }, [user?.company_id, switchCompany]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 247 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/owner/CreateCompanyDialog.tsx:12:17]
+ 11 | 
+ 12 | export function deriveSlug(name: string): string {
+    :                 ^^^^^^^^^^
+ 13 |   return name
+    `----
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/content-calendar/ContentCalendarShareModal.tsx:173:16]
+ 172 |         });
+ 173 |       } catch (e) {
+     :                |
+     :                `-- 'e' is declared here
+ 174 |         // User cancelled or share failed
+     `----
+  help: Consider handling this error.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/ui/badge.tsx:5:14]
+ 4 | 
+ 5 | export const badgeVariants = cva(
+   :              ^^^^^^^^^^^^^
+ 6 |   'inline-flex items-center font-medium transition-colors select-none',
+   `----
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/content-calendar/ContentCalendarTableView.tsx:177:14]
+ 176 |       if (saved) return JSON.parse(saved);
+ 177 |     } catch (e) {}
+     :              |
+     :              `-- 'e' is declared here
+ 178 |     const initial: Record<string, number> = {};
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/content-calendar/ContentCalendarTableView.tsx:190:14]
+ 189 |       if (saved) return JSON.parse(saved);
+ 190 |     } catch (e) {}
+     :              |
+     :              `-- 'e' is declared here
+ 191 |     return {};
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+     ,-[src/components/content-calendar/ContentCalendarTableView.tsx:480:18]
+ 479 |           localStorage.setItem('reamarc_cc_col_widths', JSON.stringify(next));
+ 480 |         } catch (err) {}
+     :                  ^|^
+     :                   `-- 'err' is declared here
+ 481 |         return next;
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'err' is caught but never used.
+     ,-[src/components/content-calendar/ContentCalendarTableView.tsx:542:18]
+ 541 |           localStorage.setItem('reamarc_cc_row_heights', JSON.stringify(next));
+ 542 |         } catch (err) {}
+     :                  ^|^
+     :                   `-- 'err' is declared here
+ 543 |         return next;
+     `----
+  help: Consider handling this error.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/content-calendar/ContentCalendarTableView.tsx:42:14]
+ 41 | 
+ 42 | export const renderPlatformIcon = (item: ContentCalendarItem) => {
+    :              ^^^^^^^^^^^^^^^^^^
+ 43 |   const combined = `${item.channels?.join(' ') || ''} ${item.campaign_type || ''} ${item.captions_hashtags || ''}`.toLowerCase();
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/content-calendar/ContentCalendarTableView.tsx:70:14]
+ 69 | 
+ 70 | export const DEFAULT_CONTENT_COLUMNS: ColumnDef[] = [
+    :              ^^^^^^^^^^^^^^^^^^^^^^^
+ 71 |   { key: 'serial', label: 'Serial', width: 90, align: 'center', group: 'DEFINITION' },
+    `----
+
+  ! react-hooks(exhaustive-deps): The ref's value `.current` is accessed directly in the effect cleanup function.
+     ,-[src/components/content-calendar/ContentCalendarTableView.tsx:409:11]
+ 408 |       }
+ 409 |       if (pendingUpdatesRef.current.size > 0) {
+     :           ^^^^^^^^^^^^^^^^^^^^^^^^^
+ 410 |         flushBatchUpdates();
+     `----
+  help: The ref value will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by react, copy it to a variable inside the effect and use that variable in the cleanup function.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/context/ToastContext.tsx:18:14]
+ 17 | 
+ 18 | export const stripEmoji = (str: string): string => {
+    :              ^^^^^^^^^^
+ 19 |   if (!str) return '';
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[src/context/ToastContext.tsx:123:14]
+ 122 | 
+ 123 | export const useToast = (): ToastContextType => {
+     :              ^^^^^^^^
+ 124 |   const context = useContext(ToastContext);
+     `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/owner/CompanyMark.tsx:4:17]
+ 3 | 
+ 4 | export function getCompanyInitials(name?: string | null, singleLetter = false): string {
+   :                 ^^^^^^^^^^^^^^^^^^
+ 5 |   if (!name) return 'C';
+   `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'getInitialUpcomingWorkday'
+     ,-[src/components/attendance/RequestManagementModal.tsx:213:6]
+ 162 |     const initDate = getInitialWorkday();
+ 163 |     const upcomingDate = getInitialUpcomingWorkday();
+     :                          ^^^^^^^^^^^^|^^^^^^^^^^^^
+     :                                      `-- useEffect uses `getInitialUpcomingWorkday` here
+ 164 |     if (initialRecord?.date) {
+ 165 |       setRegularizeDate(initialRecord.date);
+ 166 |       setShortLeaveDate(initialRecord.date >= getTodayIso() ? initialRecord.date : getTodayIso());
+ 167 |       const existingIn = initialRecord.punch_in || initialRecord.check_in;
+ 168 |       const existingOut = initialRecord.punch_out || initialRecord.check_out;
+ 169 |       if (existingIn) {
+ 170 |         setRegularizeIn(existingIn.substring(0, 5));
+ 171 |       }
+ 172 |       if (existingOut) {
+ 173 |         setRegularizeOut(existingOut.substring(0, 5));
+ 174 |         setShortLeaveStartTime(existingOut.substring(0, 5));
+ 175 |       }
+ 176 |       if (existingIn && !existingOut) {
+ 177 |         setCorrectionTarget('time_in');
+ 178 |       }
+ 179 |     } else {
+ 180 |       setLeaveStartDate(upcomingDate);
+ 181 |       setLeaveEndDate(upcomingDate);
+ 182 |       setShortLeaveDate(getTodayIso());
+ 183 |       setWfhStartDate(upcomingDate);
+ 184 |       setWfhEndDate(upcomingDate);
+ 185 |       setRegularizeDate(initDate);
+ 186 |     }
+ 187 |     attendanceService
+ 188 |       .getAttendanceConfig()
+ 189 |       .then((c) => setMinDate(c.effective_start_date))
+ 190 |       .catch(() => setMinDate(getAttendanceMinDate()));
+ 191 |     attendanceService
+ 192 |       .getMyLeaveBalance()
+ 193 |       .then(setLeaveBalance)
+ 194 |       .catch(() => setLeaveBalance(null));
+ 195 |     attendanceService
+ 196 |       .getTodayStatus()
+ 197 |       .then((res) => {
+ 198 |         if (res?.shift) {
+ 199 |           setUserShift(res.shift);
+ 200 |         }
+ 201 |       })
+ 202 |       .catch(() => {});
+ 203 |     attendanceService
+ 204 |       .getShifts()
+ 205 |       .then((shifts) => {
+ 206 |         const active = shifts.filter((s) => s.is_active && !s.hidden);
+ 207 |         setAvailableShifts(active);
+ 208 |         if (active.length > 0) {
+ 209 |           setShiftChangeShiftId((prev) => prev || active[0].id);
+ 210 |         }
+ 211 |       })
+ 212 |       .catch(() => {});
+ 213 |   }, [isOpen, defaultTab, initialRecord, getInitialWorkday]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 214 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has a missing dependency: 'user.permissions.modules.daily_log'
+     ,-[src/components/Sidebar.tsx:209:6]
+ 196 |     const role = user?.role;
+ 197 |     if (!role || !['team_member', 'team_lead', 'hr'].includes(role) || user?.permissions?.modules?.daily_log === false) {
+     :                                                                        ^^^^^^^^^^^^^|^^^^^^^^^^^^
+     :                                                                                     `-- useCallback uses `user.permissions.modules.daily_log` here
+ 198 |       setRequestCount(0);
+ 199 |       return;
+ 200 |     }
+ 201 |     dailyLogService
+ 202 |       .getDayTarget()
+ 203 |       .then((t) => {
+ 204 |         setRequestCount((t.follow_ups || []).length);
+ 205 |       })
+ 206 |       .catch(() => {
+ 207 |         setRequestCount(0);
+ 208 |       });
+ 209 |   }, [user?.role]);
+     :      ^^^^^^^^^^^^
+ 210 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-extra-boolean-cast): Redundant Boolean call
+     ,-[src/components/Sidebar.tsx:570:12]
+ 569 |         >
+ 570 |           {Boolean((user?.companies && user.companies.length > 1) || user?.is_super_admin) ? (
+     :            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 571 |             <DropdownMenu>
+     `----
+  help: Remove the Boolean call as it will already be coerced to a boolean
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/ui/StatusPill.tsx:6:14]
+ 5 | 
+ 6 | export const statusPillVariants = cva(
+   :              ^^^^^^^^^^^^^^^^^^
+ 7 |   'inline-flex items-center gap-1.5 h-[22px] px-2 rounded-full text-xs font-medium leading-4 whitespace-nowrap select-none shrink-0',
+   `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/owner/CompanyDetailSheet.tsx:21:17]
+ 20 | 
+ 21 | export function formatCreatedDate(dateStr?: string): string {
+    :                 ^^^^^^^^^^^^^^^^^
+ 22 |   if (!dateStr) return '';
+    `----
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/views/PerformanceMarketing.tsx:168:14]
+ 167 |       if (saved) return Number(saved);
+ 168 |     } catch (e) {}
+     :              |
+     :              `-- 'e' is declared here
+ 169 |     return DEFAULT_ZOOM;
+     `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'v1Views'
+     ,-[src/App.tsx:431:6]
+ 358 |         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
+ 359 |         if (!currentSaved || !v1Views.includes(currentSaved)) {
+     :                               ^^^|^^^
+     :                                  `-- useEffect uses `v1Views` here
+ 360 |           const fallback = getDefaultViewForUser();
+ 361 |           window.history.replaceState(null, '', `/${fallback}`);
+ 362 |           setCurrentView(fallback);
+ 363 |           localStorage.setItem('reamarc_active_view', fallback);
+ 364 |         } else if (currentSaved === 'profile') {
+ 365 |           window.history.replaceState(null, '', '/settings/profile');
+ 366 |           setCurrentView('settings');
+ 367 |           setActiveSettingsSection('profile');
+ 368 |           localStorage.setItem('reamarc_active_view', 'settings');
+ 369 |         } else if (!isClient && (currentPath === '' || currentPath === '/')) {
+ 370 |           // Team lead, team member, hr, operations, admin land on dashboard
+ 371 |           window.history.replaceState(null, '', '/dashboard');
+ 372 |           setCurrentView('dashboard');
+ 373 |           localStorage.setItem('reamarc_active_view', 'dashboard');
+ 374 |         } else if (currentSaved === 'active-clients' && !canSeeActiveClients) {
+ 375 |           const fallback = getDefaultViewForUser();
+ 376 |           window.history.replaceState(null, '', `/${fallback}`);
+ 377 |           setCurrentView(fallback);
+ 378 |           localStorage.setItem('reamarc_active_view', fallback);
+ 379 |         } else if (currentSaved === 'content-calendar' && !canSeeContentCalendar) {
+ 380 |           const fallback = getDefaultViewForUser();
+ 381 |           window.history.replaceState(null, '', `/${fallback}`);
+ 382 |           setCurrentView(fallback);
+ 383 |           localStorage.setItem('reamarc_active_view', fallback);
+ 384 |         } else if (currentSaved === 'won-deal-approvals' && !canSeeWonDealApprovals) {
+ 385 |           const fallback = getDefaultViewForUser();
+ 386 |           window.history.replaceState(null, '', `/${fallback}`);
+ 387 |           setCurrentView(fallback);
+ 388 |           localStorage.setItem('reamarc_active_view', fallback);
+ 389 |         } else if (currentSaved === 'crm' && !canSeeCrm) {
+ 390 |           const fallback = getDefaultViewForUser();
+ 391 |           window.history.replaceState(null, '', `/${fallback}`);
+ 392 |           setCurrentView(fallback);
+ 393 |           localStorage.setItem('reamarc_active_view', fallback);
+ 394 |         } else if (currentSaved === 'marketing' && !canSeeMarketing) {
+ 395 |           const fallback = getDefaultViewForUser();
+ 396 |           window.history.replaceState(null, '', `/${fallback}`);
+ 397 |           setCurrentView(fallback);
+ 398 |           localStorage.setItem('reamarc_active_view', fallback);
+ 399 |         } else if (currentSaved === 'admin' && !canSeeAdmin) {
+ 400 |           const fallback = getDefaultViewForUser();
+ 401 |           window.history.replaceState(null, '', `/${fallback}`);
+ 402 |           setCurrentView(fallback);
+ 403 |           localStorage.setItem('reamarc_active_view', fallback);
+ 404 |         } else if (currentSaved === 'exceptions' && !canSeeExceptions) {
+ 405 |           const fallback = getDefaultViewForUser();
+ 406 |           window.history.replaceState(null, '', `/${fallback}`);
+ 407 |           setCurrentView(fallback);
+ 408 |           localStorage.setItem('reamarc_active_view', fallback);
+ 409 |         } else if (currentSaved === 'attendance' && !canSeeAttendance) {
+ 410 |           const fallback = getDefaultViewForUser();
+ 411 |           window.history.replaceState(null, '', `/${fallback}`);
+ 412 |           setCurrentView(fallback);
+ 413 |           localStorage.setItem('reamarc_active_view', fallback);
+ 414 |         } else if (currentSaved === 'daily-log' && !canSeeDailyLog) {
+ 415 |           const fallback = getDefaultViewForUser();
+ 416 |           window.history.replaceState(null, '', `/${fallback}`);
+ 417 |           setCurrentView(fallback);
+ 418 |           localStorage.setItem('reamarc_active_view', fallback);
+ 419 |         } else if (currentSaved === 'dashboard' && isClient) {
+ 420 |           const fallback = getDefaultViewForUser();
+ 421 |           window.history.replaceState(null, '', `/${fallback}`);
+ 422 |           setCurrentView(fallback);
+ 423 |           localStorage.setItem('reamarc_active_view', fallback);
+ 424 |         }
+ 425 |       }
+ 426 |     };
+ 427 | 
+ 428 |     enforceRouteLockdown();
+ 429 |     window.addEventListener('popstate', enforceRouteLockdown);
+ 430 |     return () => window.removeEventListener('popstate', enforceRouteLockdown);
+ 431 |   }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 432 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'handleSelectView'
+     ,-[src/App.tsx:526:6]
+ 510 |         const view = viewFromNotificationPath(String(event.data.path || ''));
+ 511 |         if (view) handleSelectView(view);
+     :                   ^^^^^^^^|^^^^^^^
+     :                           `-- useEffect uses `handleSelectView` here
+ 512 |       } else if (event.data?.type === 'reamarc-push-received') {
+ 513 |         const title = String(event.data.title || 'Reamarc');
+ 514 |         const body = String(event.data.body || '');
+ 515 |         const tag = typeof event.data.tag === 'string' ? event.data.tag : undefined;
+ 516 |         const displayed = event.data.displayed === true;
+ 517 |         // The service worker already shows the native OS popup. Only trigger fallback if SW failed.
+ 518 |         if (!displayed) {
+ 519 |           void showDesktopPopup(title, body, tag, String(event.data.path || '/'));
+ 520 |         }
+ 521 |         addToast(title, body, 'info');
+ 522 |       }
+ 523 |     };
+ 524 |     navigator.serviceWorker.addEventListener('message', onMessage);
+ 525 |     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+ 526 |   }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, canSeeWebsitePipeline, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 527 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/layout/BreadcrumbContext.tsx:30:14]
+ 29 | 
+ 30 | export const useBreadcrumb = () => useContext(BreadcrumbContext);
+    :              ^^^^^^^^^^^^^
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+   ,-[src/components/ui/button.tsx:7:14]
+ 6 | 
+ 7 | export const buttonVariants = cva(
+   :              ^^^^^^^^^^^^^^
+ 8 |   'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-medium transition-[background-color,border-color,color,transform] duration-[120ms] ease-[var(--ease-standard)] active:scale-[.98] disabled:opacity-50 disabled:pointer-events-none focus-visible:focus-ring [&_svg]:shrink-0 cursor-pointer select-none',
+   `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'load'
+    ,-[src/components/crm/settings/CrmSettingsRules.tsx:77:6]
+ 75 |   useEffect(() => {
+ 76 |     void load();
+    :          ^^|^
+    :            `-- useEffect uses `load` here
+ 77 |   }, [initialAssignees]);
+    :      ^^^^^^^^^^^^^^^^^^
+ 78 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'ActivityIndicator' is imported but never used.
+   ,-[mobile/app/_layout.tsx:2:10]
+ 1 | import React, { useEffect } from 'react';
+ 2 | import { ActivityIndicator, Platform, View } from 'react-native';
+   :          ^^^^^^^^|^^^^^^^^
+   :                  `-- 'ActivityIndicator' is imported here
+ 3 | import { Stack, useRouter, useSegments } from 'expo-router';
+   `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Type 'CrmActivity' is imported but never used.
+   ,-[mobile/src/lib/crmApi.ts:3:3]
+ 2 | import type {
+ 3 |   CrmActivity,
+   :   ^^^^^|^^^^^
+   :        `-- 'CrmActivity' is imported here
+ 4 |   CrmAssignee,
+   `----
+  help: Consider removing this import.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/ui/ConfirmProvider.tsx:35:14]
+ 34 | 
+ 35 | export const useConfirm = () => {
+    :              ^^^^^^^^^^
+ 36 |   const ctx = useContext(ConfirmContext);
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/ui/ConfirmProvider.tsx:41:14]
+ 40 | 
+ 41 | export const useAlert = () => {
+    :              ^^^^^^^^
+ 42 |   const ctx = useContext(ConfirmContext);
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/ui/ConfirmProvider.tsx:47:14]
+ 46 | 
+ 47 | export const usePrompt = () => {
+    :              ^^^^^^^^^
+ 48 |   const ctx = useContext(ConfirmContext);
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'project.manager_id', 'workspaces', 'project', 'project.workspace_id', 'project.description', 'workspaces.length', 'project.live_url', 'project.name', 'project.staging_url', 'user.id', 'project.start_date', 'project.website_type', and 'project.target_launch_date'
+     ,-[src/components/website-pipeline/WebsiteCreateProjectModal.tsx:143:6]
+ 108 |       setServerError(null);
+ 109 |       if (project) {
+     :           ^^^^^^^
+ 110 |         setName(project.name || '');
+     :                 ^^^^^^^
+ 111 |         setWorkspaceId(project.workspace_id || '');
+     :                        ^^^^^^^
+ 112 |         setManagerId(project.manager_id || user?.id || '');
+     :                      ^^^^^^^               ^^^^
+ 113 |         setWebsiteType(project.website_type || 'brochure');
+     :                        ^^^^^^^
+ 114 |         setStartDate(project.start_date || '');
+     :                      ^^^^^^^
+ 115 |         setTargetLaunchDate(project.target_launch_date || '');
+     :                             ^^^^^^^
+ 116 |         setStagingUrl(project.staging_url || '');
+     :                       ^^^^^^^
+ 117 |         setLiveUrl(project.live_url || '');
+     :                    ^^^^^^^
+ 118 |         setDescription(project.description || '');
+     :                        ^^^^^^^
+ 119 |       } else {
+ 120 |         setName('');
+ 121 |         if (workspaces.length > 0) {
+     :             ^^^^^^^^^^
+ 122 |           setWorkspaceId(workspaces[0].id);
+     :                          ^^^^^^^^^^
+ 123 |         }
+ 124 |         setManagerId(user?.id || '');
+ 125 |         setWebsiteType('brochure');
+ 126 |         setStartDate(new Date().toISOString().slice(0, 10));
+ 127 |         setTargetLaunchDate('');
+ 128 |         setStagingUrl('');
+ 129 |         setLiveUrl('');
+ 130 |         setDescription('');
+ 131 |       }
+ 132 | 
+ 133 |       // Load team members using websiteProjectService (skip for clients)
+ 134 |       if (!isClient) {
+ 135 |         websiteProjectService
+ 136 |           .getTeamMembers()
+ 137 |           .then((res) => {
+ 138 |             if (Array.isArray(res)) setUsers(res);
+ 139 |           })
+ 140 |           .catch(() => {});
+ 141 |       }
+ 142 |     }
+ 143 |   }, [isOpen, project?.id, isClient]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 144 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Variable 'router' is declared but never used. Unused variables should start with a '_'.
+    ,-[mobile/app/review/[token].tsx:48:9]
+ 47 |   const params = useLocalSearchParams<{ token?: string }>();
+ 48 |   const router = useRouter();
+    :         ^^^|^^
+    :            `-- 'router' is declared here
+ 49 |   const token = typeof params.token === 'string' ? params.token : '';
+    `----
+  help: Consider removing this declaration.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[mobile/src/components/crm/PipelineFilterSheet.tsx:45:17]
+ 44 | 
+ 45 | export function filterSummary(quickFilter: QuickFilter, selectedStage: string): string | null {
+    :                 ^^^^^^^^^^^^^
+ 46 |   const parts: string[] = [];
+    `----
+
+  ! react-hooks(exhaustive-deps): React Hook useMemo has a missing dependency: 'memberDefaultShiftId'
+     ,-[src/components/admin/sections/AttendancePoliciesSection.tsx:527:6]
+ 461 |     members.forEach((member) => {
+ 462 |       const defaultShiftId = memberDefaultShiftId(member);
+     :                              ^^^^^^^^^^|^^^^^^^^^
+     :                                        `-- useMemo uses `memberDefaultShiftId` here
+ 463 |       const currentShiftId = shiftAssignments[member.id] || defaultShiftId;
+ 464 |       const assignment = assignmentDocs[member.id];
+ 465 |       const weekdayRules = assignment?.weekday_rules || {};
+ 466 | 
+ 467 |       const memberName = member.full_name || (member as any).name || member.email || 'User';
+ 468 | 
+ 469 |       // Check which shifts this member is scheduled for across the 7 days of the week (0=Mon ... 6=Sun)
+ 470 |       const dayMatchesPerShift: Record<string, number[]> = {};
+ 471 |       shifts.forEach((s) => {
+ 472 |         dayMatchesPerShift[s.id] = [];
+ 473 |       });
+ 474 | 
+ 475 |       for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+ 476 |         const key = String(dayIndex);
+ 477 |         const rule = weekdayRules[key];
+ 478 |         const assignedDayShiftId =
+ 479 |           rule?.shift_id && rule.shift_id.trim() ? rule.shift_id.trim() : currentShiftId;
+ 480 | 
+ 481 |         shifts.forEach((s) => {
+ 482 |           if (assignedDayShiftId === s.id || (s.code && assignedDayShiftId === s.code)) {
+ 483 |             dayMatchesPerShift[s.id].push(dayIndex);
+ 484 |           }
+ 485 |         });
+ 486 |       }
+ 487 | 
+ 488 |       // Register member to all shifts they regularly work in weekly pattern / default (no one-off date overrides)
+ 489 |       shifts.forEach((s) => {
+ 490 |         const matchedDays = dayMatchesPerShift[s.id] || [];
+ 491 | 
+ 492 |         if (matchedDays.length > 0) {
+ 493 |           let scheduleLabel = '';
+ 494 |           if (matchedDays.length === 7) {
+ 495 |             scheduleLabel = 'Full week';
+ 496 |           } else if (matchedDays.length === 1 && matchedDays[0] === 5) {
+ 497 |             scheduleLabel = 'Saturdays';
+ 498 |           } else if (matchedDays.length === 5 && matchedDays.every((d, i) => d === i)) {
+ 499 |             scheduleLabel = 'Mon–Fri';
+ 500 |           } else {
+ 501 |             scheduleLabel = matchedDays.map((d) => DAY_NAMES[d]).join(', ');
+ 502 |           }
+ 503 | 
+ 504 |           if (!assignedMap[s.id]) assignedMap[s.id] = [];
+ 505 |           assignedMap[s.id].push({
+ 506 |             memberName,
+ 507 |             scheduleLabel,
+ 508 |           });
+ 509 |         }
+ 510 |       });
+ 511 | 
+ 512 |       // Today's recurring shift resolution (no one-off date overrides)
+ 513 |       const todayWeekday = weekdayKeyFromIso(todayIsoLocal());
+ 514 |       const todayRule = weekdayRules[todayWeekday];
+ 515 |       const todayShiftId =
+ 516 |         todayRule?.shift_id && todayRule.shift_id.trim() ? todayRule.shift_id.trim() : currentShiftId;
+ 517 | 
+ 518 |       shifts.forEach((s) => {
+ 519 |         if (todayShiftId === s.id || (s.code && todayShiftId === s.code)) {
+ 520 |           if (!todayMap[s.id]) todayMap[s.id] = [];
+ 521 |           todayMap[s.id].push(memberName);
+ 522 |         }
+ 523 |       });
+ 524 |     });
+ 525 | 
+ 526 |     return { assignedMap, todayMap };
+ 527 |   }, [shifts, members, shiftAssignments, assignmentDocs]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 528 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Identifier 'TouchableWithoutFeedback' is imported but never used.
+    ,-[mobile/app/(tabs)/requests.tsx:13:3]
+ 12 |   TextInput,
+ 13 |   TouchableWithoutFeedback,
+    :   ^^^^^^^^^^^^|^^^^^^^^^^^
+    :               `-- 'TouchableWithoutFeedback' is imported here
+ 14 |   View,
+    `----
+  help: Consider removing this import.
+
+  ! eslint(no-unused-vars): Variable 'actingId' is declared but never used. Unused variables should start with a '_'.
+     ,-[mobile/app/(tabs)/requests.tsx:234:10]
+ 233 |   const [busy, setBusy] = useState(false);
+ 234 |   const [actingId, setActingId] = useState<string | null>(null);
+     :          ^^^^|^^^
+     :              `-- 'actingId' is declared here
+ 235 |   const [message, setMessage] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Variable 'setActingId' is declared but never used. Unused variables should start with a '_'.
+     ,-[mobile/app/(tabs)/requests.tsx:234:20]
+ 233 |   const [busy, setBusy] = useState(false);
+ 234 |   const [actingId, setActingId] = useState<string | null>(null);
+     :                    ^^^^^|^^^^^
+     :                         `-- 'setActingId' is declared here
+ 235 |   const [message, setMessage] = useState('');
+     `----
+  help: Consider removing this declaration.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/views/ContentCalendarView.tsx:99:14]
+  98 |       if (saved && ['overview', 'table', 'pipeline', 'calendar'].includes(saved)) return saved;
+  99 |     } catch (e) {}
+     :              |
+     :              `-- 'e' is declared here
+ 100 |     return 'table';
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/views/ContentCalendarView.tsx:488:26]
+ 487 |                   localStorage.setItem('reamarc_cc_view_mode', mode);
+ 488 |                 } catch (e) {}
+     :                          |
+     :                          `-- 'e' is declared here
+ 489 |               }}
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter 'e' is caught but never used.
+     ,-[src/components/views/ContentCalendarView.tsx:670:24]
+ 669 |                 localStorage.setItem('reamarc_cc_view_mode', mode);
+ 670 |               } catch (e) {}
+     :                        |
+     :                        `-- 'e' is declared here
+ 671 |             }}
+     `----
+  help: Consider handling this error.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'initialLead.role', 'initialLead.help_with', 'initialLead.city', 'initialLead.website', 'initialLead', 'initialLead.email', 'initialLead.name', 'initialLead.help_other', 'initialLead.company', 'initialLead.phone_raw', 'initialLead.no_website', 'initialLead.sales_team', 'initialLead.employee_count',
+  | 'initialLead.brief', 'initialLead.source', 'initialLead.industry', 'initialLead.business_stage', 'initialLead.objective', 'initialLead.budget', 'initialLead.phone_e164', and 'initialLead.start_timeline'
+     ,-[mobile/src/components/crm/CreateLeadModal.tsx:236:6]
+ 211 |     if (!visible) return;
+ 212 |     if (mode === 'edit' && initialLead) {
+     :                            ^^^^^^^^^^^
+ 213 |       setName(initialLead.name || '');
+     :               ^^^^^^^^^^^
+ 214 |       setPhone(initialLead.phone_e164 ? `+${initialLead.phone_e164}` : initialLead.phone_raw || '');
+     :                ^^^^^^^^^^^                                             ^^^^^^^^^^^
+ 215 |       setEmail(initialLead.email || '');
+     :                ^^^^^^^^^^^
+ 216 |       setCompany(initialLead.company || '');
+     :                  ^^^^^^^^^^^
+ 217 |       setWebsite(initialLead.website || '');
+     :                  ^^^^^^^^^^^
+ 218 |       setNoWebsite(Boolean(initialLead.no_website));
+     :                            ^^^^^^^^^^^
+ 219 |       setCity(initialLead.city || '');
+     :               ^^^^^^^^^^^
+ 220 |       setRole(initialLead.role || '');
+     :               ^^^^^^^^^^^
+ 221 |       setIndustry(initialLead.industry || '');
+     :                   ^^^^^^^^^^^
+ 222 |       setBusinessStage(initialLead.business_stage || '');
+     :                        ^^^^^^^^^^^
+ 223 |       setEmployeeCount(initialLead.employee_count || '');
+     :                        ^^^^^^^^^^^
+ 224 |       setSalesTeam(initialLead.sales_team || '');
+     :                    ^^^^^^^^^^^
+ 225 |       setHelpWith(initialLead.help_with || []);
+     :                   ^^^^^^^^^^^
+ 226 |       setHelpOther(initialLead.help_other || '');
+     :                    ^^^^^^^^^^^
+ 227 |       setObjective(initialLead.objective || '');
+     :                    ^^^^^^^^^^^
+ 228 |       setStartTimeline(initialLead.start_timeline || '');
+     :                        ^^^^^^^^^^^
+ 229 |       setBudget(initialLead.budget || '');
+     :                 ^^^^^^^^^^^
+ 230 |       setSource(initialLead.source || 'manual');
+     :                 ^^^^^^^^^^^
+ 231 |       setNote(initialLead.brief || '');
+     :               ^^^^^^^^^^^
+ 232 |       setError(null);
+ 233 |       return;
+ 234 |     }
+ 235 |     reset();
+ 236 |   }, [visible, mode, initialLead?.id]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 237 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-unused-vars): Catch parameter '_' is caught but never used.
+     ,-[src/services/apiClient.ts:453:16]
+ 452 |         controller.abort();
+ 453 |       } catch (_) {}
+     :                |
+     :                `-- '_' is declared here
+ 454 |     }, timeout);
+     `----
+  help: Consider handling this error.
+
+  ! eslint(no-unused-vars): Catch parameter '_' is caught but never used.
+     ,-[src/services/apiClient.ts:487:18]
+ 486 |           errorMsg = errJson.detail || errJson.message || errorMsg;
+ 487 |         } catch (_) {}
+     :                  |
+     :                  `-- '_' is declared here
+ 488 |         throw new ApiError(errorMsg, response.status);
+     `----
+  help: Consider handling this error.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/admin/EditMemberModal.tsx:35:14]
+ 34 | 
+ 35 | export const ROLES: { id: UserRole; label: string; description: string }[] = [
+    :              ^^^^^
+ 36 |   { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/views/PublicSchedulerView.tsx:61:14]
+ 60 | 
+ 61 | export const MEETING_MODE_OPTIONS: { value: MeetingMode; label: string }[] = [
+    :              ^^^^^^^^^^^^^^^^^^^^
+ 62 |   { value: 'google_meet', label: 'Google Meet' },
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[src/components/views/PublicSchedulerView.tsx:152:14]
+ 151 | 
+ 152 | export const TOPIC_OPTIONS: TopicOption[] = [
+     :              ^^^^^^^^^^^^^
+ 153 |   {
+     `----
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'fullyBookedDates', and 'isDateDisabled'
+     ,-[src/components/views/PublicSchedulerView.tsx:728:6]
+ 723 |       const working = config.working_days || [1, 2, 3, 4, 5, 6];
+ 724 |       const next = findFirstAvailableDate(today, working, fullyBookedDates);
+     :                                                           ^^^^^^^^^^^^^^^^
+ 725 |       if (prev && !isDateDisabled(prev)) return prev;
+     :                    ^^^^^^^^^^^^^^
+ 726 |       return next;
+ 727 |     });
+ 728 |   }, [config.timezone, config.working_days]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 729 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'config.working_days', 'config.timezone', and 'selectedDate'
+     ,-[src/components/views/PublicSchedulerView.tsx:741:6]
+ 731 |   useEffect(() => {
+ 732 |     if (selectedDate) {
+     :         ^^^^^^^^^^^^
+ 733 |       const dStr = formatCivilYmd(selectedDate);
+ 734 |       if (fullyBookedDates.includes(dStr)) {
+ 735 |         const tz = config.timezone || 'Asia/Karachi';
+     :                    ^^^^^^
+ 736 |         const today = civilDateFromYmd(ymdInTimeZone(tz));
+ 737 |         const nextAvail = findFirstAvailableDate(today, config.working_days || [1, 2, 3, 4, 5, 6], fullyBookedDates);
+     :                                                         ^^^^^^
+ 738 |         setSelectedDate(nextAvail);
+ 739 |       }
+ 740 |     }
+ 741 |   }, [fullyBookedDates]);
+     :      ^^^^^^^^^^^^^^^^^^
+ 742 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has a missing dependency: 'loadColumns'
+    ,-[src/components/settings/sections/DailyLogFieldsSection.tsx:49:6]
+ 47 |   useEffect(() => {
+ 48 |     void loadColumns();
+    :          ^^^^^|^^^^^
+    :               `-- useEffect uses `loadColumns` here
+ 49 |   }, []);
+    :      ^^
+ 50 | 
+    `----
+  help: Either include it or remove the dependency array.
+
+  ! eslint(no-useless-catch): Unnecessary try/catch wrapper
+     ,-[src/hooks/useMarketingMatrix.ts:138:14]
+ 137 |       );
+ 138 |     } catch (err: any) {
+     :              ^|^
+     :               `-- is caught here
+ 139 |       throw err;
+     :       ^^^^^|^^^^
+     :            `-- and re-thrown here
+ 140 |     }
+     `----
+  help: Remove the try/catch wrapper, since it does not provide any additional error handling or functionality.
+
+  ! eslint(no-useless-catch): Unnecessary catch clause
+     ,-[src/hooks/useMarketingMatrix.ts:156:14]
+ 155 |       return res;
+ 156 |     } catch (err: any) {
+     :              ^|^
+     :               `-- is caught here
+ 157 |       throw err;
+     :       ^^^^^|^^^^
+     :            `-- and re-thrown here
+ 158 |     } finally {
+     `----
+  help: Remove the catch clause, since it does not provide any additional error handling or functionality beyond what the finalizer already provides.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/hooks/useFormValidation.tsx:9:17]
+  8 | 
+  9 | export function useFormValidation<T extends Record<string, any>>({
+    :                 ^^^^^^^^^^^^^^^^^
+ 10 |   validate,
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/admin/AddMemberModal.tsx:29:14]
+ 28 | 
+ 29 | export const ROLES: { id: UserRole; label: string; description: string }[] = [
+    :              ^^^^^
+ 30 |   { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
+    `----
+
+  ! eslint(no-unused-vars): Variable 'workedByDate' is declared but never used. Unused variables should start with a '_'.
+     ,-[mobile/app/daily-log/index.tsx:193:10]
+ 192 |   const [workedHours, setWorkedHours] = useState(0);
+ 193 |   const [workedByDate, setWorkedByDate] = useState<Record<string, number>>({});
+     :          ^^^^^^|^^^^^
+     :                `-- 'workedByDate' is declared here
+ 194 |   const [workedLoading, setWorkedLoading] = useState(false);
+     `----
+  help: Consider removing this declaration.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'personName', 'userIdFilter', and 'selectedDate'
+     ,-[mobile/app/daily-log/index.tsx:475:6]
+ 461 | 
+ 462 |     if (nextDate && nextDate !== selectedDate) {
+     :                                  ^^^^^^^^^^^^
+ 463 |       setSelectedDate(nextDate);
+ 464 |       setDraftDate(parseDate(nextDate));
+ 465 |     }
+ 466 |     if (nextUserId !== userIdFilter) {
+     :                        ^^^^^^^^^^^^
+ 467 |       setUserIdFilter(nextUserId);
+ 468 |     }
+ 469 |     if (nextName !== personName) {
+     :                      ^^^^^^^^^^
+ 470 |       setPersonName(nextName);
+ 471 |     }
+ 472 |     if (!nextUserId && !nextName) {
+ 473 |       setRangeMode('day');
+ 474 |     }
+ 475 |   }, [params.date, params.userId, params.name]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 476 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useEffect has missing dependencies: 'loadDirectoryMembers', 'selectedMonth', 'selectedYear', 'loadPendingInquiries', 'loadTimesheet', 'loadRequests', 'loadMatrix', 'selectedDepartment', and 'matrixDate'
+     ,-[src/components/views/AttendanceView.tsx:465:6]
+ 418 |           const cachedMatrix = attendanceService.getCachedDailyMatrix(
+ 419 |             matrixDate,
+     :             ^^^^^^^^^^
+ 420 |             selectedDepartment !== 'All' ? selectedDepartment : undefined
+     :             ^^^^^^^^^^^^^^^^^^
+ 421 |           );
+ 422 |           if (cachedMatrix) {
+ 423 |             setMatrixData(cachedMatrix.data);
+ 424 |             setIsLoading(false);
+ 425 |           } else {
+ 426 |             setIsLoading(true);
+ 427 |           }
+ 428 | 
+ 429 |           await Promise.allSettled([
+ 430 |             loadMatrix(
+     :             ^^^^^^^^^^
+ 431 |               matrixDate,
+ 432 |               selectedDepartment !== 'All' ? selectedDepartment : undefined,
+ 433 |               false
+ 434 |             ),
+ 435 |             loadPendingInquiries(),
+     :             ^^^^^^^^^^^^^^^^^^^^
+ 436 |           ]);
+ 437 |           setIsLoading(false);
+ 438 | 
+ 439 |           void Promise.allSettled([
+ 440 |             loadRequests(),
+     :             ^^^^^^^^^^^^
+ 441 |             loadDirectoryMembers(),
+     :             ^^^^^^^^^^^^^^^^^^^^
+ 442 |           ]);
+ 443 |         } else {
+ 444 |           const cachedTs = attendanceService.getCachedMyTimesheet(selectedYear, selectedMonth);
+     :                                                                   ^^^^^^^^^^^^  ^^^^^^^^^^^^^
+ 445 |           if (cachedTs) {
+ 446 |             setTimesheetData(cachedTs.data);
+ 447 |             setIsLoading(false);
+ 448 |           } else {
+ 449 |             setIsLoading(true);
+ 450 |           }
+ 451 | 
+ 452 |           await Promise.allSettled([
+ 453 |             loadTimesheet(selectedYear, selectedMonth, false),
+     :             ^^^^^^^^^^^^^
+ 454 |             loadRequests(),
+ 455 |             loadPendingInquiries(),
+ 456 |           ]);
+ 457 |           setIsLoading(false);
+ 458 |         }
+ 459 |       } finally {
+ 460 |         setIsLoading(false);
+ 461 |       }
+ 462 |     };
+ 463 | 
+ 464 |     void init();
+ 465 |   }, [isManagementRole]);
+     :      ^^^^^^^^^^^^^^^^^^
+ 466 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+    ,-[src/components/views/DashboardView.tsx:77:17]
+ 76 | 
+ 77 | export function getDepartmentCategory(user?: any): DepartmentCategory {
+    :                 ^^^^^^^^^^^^^^^^^^^^^
+ 78 |   if (!user) return 'general';
+    `----
+
+  ! react(only-export-components): Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components.
+     ,-[src/components/views/DashboardView.tsx:99:17]
+  98 | 
+  99 | export function getDepartmentCategories(user?: any): DepartmentCategory[] {
+     :                 ^^^^^^^^^^^^^^^^^^^^^^^
+ 100 |   if (!user) return [];
+     `----
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has missing dependencies: 'user.effective_access.attendance', and 'user.effective_access'
+     ,-[src/components/views/DashboardView.tsx:304:6]
+ 281 |   const loadAttendance = useCallback(async () => {
+ 282 |     const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
+     :                           ^^^^                       ^^^^^^^^^^^^^^^^^^^^^
+ 283 |     if (isAdmin || !effAttendance || !perms.isAttendanceTracked) {
+ 284 |       return;
+ 285 |     }
+ 286 |     setIsLoadingAttendance(true);
+ 287 |     try {
+ 288 |       const [todayRes, timesheetRes] = await Promise.allSettled([
+ 289 |         attendanceService.getTodayStatus(),
+ 290 |         attendanceService.getMyTimesheet(currentYear, currentMonth),
+ 291 |       ]);
+ 292 | 
+ 293 |       if (todayRes.status === 'fulfilled') {
+ 294 |         setTodayAttendance(todayRes.value);
+ 295 |       }
+ 296 |       if (timesheetRes.status === 'fulfilled') {
+ 297 |         setTimesheetData(timesheetRes.value);
+ 298 |       }
+ 299 |     } catch {
+ 300 |       // silent
+ 301 |     } finally {
+ 302 |       setIsLoadingAttendance(false);
+ 303 |     }
+ 304 |   }, [isAdmin, perms.canAccessAttendance, perms.isAttendanceTracked, currentYear, currentMonth]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 305 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has missing dependencies: 'user.effective_access', and 'user.effective_access.daily_log'
+     ,-[src/components/views/DashboardView.tsx:430:6]
+ 373 |   const loadWeeklyStats = useCallback(async () => {
+ 374 |     const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+     :                         ^^^^                       ^^^^^^^^^^^^^^^^^^^^^
+ 375 |     if (isAdmin || !isLogger || !user?.id || !effDailyLog || !perms.isDailyLogTracked) return;
+ 376 | 
+ 377 |     const startIso = weekDates[0]?.date;
+ 378 |     const endIso = todayIso;
+ 379 |     if (!startIso) return;
+ 380 | 
+ 381 |     try {
+ 382 |       const [entries, targetResults] = await Promise.all([
+ 383 |         dailyLogService.getEntries({
+ 384 |           user_id: user.id,
+ 385 |           start_date: startIso,
+ 386 |           end_date: endIso,
+ 387 |           limit: 500,
+ 388 |         }),
+ 389 |         Promise.all(weekDates.map((wd) => dailyLogService.getDayTarget(wd.date).catch(() => null))),
+ 390 |       ]);
+ 391 | 
+ 392 |       const expectedByDate: Record<string, number> = {};
+ 393 |       weekDates.forEach((wd, i) => {
+ 394 |         const t = targetResults[i];
+ 395 |         if (t && typeof t.expected_hours === 'number' && Number.isFinite(t.expected_hours)) {
+ 396 |           expectedByDate[wd.date] = t.expected_hours;
+ 397 |         }
+ 398 |       });
+ 399 | 
+ 400 |       const perDayMap: Record<string, number> = {};
+ 401 |       let total = 0;
+ 402 |       let pastLoggedCount = 0;
+ 403 | 
+ 404 |       (entries || []).forEach((e) => {
+ 405 |         const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+ 406 |         perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
+ 407 |       });
+ 408 | 
+ 409 |       const fallbackExp = todayAttendance?.shift?.expected_hours;
+ 410 |       const stripDays: DailyStripDay[] = weekDates.map((wd) => {
+ 411 |         const hrs = perDayMap[wd.date] || 0;
+ 412 |         total += hrs;
+ 413 |         if (!wd.isFuture && hrs > 0) pastLoggedCount++;
+ 414 |         const isOff = stableIsDateOff(wd.date);
+ 415 |         return {
+ 416 |           label: wd.label,
+ 417 |           date: wd.date,
+ 418 |           hours: hrs,
+ 419 |           isFuture: wd.isFuture,
+ 420 |           isToday: wd.isToday,
+ 421 |           expectedHours: expectedHoursForStripDay(isOff, expectedByDate[wd.date], fallbackExp),
+ 422 |           isOffDay: isOff,
+ 423 |         };
+ 424 |       });
+ 425 | 
+ 426 |       setWeeklyLoggedHours(total);
+ 427 |       setWeeklyLoggedDays(stripDays);
+ 428 |       setPastDaysLoggedCount(pastLoggedCount);
+ 429 |     } catch {}
+ 430 |   }, [isAdmin, isLogger, user?.id, weekDates, todayIso, todayAttendance?.shift?.expected_hours, stableIsDateOff, perms.canAccessDailyLog, perms.isDailyLogTracked]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 431 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has missing dependencies: 'user.effective_access.attendance', 'user.effective_access', 'perms.canAccessDailyLog', 'user.effective_access.daily_log', and 'perms.canAccessAttendance'
+     ,-[src/components/views/DashboardView.tsx:621:6]
+ 552 |     try {
+ 553 |       const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
+     :                             ^^^^                       ^^^^^^^^^^^^^^^^^^^^^              ^^^^^
+ 554 |       const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+     :                                                      ^^^^^^^^^^^^^^^^^^^^^             ^^^^^
+ 555 |       if (!effAttendance && !effDailyLog) return;
+ 556 | 
+ 557 |       // 1. Worked hours from timesheet (query months touched)
+ 558 |       const monthsToFetch = new Set<string>();
+ 559 |       let cur = new Date(start);
+ 560 |       while (cur <= today) {
+ 561 |         monthsToFetch.add(`${cur.getFullYear()}-${cur.getMonth() + 1}`);
+ 562 |         cur.setDate(cur.getDate() + 1);
+ 563 |       }
+ 564 | 
+ 565 |       const monthFetches = effAttendance ? Array.from(monthsToFetch).map(async (ym) => {
+ 566 |         const [y, m] = ym.split('-').map(Number);
+ 567 |         try {
+ 568 |           return await attendanceService.getMyTimesheet(y, m);
+ 569 |         } catch {
+ 570 |           return null;
+ 571 |         }
+ 572 |       }) : [];
+ 573 | 
+ 574 |       // 2. Fetch logged entries and timesheets in parallel
+ 575 |       const [entries, timesheetResults] = await Promise.all([
+ 576 |         effDailyLog ? dailyLogService.getEntries({
+ 577 |           user_id: user?.id,
+ 578 |           start_date: startIso,
+ 579 |           end_date: todayIso,
+ 580 |           limit: 1000,
+ 581 |         }).catch(() => []) : Promise.resolve([]),
+ 582 |         Promise.all(monthFetches),
+ 583 |       ]);
+ 584 | 
+ 585 |       const loggedMap: Record<string, number> = {};
+ 586 |       (entries || []).forEach((e) => {
+ 587 |         const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+ 588 |         loggedMap[e.date] = (loggedMap[e.date] || 0) + hrs;
+ 589 |       });
+ 590 | 
+ 591 |       const workedMap: Record<string, number> = {};
+ 592 |       timesheetResults.forEach((ts) => {
+ 593 |         (ts?.records || []).forEach((r: any) => {
+ 594 |           workedMap[r.date] = (r.working_hours_minutes || 0) / 60;
+ 595 |         });
+ 596 |       });
+ 597 | 
+ 598 |       // Generate day items
+ 599 |       const daysList: MyHoursDay[] = [];
+ 600 |       let iter = new Date(start);
+ 601 |       while (iter <= today) {
+ 602 |         const iso = `${iter.getFullYear()}-${String(iter.getMonth() + 1).padStart(2, '0')}-${String(iter.getDate()).padStart(2, '0')}`;
+ 603 |         const isOff = stableIsDateOff(iso);
+ 604 |         const dayLabel = iter.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) + (isOff ? ' off' : '');
+ 605 | 
+ 606 |         daysList.push({
+ 607 |           date: iso,
+ 608 |           dayLabel,
+ 609 |           loggedHours: loggedMap[iso] || 0,
+ 610 |           workedHours: workedMap[iso] || 0,
+ 611 |           isOff,
+ 612 |           isToday: iso === todayIso,
+ 613 |         });
+ 614 |         iter.setDate(iter.getDate() + 1);
+ 615 |       }
+ 616 | 
+ 617 |       setMyHoursDays(daysList);
+ 618 |     } catch {} finally {
+ 619 |       setIsLoadingMyHours(false);
+ 620 |     }
+ 621 |   }, [isAdmin, isOps, isLead, myHoursRange, today, todayIso, user?.id, stableIsDateOff]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 622 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has unnecessary dependency: user
+     ,-[src/components/views/DashboardView.tsx:716:6]
+ 715 |     }
+ 716 |   }, [isAdmin, user, perms]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^
+ 717 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has unnecessary dependency: isAdmin
+     ,-[src/components/views/DashboardView.tsx:716:6]
+ 715 |     }
+ 716 |   }, [isAdmin, user, perms]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^
+ 717 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+  ! react-hooks(exhaustive-deps): React Hook useCallback has unnecessary dependency: isAdmin
+     ,-[src/components/views/DashboardView.tsx:748:6]
+ 747 |     await Promise.allSettled(promises);
+ 748 |   }, [isAdmin, user, isLead, todayIso, perms]);
+     :      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ 749 | 
+     `----
+  help: Either include it or remove the dependency array.
+
+Found 108 warnings and 0 errors.
+Finished in 71ms on 342 files with 104 rules using 16 threads.
+✓ Token check passed: 0 forbidden token usages found.
+

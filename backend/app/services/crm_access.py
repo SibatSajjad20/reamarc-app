@@ -7,6 +7,7 @@ from fastapi import Depends, HTTPException, status
 
 from app.core.security import get_current_user
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.models.user import UserRole
 
 # Legacy constant kept only for is_sales_team_person / can_assign_leads which still use role checks
@@ -34,6 +35,8 @@ def is_crm_user(user: Dict[str, Any]) -> bool:
         return False
     from app.services.permissions import load_ctx, resolve, level_gte
     ctx = load_ctx(user)
+    if ctx.role == "operations":
+        return True
     lvl = resolve(ctx, "sales")
     return level_gte("sales", lvl, "own")
 
@@ -44,6 +47,8 @@ def can_view_all_leads(user: Dict[str, Any]) -> bool:
         return False
     from app.services.permissions import load_ctx, resolve
     ctx = load_ctx(user)
+    if ctx.role == "operations":
+        return True
     return resolve(ctx, "sales") == "all"
 
 
@@ -128,11 +133,14 @@ async def sales_team_user_ids() -> List[str]:
     db = get_database()
     if db is None:
         return []
-    cursor = db.users.find(
+    docs = await company_member_users(
         {"role": {"$in": list(_SALES_ROLES)}},
-        {"_id": 0, "id": 1, "role": 1, "department": 1, "departments": 1, "primary_department": 1},
+        db=db,
+        include_inactive=True,
+        include_needs_setup=True,
+        projection={"_id": 0, "id": 1, "role": 1, "department": 1, "departments": 1, "primary_department": 1},
+        limit=400,
     )
-    docs = await cursor.to_list(400)
     ids: List[str] = []
     for doc in docs:
         uid = doc.get("id")

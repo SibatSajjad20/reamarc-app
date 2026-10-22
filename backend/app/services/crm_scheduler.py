@@ -179,6 +179,15 @@ def verify_ics_token(token: str, lead_id: str, start_time: str) -> bool:
 async def get_scheduler_settings() -> Dict[str, Any]:
     """Retrieve scheduler configuration with fallback to company defaults."""
     db = _db()
+    try:
+        seed = dict(DEFAULT_SCHEDULER_SETTINGS)
+        await db.crm_scheduler_settings.update_one(
+            {"key": "crm_scheduler_settings"},
+            {"$setOnInsert": seed},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        pass
     doc = await db.crm_scheduler_settings.find_one({"key": "crm_scheduler_settings"}, {"_id": 0})
     if not doc:
         return dict(DEFAULT_SCHEDULER_SETTINGS)
@@ -191,13 +200,17 @@ async def _ensure_slot_index(db) -> None:
     global _SLOT_INDEX_READY
     if _SLOT_INDEX_READY:
         return
-    create_index = getattr(db.crm_scheduler_slots, "create_index", None)
-    if create_index:
-        await create_index(
-            [("date", 1), ("slot_time", 1)],
-            unique=True,
-            name="uniq_crm_scheduler_slot",
-        )
+    from app.core.index_migration import ensure_company_unique_index
+
+    raw = db.crm_scheduler_slots
+    inner = getattr(raw, "_coll", raw)
+    await ensure_company_unique_index(
+        inner,
+        ["uniq_crm_scheduler_slot"],
+        [[("date", 1), ("slot_time", 1)]],
+        [("company_id", 1), ("date", 1), ("slot_time", 1)],
+        "uniq_company_crm_scheduler_slot",
+    )
     _SLOT_INDEX_READY = True
 
 

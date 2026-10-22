@@ -1,3 +1,5 @@
+import { useAuth } from '../../../context/AuthContext';
+import { brandNameOf } from '../../../utils/branding';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
@@ -93,6 +95,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   onSendReminder,
   isSendingReminder,
 }) => {
+  const { user } = useAuth();
   const { addToast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
@@ -710,7 +713,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                               onClick={() => {
                                 setCustomReminderUser(act);
                                 setCustomMessage(
-                                  `Hi ${act.full_name}, reminder to submit your Daily Log on Reamarc.`
+                                  `Hi ${act.full_name}, reminder to submit your Daily Log on ${brandNameOf(user?.company)}.`
                                 );
                               }}
                             >

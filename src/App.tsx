@@ -1,3 +1,4 @@
+import { brandNameOf } from './utils/branding';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -23,6 +24,7 @@ import type { SettingsSectionSlug } from './types/settings';
 import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { BrandingProvider } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -41,6 +43,8 @@ import { ShortcutsDialog } from './components/layout/ShortcutsDialog';
 import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AccessDenied } from './components/ui/AccessDenied';
+import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
+import { isOwnerLegacyPath, ownerPathToCompaniesPath } from './utils/companiesRoutes';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -130,16 +134,17 @@ function AppInner() {
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
 
-  const canSeeMarketing = perms.can('ads', 'view');
+  const eff = user?.effective_access;
+  const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
+  const canSeeCrm = eff ? !!eff.sales : perms.can('sales', 'own');
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.can('content_calendar', 'view');
-  const canSeeWebsitePipeline = perms.can('website', 'view');
-  const canSeeAttendance = !isClient && perms.canAccessAttendance;
-  const canSeeDailyLog = !isClient && perms.canAccessDailyLog;
+  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
+  const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
+  const canSeeAttendance = !isClient && (eff ? !!eff.attendance : perms.canAccessAttendance);
+  const canSeeDailyLog = !isClient && (eff ? !!eff.daily_log : perms.canAccessDailyLog);
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -158,6 +163,7 @@ function AppInner() {
     'website-pipeline',
     'portal',
     'settings',
+    'owner',
   ];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
@@ -195,6 +201,7 @@ function AppInner() {
       const pathname = window.location.pathname.toLowerCase().replace(/^\/+|\/+$/g, '');
       const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
       const currentPath = pathname || hash;
+      const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
 
       if (
         currentPath.startsWith('book') ||
@@ -207,6 +214,13 @@ function AppInner() {
       }
 
       const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian'];
+
+      if (user?.needs_setup && currentPath !== 'dashboard' && currentPath !== 'settings') {
+        window.history.replaceState(null, '', '/dashboard');
+        setCurrentView('dashboard');
+        localStorage.setItem('reamarc_active_view', 'dashboard');
+        return;
+      }
 
       if (nonV1Routes.includes(currentPath)) {
         const fallback = getDefaultViewForUser();
@@ -226,7 +240,7 @@ function AppInner() {
       } else if (currentPath === 'admin' || currentPath.startsWith('admin/')) {
         const segments = currentPath.split('/');
         const sub = segments[1];
-        if (sub && ['directory', 'compliance', 'workspaces'].includes(sub)) {
+        if (sub && ['directory', 'compliance', 'workspaces', 'companies'].includes(sub)) {
           setActiveAdminSection(sub as AdminSectionType);
         }
         setCurrentView('admin');
@@ -343,10 +357,20 @@ function AppInner() {
         setCurrentView('settings');
         setActiveSettingsSection('profile');
         localStorage.setItem('reamarc_active_view', 'settings');
+      } else if (isOwnerLegacyPath(currentPath)) {
+        const dest = ownerPathToCompaniesPath(currentPath);
+        window.history.replaceState(null, '', dest);
+        setActiveAdminSection('companies');
+        setCurrentView('admin');
+        localStorage.setItem('reamarc_active_view', 'admin');
       } else {
         // Root / or unknown path
-        const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
-        if (!currentSaved || !v1Views.includes(currentSaved)) {
+        if (currentSaved === 'owner') {
+          window.history.replaceState(null, '', '/admin/companies');
+          setActiveAdminSection('companies');
+          setCurrentView('admin');
+          localStorage.setItem('reamarc_active_view', 'admin');
+        } else if (!currentSaved || !v1Views.includes(currentSaved)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -386,7 +410,7 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
-        } else if (currentSaved === 'admin' && !canSeeAdmin) {
+        } else if (currentSaved === 'admin' && !canSeeAdmin && !user?.is_super_admin) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -442,17 +466,24 @@ function AppInner() {
     if (canSeeDailyLog) allowedViews.push('daily-log');
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
-    if (canSeeAdmin) allowedViews.push('admin');
+    if (canSeeAdmin || user?.is_super_admin) allowedViews.push('admin');
     allowedViews.push('settings');
 
-    const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
+    let requestedView = view;
+    let requestedSub = subSection;
+    if (view === 'owner') {
+      requestedView = 'admin';
+      requestedSub = 'companies';
+    }
+
+    const targetView = allowedViews.includes(requestedView) ? requestedView : getDefaultViewForUser();
 
     if (targetView !== 'settings') {
       setLastNonSettingsView(targetView);
     }
 
-    if (targetView === 'admin' && subSection && ['directory', 'compliance', 'workspaces'].includes(subSection)) {
-      setActiveAdminSection(subSection as AdminSectionType);
+    if (targetView === 'admin' && requestedSub && ['directory', 'compliance', 'workspaces', 'companies'].includes(requestedSub)) {
+      setActiveAdminSection(requestedSub as AdminSectionType);
     }
     if (targetView === 'attendance' && subSection && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals', 'timesheet', 'requests'].includes(subSection)) {
       setActiveAttendanceSection(subSection as AttendanceSubSection);
@@ -467,8 +498,8 @@ function AppInner() {
     try {
       if (targetView === 'settings') {
         window.history.pushState(null, '', `/settings/${activeSettingsSection || 'profile'}`);
-      } else if (targetView === 'admin' && subSection) {
-        window.history.pushState(null, '', `/admin/${subSection}`);
+      } else if (targetView === 'admin' && requestedSub) {
+        window.history.pushState(null, '', `/admin/${requestedSub}`);
       } else if (targetView === 'attendance' && subSection) {
         window.history.pushState(null, '', `/attendance/${subSection}`);
       } else if (targetView === 'crm' && subSection) {
@@ -622,7 +653,7 @@ function AppInner() {
 
   const handleSignOut = () => {
     logout();
-    addToast('Signed Out', 'You have been safely signed out of Reamarc.', 'warning');
+    addToast('Signed Out', `You have been safely signed out of ` + brandNameOf(user?.company) + `.`, 'warning');
   };
 
   const currentPathLower = window.location.pathname.toLowerCase();
@@ -643,11 +674,15 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    return <LoadingScreen fullScreen message="Checking your session…" title="Reamarc" />;
+    return <LoadingScreen fullScreen message="Checking your session…" title={brandNameOf(user?.company)} />;
   }
 
   if (!user) {
     return <AuthScreen />;
+  }
+
+  if (user?.company?.status === 'suspended') {
+    return <CompanySuspensionGate />;
   }
 
   return (
@@ -687,10 +722,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
@@ -744,10 +776,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
               setIsMobileNavOpen(false);
             }}
             activeWebsiteSection={activeWebsiteSection}
@@ -798,10 +827,7 @@ function AppInner() {
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
-              setActiveAdminSection(section);
-              if (currentView !== 'admin') {
-                handleSelectView('admin', section);
-              }
+              handleSelectView('admin', section);
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
@@ -979,11 +1005,13 @@ function AppInner() {
           )}
 
           {currentView === 'admin' && (
-            canSeeAdmin ? (
+            activeAdminSection === 'companies' && !user?.is_super_admin ? (
+              <AccessDenied module="Companies" />
+            ) : canSeeAdmin || user?.is_super_admin ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <AdminPanel
                 activeSection={activeAdminSection}
-                onSectionChange={setActiveAdminSection}
+                onSectionChange={(section) => handleSelectView('admin', section)}
                 onAddWorkspace={() => navigateToClientPage({ mode: 'new', returnTo: 'admin-workspaces' })}
                 onEditWorkspace={(ws) => navigateToClientPage({ mode: 'edit', id: ws.id, returnTo: 'admin-workspaces' })}
               />
@@ -1003,6 +1031,8 @@ function AppInner() {
               />
             </div>
           )}
+
+          {currentView === 'owner' && <AccessDenied module="Companies" />}
         </ErrorBoundary>
       </AppShell>
 
@@ -1021,8 +1051,7 @@ function AppInner() {
           if (currentView !== 'attendance') handleSelectView('attendance');
         }}
         onSelectAdminSection={(section) => {
-          setActiveAdminSection(section);
-          if (currentView !== 'admin') handleSelectView('admin');
+          handleSelectView('admin', section);
         }}
         onSelectWebsiteSection={(section) => {
           setActiveWebsiteSection(section);
@@ -1071,11 +1100,13 @@ export function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <ModuleLoadGateProvider>
-          <BreadcrumbProvider>
-            <AppInner />
-          </BreadcrumbProvider>
-        </ModuleLoadGateProvider>
+        <BrandingProvider>
+          <ModuleLoadGateProvider>
+            <BreadcrumbProvider>
+              <AppInner />
+            </BreadcrumbProvider>
+          </ModuleLoadGateProvider>
+        </BrandingProvider>
       </AuthProvider>
     </ToastProvider>
   );

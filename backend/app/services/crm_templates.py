@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
+from pymongo.errors import BulkWriteError, DuplicateKeyError
 
 from app.database import get_database
 from app.services.crm_access import can_assign_leads
@@ -94,9 +95,10 @@ async def ensure_default_templates() -> None:
     now = _now()
     docs = []
     for t in DEFAULT_TEMPLATES:
+        slug = re.sub(r"[^a-z0-9]+", "_", str(t["name"]).lower()).strip("_")
         docs.append(
             {
-                "id": f"tpl_{uuid.uuid4().hex[:10]}",
+                "id": f"tpl_{slug}",
                 "name": t["name"],
                 "body": t["body"],
                 "is_default": bool(t.get("is_default")),
@@ -105,7 +107,10 @@ async def ensure_default_templates() -> None:
             }
         )
     if docs:
-        await db.crm_templates.insert_many(docs)
+        try:
+            await db.crm_templates.insert_many(docs, ordered=False)
+        except (BulkWriteError, DuplicateKeyError):
+            pass
 
 
 async def list_templates() -> List[Dict[str, Any]]:

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from app.core.security import get_current_user
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.models.user import UserRole
 from app.schemas.dashboard import (
     DashboardSummaryResponse,
@@ -321,10 +322,12 @@ async def _build_logs_section(db, user: Dict[str, Any], today_iso: str, yesterda
             ]
 
         # Expected loggers
-        logger_users = await db.users.find(
+        logger_users = await company_member_users(
             user_query,
-            {"_id": 0, "hashed_password": 0},
-        ).to_list(500)
+            db=db,
+            projection={"_id": 0, "hashed_password": 0},
+            limit=500,
+        )
         from app.services.access import is_tracked
         logger_users = [u for u in logger_users if is_tracked(u, "daily_log")]
         uids = [u["id"] for u in logger_users if u.get("id")]

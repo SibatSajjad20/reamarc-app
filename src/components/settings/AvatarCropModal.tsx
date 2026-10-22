@@ -11,6 +11,12 @@ export interface AvatarCropModalProps {
   onClose: () => void;
   onCropComplete: (croppedBlob: Blob) => Promise<void>;
   isUploading?: boolean;
+  cropShape?: 'round' | 'rect';
+  allowFit?: boolean;
+  outputType?: string;
+  title?: string;
+  description?: string;
+  confirmLabel?: string;
 }
 
 const createImage = (url: string): Promise<HTMLImageElement> =>
@@ -25,7 +31,8 @@ const createImage = (url: string): Promise<HTMLImageElement> =>
 async function getCroppedImg(
   imageSrc: string,
   pixelCrop: Area,
-  maxDimension: number = 1024
+  maxDimension: number = 1024,
+  mimeType: string = 'image/webp'
 ): Promise<Blob> {
   const image = await createImage(imageSrc);
   const canvas = document.createElement('canvas');
@@ -70,7 +77,7 @@ async function getCroppedImg(
           );
         }
       },
-      'image/webp',
+      mimeType,
       0.92
     );
   });
@@ -82,6 +89,12 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   onClose,
   onCropComplete,
   isUploading = false,
+  cropShape = 'round',
+  allowFit = false,
+  outputType = 'image/webp',
+  title = 'Crop profile photo',
+  description = 'Drag to reposition and zoom to frame your face nicely.',
+  confirmLabel = 'Save photo',
 }) => {
   const [crop, setCrop] = useState<Point>({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
@@ -102,7 +115,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   const handleApply = async () => {
     if (!imageSrc || !croppedAreaPixels) return;
     try {
-      const croppedBlob = await getCroppedImg(imageSrc, croppedAreaPixels, 1024);
+      const croppedBlob = await getCroppedImg(imageSrc, croppedAreaPixels, 1024, outputType);
       await onCropComplete(croppedBlob);
     } catch (err) {
       console.error('Failed to crop avatar:', err);
@@ -113,8 +126,8 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
     <Modal
       isOpen={isOpen}
       onClose={() => !isUploading && onClose()}
-      title="Crop profile photo"
-      description="Drag to reposition and zoom to frame your face nicely."
+      title={title}
+      description={description}
       maxWidth="md"
     >
       <div className="p-6 space-y-5">
@@ -125,7 +138,8 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
               crop={crop}
               zoom={zoom}
               aspect={1}
-              cropShape="round"
+              cropShape={cropShape}
+              minZoom={allowFit ? 0.5 : 1}
               showGrid={false}
               onCropChange={onCropChange}
               onZoomChange={onZoomChange}
@@ -167,7 +181,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
             loadingText="Uploading…"
             onClick={handleApply}
           >
-            Save photo
+            {confirmLabel}
           </Button>
         </div>
       </div>

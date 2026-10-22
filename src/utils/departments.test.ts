@@ -1,6 +1,10 @@
+import { describe, it } from 'vitest';
 import { canonicalDept, memberDepartmentLists, sameDept, uniqueCanonicalDepts } from './departments';
 import { visiblePipelineStages } from './contentCalendarWorkflow';
 import { PIPELINE_STAGES } from '../types/contentCalendar';
+
+describe('departments', () => {
+  it('runs departments test suite', () => {
 
 const SOCIAL_STAGES = PIPELINE_STAGES.slice(8);
 
@@ -58,3 +62,5 @@ assert(viewStages.length !== PIPELINE_STAGES.length, 'view summary alone does no
 assert(viewStages.join('|') === SOCIAL_STAGES.join('|'), 'view member still scoped to social stages');
 
 console.log('All department and visiblePipelineStages tests passed successfully!');
+  });
+});

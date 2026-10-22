@@ -42,6 +42,22 @@ export type AuthUser = {
   department?: string | null;
   designation?: string | null;
   crm_enabled?: boolean | null;
+  company_id?: string | null;
+  company?: {
+    id?: string;
+    name?: string;
+    slug?: string;
+    logo_url?: string | null;
+    accent_color?: string;
+  } | null;
+  companies?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    logo_url?: string | null;
+    role?: string;
+    accent_color?: string;
+  }>;
   permissions?: {
     summary?: { sales?: string; [key: string]: string | undefined };
     capabilities?: { approve_won_deal?: boolean };
@@ -55,6 +71,7 @@ type AuthContextValue = {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<AuthUser>;
+  switchCompany: (companyId: string) => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -235,6 +252,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     void registerPushToken(uuid);
   };
 
+  const switchCompany = async (companyId: string) => {
+    clearDailyLogCaches();
+    clearAttendanceCaches();
+    clearCrmCaches();
+    const data = await api<{ access_token?: string | null; refresh_token?: string | null; user: AuthUser }>(
+      '/auth/switch-company',
+      {
+        method: 'POST',
+        body: JSON.stringify({ company_id: companyId }),
+      },
+    );
+    const accessToken = typeof data?.access_token === 'string' ? data.access_token.trim() : '';
+    const refreshToken = typeof data?.refresh_token === 'string' ? data.refresh_token.trim() : '';
+    if (!accessToken) {
+      throw new Error('Switching company succeeded but no access token was returned.');
+    }
+    await saveTokens(accessToken, refreshToken || null);
+    try {
+      await saveCachedUser(data.user);
+    } catch {
+      /* ignore */
+    }
+    setUser(data.user);
+    const uuid = deviceUuid || (await getOrCreateDeviceUuid());
+    if (uuid) {
+      void registerPushToken(uuid);
+    }
+  };
+
   const logout = async () => {
     try {
       await api('/auth/logout', { method: 'POST' });
@@ -249,7 +295,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, deviceUuid, login, logout, refreshMe }}>
+    <AuthContext.Provider value={{ user, loading, deviceUuid, login, logout, refreshMe, switchCompany }}>
       {children}
     </AuthContext.Provider>
   );

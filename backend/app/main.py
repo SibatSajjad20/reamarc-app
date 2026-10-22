@@ -14,7 +14,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -83,9 +83,22 @@ async def lifespan(app: FastAPI):
                 normalize_operations_role_labels,
             )
             from app.services.access_migration import run_access_settings_migration
-            await backfill_primary_departments(db)
-            await normalize_operations_role_labels(db)
-            await run_access_settings_migration(db)
+            from app.services.content_calendar_service import backfill_share_tokens
+            from app.core.tenant import for_each_active_company
+
+            if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                async def _startup_for_company(company):
+                    await backfill_primary_departments(db)
+                    await normalize_operations_role_labels(db)
+                    await run_access_settings_migration(db)
+                    await backfill_share_tokens(db)
+
+                await for_each_active_company(_startup_for_company)
+            else:
+                await backfill_primary_departments(db)
+                await normalize_operations_role_labels(db)
+                await run_access_settings_migration(db)
+                await backfill_share_tokens(db)
         except Exception as perm_err:
             logging.getLogger(__name__).exception(f"Primary department / access migration failed: {perm_err}")
 
@@ -102,8 +115,16 @@ async def lifespan(app: FastAPI):
                 try:
                     # Sleep 6 hours (21600 seconds) between runs
                     await asyncio.sleep(21600)
+                    from app.core.job_locks import job_lease
+                    from app.core.tenant import for_each_active_company
                     from app.services.marketing_sync import run_daily_ad_metrics_sync
-                    await run_daily_ad_metrics_sync()
+
+                    async with job_lease("marketing_metrics_sync", ttl_seconds=1800) as acquired:
+                        if acquired:
+                            if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                                await for_each_active_company(lambda comp: run_daily_ad_metrics_sync())
+                            else:
+                                await run_daily_ad_metrics_sync()
                 except asyncio.CancelledError:
                     break
                 except Exception as err:
@@ -308,9 +329,12 @@ app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router)
 app.include_router(content_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(website_projects.router, prefix=settings.API_V1_STR)
+app.include_router(drive.router, prefix=settings.API_V1_STR)
 app.include_router(users.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)
 app.include_router(access.router, prefix=settings.API_V1_STR)
+app.include_router(owner.router, prefix=settings.API_V1_STR)
+app.include_router(company.router, prefix=settings.API_V1_STR)
 
 
 

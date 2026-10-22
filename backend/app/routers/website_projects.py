@@ -475,6 +475,7 @@ async def attach_files_from_drive(
     from app.services import google_drive_service as gdrive
 
     dest_folder_id = None
+    company_root = None
     if gdrive.configured():
         dest_folder_id = await gdrive.ensure_website_folder(
             db,
@@ -482,6 +483,7 @@ async def attach_files_from_drive(
             workspace_id=project.get("workspace_id"),
             project_name=project.get("name"),
         )
+        company_root = await gdrive._ensure_root(db)
 
     results: List[Dict[str, Any]] = []
     for f in payload.files:
@@ -491,7 +493,12 @@ async def attach_files_from_drive(
         size_bytes = f.sizeBytes
         external_url = f.url
         if gdrive.configured() and file_id:
-            meta = await gdrive.ingest_picked_file(file_id, dest_folder_id)
+            meta = await gdrive.ingest_picked_file(
+                file_id,
+                dest_folder_id,
+                actor=current_user,
+                company_root_folder_id=company_root,
+            )
             file_id = str(meta.get("id") or file_id)
             name = meta.get("name") or name
             mime_type = meta.get("mimeType") or mime_type

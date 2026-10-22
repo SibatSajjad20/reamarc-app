@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from fastapi import HTTPException, status
 
+from app.services.company_members import company_member_user, company_member_users
 from app.schemas.website_project import (
     STAGES,
     STAGE_NAMES,
@@ -118,15 +119,16 @@ async def _notify_event(
 async def _find_client_users_for_workspace(db, workspace_id: Optional[str]) -> List[str]:
     if db is None or not workspace_id:
         return []
-    cursor = db.users.find(
+    docs = await company_member_users(
         {
             "role": "client",
             "is_active": {"$ne": False},
             "$or": [{"workspace_id": workspace_id}, {"workspace_ids": workspace_id}],
         },
-        {"id": 1, "_id": 1},
+        db=db,
+        projection={"id": 1, "_id": 1},
+        limit=100,
     )
-    docs = await cursor.to_list(length=100)
     return [str(d.get("id") or d.get("_id")) for d in docs if (d.get("id") or d.get("_id"))]
 
 
@@ -144,11 +146,12 @@ async def _find_project_team_members(db, project_id: str) -> List[str]:
 async def _find_admin_users(db) -> List[str]:
     if db is None:
         return []
-    cursor = db.users.find(
+    docs = await company_member_users(
         {"role": {"$in": ["admin", "super_admin", "operations"]}, "is_active": {"$ne": False}},
-        {"id": 1, "_id": 1},
+        db=db,
+        projection={"id": 1, "_id": 1},
+        limit=50,
     )
-    docs = await cursor.to_list(length=50)
     return [str(d.get("id") or d.get("_id")) for d in docs if (d.get("id") or d.get("_id"))]
 
 
@@ -250,7 +253,7 @@ async def create_project(db, payload: WebsiteProjectCreate, actor: Dict[str, Any
     # Snapshot manager name
     manager_name = payload.manager_name
     if not manager_name and payload.manager_id:
-        user = await db.users.find_one({"id": payload.manager_id})
+        user = await company_member_user(payload.manager_id, db=db)
         if user:
             manager_name = user.get("full_name") or user.get("name")
 
@@ -629,7 +632,7 @@ async def create_task(db, project_id: str, payload: WebsiteTaskCreate, actor: Di
 
     assignee_name = payload.assignee_name
     if payload.assignee_id and not assignee_name:
-        user = await db.users.find_one({"id": payload.assignee_id})
+        user = await company_member_user(payload.assignee_id, db=db)
         if user:
             assignee_name = user.get("full_name") or user.get("name")
 
@@ -1362,11 +1365,13 @@ async def get_summary_metrics(db, viewer: Dict[str, Any]) -> Dict[str, int]:
 async def list_team_members(db, viewer: Dict[str, Any]) -> List[Dict[str, Any]]:
     if is_client(viewer):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    cursor = db.users.find(
+    users = await company_member_users(
         {"is_active": {"$ne": False}, "role": {"$ne": "client"}},
-        {"_id": 0, "hashed_password": 0},
-    ).sort("name", 1)
-    users = await cursor.to_list(length=300)
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("name", 1),
+        limit=300,
+    )
     from app.services.access import effective_access
     out = []
     for u in users:

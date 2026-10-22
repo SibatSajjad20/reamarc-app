@@ -364,7 +364,7 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "access_version": int,
     }
     """
-    if not user:
+    if not user or user.get("needs_setup"):
         return {
             "modules": {m: False for m in MODULES},
             "levels": {m: "none" for m in MODULES},
@@ -587,6 +587,13 @@ async def tracked_users(
     """Query MongoDB for users tracked for module, applying extra_filter and Python-side verification."""
     if db is None:
         return []
+
+    from app.config import settings
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        from app.services.company_members import company_member_users
+        members = await company_member_users(extra_filter, db=db)
+        return [u for u in members if is_tracked(u, module)]
+
     base_filter = tracked_user_filter(module)
     if extra_filter:
         query = {"$and": [base_filter, extra_filter]}

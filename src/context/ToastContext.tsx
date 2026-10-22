@@ -7,7 +7,7 @@ export type ToastType = 'success' | 'info' | 'warning' | 'error';
 
 export interface ToastContextType {
   addToast: (
-    title: string,
+    title: string | { title: string; description?: string; type?: ToastType; duration?: number },
     description?: string,
     type?: ToastType,
     duration?: number
@@ -49,15 +49,29 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const addToast = useCallback(
     (
-      title: string,
+      titleOrOptions: string | { title: string; description?: string; type?: ToastType; duration?: number },
       description?: string,
       type: ToastType = 'info',
       duration?: number
     ) => {
-      const d = duration ?? (type === 'error' ? 6000 : type === 'warning' ? 5000 : 4000);
-      const cleanTitle = stripEmoji(title);
-      const cleanDesc = description ? stripEmoji(description) : undefined;
-      const fn = toastMap[type] || toast.info;
+      let titleStr = '';
+      let descStr = description;
+      let toastType = type;
+      let toastDuration = duration;
+
+      if (typeof titleOrOptions === 'object' && titleOrOptions !== null) {
+        titleStr = titleOrOptions.title;
+        descStr = titleOrOptions.description;
+        toastType = titleOrOptions.type || 'info';
+        toastDuration = titleOrOptions.duration;
+      } else {
+        titleStr = String(titleOrOptions || '');
+      }
+
+      const d = toastDuration ?? (toastType === 'error' ? 6000 : toastType === 'warning' ? 5000 : 4000);
+      const cleanTitle = stripEmoji(titleStr);
+      const cleanDesc = descStr ? stripEmoji(descStr) : undefined;
+      const fn = toastMap[toastType] || toast.info;
 
       fn(cleanTitle, {
         description: cleanDesc,

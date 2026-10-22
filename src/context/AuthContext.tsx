@@ -15,6 +15,7 @@ interface AuthContextType {
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  switchCompany: (companyId: string) => Promise<void>;
   updateUser: (updated: Partial<AuthUser> | AuthUser) => void;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
@@ -23,6 +24,17 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/** Keep login/upload avatar_url when getMe omits the field; honor an explicit null. */
+export function keepAvatarUrl<T extends { avatar_url?: string | null }>(
+  previous: T | null | undefined,
+  next: T,
+): T {
+  if (next.avatar_url === undefined && previous && previous.avatar_url !== undefined) {
+    return { ...next, avatar_url: previous.avatar_url };
+  }
+  return next;
+}
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -62,8 +74,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const fetchCurrentUser = useCallback(async () => {
     setIsLoading(true);
     try {
+      try {
+        sessionStorage.removeItem('reamarc_impersonation_token');
+        localStorage.removeItem('reamarc_impersonation_token');
+      } catch {
+        // Ignore
+      }
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      const normalized = currentUser?.impersonating
+        ? { ...currentUser, impersonating: false, read_only: false }
+        : currentUser;
+      setUser((prev) => keepAvatarUrl(prev, normalized));
     } catch {
       setUser(null);
     } finally {
@@ -95,19 +116,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [user?.id]);
 
   const login = async (payload: LoginPayload) => {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
+    }
     const res = await authService.login(payload);
     // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
     apiClient.setToken(null);
     const role = res.user?.role;
     const initialView = role === 'client' ? 'marketing' : 'dashboard';
     if (typeof window !== 'undefined') {
+      localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
       localStorage.setItem('reamarc_active_view', initialView);
       window.history.replaceState(null, '', `/${initialView}`);
     }
     setUser(res.user);
     try {
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      setUser((prev) => keepAvatarUrl(prev, currentUser));
     } catch {
       // Login user payload is enough to render; /auth/me refresh is best-effort.
     }
@@ -128,6 +155,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('reamarc_token');
+        localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
         window.history.replaceState(null, '', '/');
       }
@@ -137,7 +166,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = useCallback(async () => {
     try {
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      setUser((prev) => keepAvatarUrl(prev, currentUser));
     } catch {
       // Keep existing session if a background refresh fails
     }
@@ -146,6 +175,97 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const updateUser = useCallback((updated: Partial<AuthUser> | AuthUser) => {
     setUser((prev) => (prev ? { ...prev, ...updated } : (updated as AuthUser)));
   }, []);
+
+  const switchCompany = useCallback(async (companyId: string) => {
+    setIsLoading(true);
+    try {
+      const res = await authService.switchCompany(companyId);
+      clearAllAppCaches();
+
+      if (typeof window !== 'undefined') {
+        try {
+          const toRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (
+              key &&
+              (key.startsWith('cache_') ||
+                key.startsWith('cc_') ||
+                key.startsWith('dash_') ||
+                key.startsWith('reamarc_cache_'))
+            ) {
+              toRemove.push(key);
+            }
+          }
+          toRemove.forEach((k) => localStorage.removeItem(k));
+          localStorage.setItem('reamarc_active_view', 'dashboard');
+          window.history.replaceState(null, '', '/dashboard');
+        } catch {}
+      }
+
+      setUser(res.user);
+
+      // Notify other tabs to reload
+      try {
+        const channel = new BroadcastChannel('reamarc_company_switch');
+        channel.postMessage({ type: 'company_switched', companyId });
+        channel.close();
+      } catch {}
+
+      // Re-apply accent color if present
+      try {
+        const accent =
+          res.user?.company?.accent_color ||
+          res.user?.companies?.find((c) => c.id === companyId)?.accent_color;
+        if (accent) {
+          document.documentElement.style.setProperty('--accent', accent);
+        }
+      } catch {}
+
+      try {
+        const fresh = await authService.getMe();
+        setUser(fresh);
+      } catch {}
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Listen for company switch in other tabs
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('reamarc_company_switch');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'company_switched') {
+          clearAllAppCaches();
+          window.location.reload();
+        }
+      };
+    } catch {}
+    return () => {
+      try {
+        channel?.close();
+      } catch {}
+    };
+  }, []);
+
+  // Auto-switch on URL ?switch=<companyId>
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetCompany = params.get('switch');
+      if (targetCompany && targetCompany !== user.company_id) {
+        params.delete('switch');
+        const newSearch = params.toString();
+        const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
+        window.history.replaceState(null, '', newUrl);
+        void switchCompany(targetCompany);
+      }
+    } catch {}
+  }, [user?.company_id, switchCompany]);
 
   return (
     <AuthContext.Provider
@@ -159,6 +279,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         refreshUser,
+        switchCompany,
         updateUser,
         openAuthModal,
         closeAuthModal,

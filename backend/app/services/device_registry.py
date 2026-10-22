@@ -6,6 +6,7 @@ import uuid
 from fastapi import HTTPException, status
 
 from app.database import get_database
+from app.services.company_members import company_member_user, company_member_users
 
 # Enforce 1:1 binding in production.
 ENFORCE_ONE_DEVICE_ONE_ACCOUNT = True
@@ -204,9 +205,12 @@ async def list_active_devices() -> list:
     user_ids = [d.get("user_id") for d in docs if d.get("user_id")]
     users = {}
     if user_ids:
-        async for u in db.users.find(
+        for u in await company_member_users(
             {"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]},
-            {"_id": 1, "id": 1, "email": 1, "full_name": 1, "name": 1},
+            db=db,
+            include_needs_setup=True,
+            include_inactive=True,
+            projection={"_id": 1, "id": 1, "email": 1, "full_name": 1, "name": 1},
         ):
             uid = u.get("id") or str(u.get("_id"))
             users[uid] = u
@@ -233,7 +237,7 @@ async def transfer_device(user_id: Optional[str] = None, device_id: Optional[str
 
     user_name = None
     if user_id:
-        user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]}, {"_id": 0, "full_name": 1, "name": 1})
+        user = await company_member_user(user_id, db=db)
         if user:
             user_name = user.get("full_name") or user.get("name")
 

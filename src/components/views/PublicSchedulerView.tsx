@@ -51,6 +51,9 @@ interface SchedulerConfig {
   office_map_url?: string;
   hr_whatsapp?: string;
   careers_roles?: string[];
+  company_name?: string;
+  accent_color?: string;
+  company_logo?: string;
 }
 
 export type MeetingMode = 'google_meet' | 'zoom' | 'teams' | 'in_person';
@@ -501,7 +504,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
   const [config, setConfig] = useState<SchedulerConfig>({
     title: 'Book a meeting',
     description: (
-      "Hi! Thanks for your interest in Reamarc.\n" +
+      "Hi! Thanks for your interest in our services.\n" +
       "This 30-minute introductory meeting is an opportunity to discuss your goals, explore the challenges " +
       "you're encountering, and see how our team can help you build and scale."
     ),
@@ -941,7 +944,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     const targetRole = candidateRole === 'Other Position' && customRole.trim() ? customRole.trim() : candidateRole;
 
     const messageLines = [
-      'Hi Reamarc HR Team,',
+      `Hi ${config.company_name || 'HR'} Team,`,
       '',
       `I am applying for the ${targetRole} role.`,
       '',
@@ -1042,8 +1045,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
         <div className="w-full max-w-[480px] my-auto bg-surface rounded-2xl border border-border shadow-md p-6 sm:p-8 space-y-6">
           {/* Brand mark + Wordmark */}
           <div className="flex items-center gap-2.5">
-            <BrandMark size={28} />
-            <span className="font-semibold text-base text-fg tracking-tight">Reamarc</span>
+            <BrandMark size={28} initial={(config.company_name || 'M').charAt(0)} />
+            <span className="font-semibold text-base text-fg tracking-tight">{config.company_name || 'Meeting Scheduler'}</span>
           </div>
 
           {/* Host Avatar & Name */}
@@ -1162,8 +1165,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             <div className="space-y-5">
               {/* Brand mark + Wordmark */}
               <div className="flex items-center gap-2.5">
-                <BrandMark size={28} />
-                <span className="font-semibold text-base text-fg tracking-tight">Reamarc</span>
+                <BrandMark size={28} initial={(config.company_name || 'M').charAt(0)} />
+                <span className="font-semibold text-base text-fg tracking-tight">{config.company_name || 'Meeting Scheduler'}</span>
               </div>
 
               {/* Host Avatar & Name */}
@@ -1198,7 +1201,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
               {/* Description */}
               <div className="text-xs text-fg-muted leading-relaxed whitespace-pre-line border-t border-border pt-3">
                 {topic === 'jobs_and_career'
-                  ? 'Join the Reamarc team. Submit your details and direct application note to connect with our talent team.'
+                  ? `Join ${config.company_name ? `the ${config.company_name}` : 'our'} team. Submit your details and direct application note to connect with our talent team.`
                   : config.description}
               </div>
 
@@ -1761,7 +1764,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   <div className="max-w-md mx-auto p-3.5 rounded-lg bg-warning-bg border border-warning-bd text-left space-y-1.5 text-xs">
                     <div className="font-medium text-warning-fg">Office visit</div>
                     <p className="text-fg-muted leading-relaxed">
-                      {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
+                      {bookingResult.meeting?.office_address || (config.company_name ? `${config.company_name} Office` : 'Headquarters Office')}
                     </p>
                     <a
                       href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
@@ -1878,7 +1881,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   <form onSubmit={handleCandidateSubmit} className="space-y-4">
                     <div className="border-b border-border pb-3">
                       <h2 className="text-sm font-semibold text-fg">Career Application</h2>
-                      <p className="text-xs text-fg-muted mt-0.5">Submit your details to apply for an open position at Reamarc.</p>
+                      <p className="text-xs text-fg-muted mt-0.5">Submit your details to apply for an open position with {config.company_name || 'our team'}.</p>
                     </div>
 
                     {candidateError && (

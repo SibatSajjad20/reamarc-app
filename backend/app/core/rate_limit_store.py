@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException, status
 from pymongo import ReturnDocument
 
-from app.database import get_database
+from app.core.tenant import get_global_db
 
 _INDEX_READY = False
 
@@ -24,7 +24,7 @@ async def _ensure_ttl_index(db) -> None:
 
 async def enforce_shared_rate_limit(key: str, limit: int, window_seconds: int) -> None:
     """Increment a per-key counter for the current window. Raises 429 when exceeded."""
-    db = get_database()
+    db = get_global_db()
     if db is None:
         return
     await _ensure_ttl_index(db)

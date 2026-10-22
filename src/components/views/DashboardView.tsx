@@ -6,6 +6,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ViewType } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { brandNameOf } from '../../utils/branding';
 import { attendanceService } from '../../services/attendanceService';
 import { dashboardService } from '../../services/dashboardService';
 import { dailyLogService } from '../../services/dailyLogService';
@@ -278,7 +279,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
-    if (isAdmin || !perms.canAccessAttendance || !perms.isAttendanceTracked) {
+    const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
+    if (isAdmin || !effAttendance || !perms.isAttendanceTracked) {
       return;
     }
     setIsLoadingAttendance(true);
@@ -369,7 +371,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 5. Load Weekly Stat Strips (Logged)
   const loadWeeklyStats = useCallback(async () => {
-    if (isAdmin || !isLogger || !user?.id || !perms.canAccessDailyLog || !perms.isDailyLogTracked) return;
+    const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+    if (isAdmin || !isLogger || !user?.id || !effDailyLog || !perms.isDailyLogTracked) return;
 
     const startIso = weekDates[0]?.date;
     const endIso = todayIso;
@@ -547,6 +550,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
 
     try {
+      const effAttendance = user?.effective_access ? !!user.effective_access.attendance : perms.canAccessAttendance;
+      const effDailyLog = user?.effective_access ? !!user.effective_access.daily_log : perms.canAccessDailyLog;
+      if (!effAttendance && !effDailyLog) return;
+
       // 1. Worked hours from timesheet (query months touched)
       const monthsToFetch = new Set<string>();
       let cur = new Date(start);
@@ -555,23 +562,23 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         cur.setDate(cur.getDate() + 1);
       }
 
-      const monthFetches = Array.from(monthsToFetch).map(async (ym) => {
+      const monthFetches = effAttendance ? Array.from(monthsToFetch).map(async (ym) => {
         const [y, m] = ym.split('-').map(Number);
         try {
           return await attendanceService.getMyTimesheet(y, m);
         } catch {
           return null;
         }
-      });
+      }) : [];
 
       // 2. Fetch logged entries and timesheets in parallel
       const [entries, timesheetResults] = await Promise.all([
-        dailyLogService.getEntries({
+        effDailyLog ? dailyLogService.getEntries({
           user_id: user?.id,
           start_date: startIso,
           end_date: todayIso,
           limit: 1000,
-        }).catch(() => []),
+        }).catch(() => []) : Promise.resolve([]),
         Promise.all(monthFetches),
       ]);
 
@@ -1180,7 +1187,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // Department categories for leads & members
   const deptCategories = useMemo(() => getDepartmentCategories(user), [user]);
 
-
+  if (user?.needs_setup) {
+    const compName = brandNameOf(user?.company);
+    return (
+      <div className="flex-1 flex flex-col h-full min-w-0 bg-canvas overflow-y-auto">
+        <div className="max-w-[1400px] w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+          <PageHeader
+            title="Dashboard"
+            description="Welcome to your workspace."
+          />
+          <div className="bg-surface border border-border rounded-lg p-6 text-center max-w-md mx-auto my-12 shadow-xs">
+            <h3 className="text-base font-semibold text-fg mb-2">Access pending</h3>
+            <p className="text-sm text-fg-muted">
+              Your admin is setting up your access in {compName}.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto w-full">

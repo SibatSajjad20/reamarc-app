@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+from pydantic import BaseModel, Field, field_validator
+from typing import Optional, List, Any
 
 # ─── WORKSPACE SCHEMAS ──────────────────────────────────────────
 
@@ -73,6 +73,15 @@ class WorkspaceResponse(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def serialize_dates(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
+
 
 # ─── AD ACCOUNT SCHEMAS ─────────────────────────────────────────
 
@@ -113,6 +122,15 @@ class AdAccountResponse(BaseModel):
     currency: Optional[str] = "USD"
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+
+    @field_validator("created_at", "updated_at", mode="before")
+    @classmethod
+    def serialize_dates(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
 
 
 # Backward compatibility aliases

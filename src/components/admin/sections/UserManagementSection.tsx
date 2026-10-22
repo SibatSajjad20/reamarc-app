@@ -47,6 +47,7 @@ import {
   getRoleLabel,
 } from '../../../utils/badgeStyles';
 import { formatPhoneDisplay } from '../../../utils/phone';
+import { brandNameOf } from '../../../utils/branding';
 import { CANONICAL_DEPARTMENTS, uniqueCanonicalDepts } from '../../../utils/departments';
 
 export const SYSTEM_DEPARTMENTS = [...CANONICAL_DEPARTMENTS];
@@ -241,7 +242,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       {/* Page Header matching Mock 08 */}
       <PageHeader
         title="Team directory"
-        description="People, roles and access across Reamarc."
+        description={`People, roles and access across ${brandNameOf(user?.company)}.`}
         actions={
           <div className="flex items-center gap-2">
             {onNavigateSection && (
@@ -538,9 +539,16 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       <>
                         {/* Role */}
                         <TD>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg">
-                            {getRoleLabel(m.role)}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg">
+                              {getRoleLabel(m.role)}
+                            </span>
+                            {m.needs_setup && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                Needs setup
+                              </span>
+                            )}
+                          </div>
                         </TD>
 
                         {/* Department */}
@@ -614,6 +622,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     {/* Actions Menu */}
                     {canManageMembers && (
                       <TD align="right" className="w-12">
+                        {m.can_edit !== false && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <IconButton
@@ -630,19 +639,41 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             </DropdownMenuItem>
 
                             {onToggleStatus && m.role !== 'admin' && (
-                              <DropdownMenuItem onClick={() => onToggleStatus(m)}>
-                                {m.is_active ? (
-                                  <>
-                                    <UserX className="w-3.5 h-3.5 mr-2 text-warning-fg" />
-                                    <span>Deactivate member</span>
-                                  </>
+                              m.login_managed_elsewhere ? (
+                                m.is_active ? (
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    onClick={() => {
+                                      const compName = brandNameOf(user?.company);
+                                      if (window.confirm(`Remove ${m.full_name} from ${compName}? Their access to this company ends.`)) {
+                                        onToggleStatus(m);
+                                      }
+                                    }}
+                                  >
+                                    <UserX className="w-3.5 h-3.5 mr-2 text-danger-fg" />
+                                    <span>Remove from company</span>
+                                  </DropdownMenuItem>
                                 ) : (
-                                  <>
+                                  <DropdownMenuItem onClick={() => onToggleStatus(m)}>
                                     <UserCheck className="w-3.5 h-3.5 mr-2 text-success-fg" />
                                     <span>Reactivate member</span>
-                                  </>
-                                )}
-                              </DropdownMenuItem>
+                                  </DropdownMenuItem>
+                                )
+                              ) : (
+                                <DropdownMenuItem onClick={() => onToggleStatus(m)}>
+                                  {m.is_active ? (
+                                    <>
+                                      <UserX className="w-3.5 h-3.5 mr-2 text-warning-fg" />
+                                      <span>Deactivate member</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserCheck className="w-3.5 h-3.5 mr-2 text-success-fg" />
+                                      <span>Reactivate member</span>
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                              )
                             )}
 
                             {m.role !== 'admin' && (
@@ -659,6 +690,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </TD>
                     )}
                   </TR>

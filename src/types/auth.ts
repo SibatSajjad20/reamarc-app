@@ -32,6 +32,32 @@ export interface AuthUser {
   workspace_ids?: string[];
   avatar_url?: string | null;
   content_stages?: string[];
+  company_id?: string;
+  is_super_admin?: boolean;
+  company?: {
+    id?: string;
+    name?: string;
+    display_name?: string | null;
+    brand_name?: string | null;
+    slug?: string;
+    status?: 'active' | 'suspended';
+    logo_url?: string | null;
+    accent_color?: string;
+    timezone?: string;
+  };
+  impersonating?: boolean;
+  read_only?: boolean;
+  membership_id?: string;
+  needs_setup?: boolean;
+  effective_access?: Record<string, boolean>;
+  companies?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    logo_url?: string | null;
+    role?: string;
+    accent_color?: string;
+  }>;
 }
 
 export interface LoginPayload {
@@ -50,4 +76,15 @@ export interface AuthResponse {
   token_type: string;
   user: AuthUser;
   refresh_token?: string | null;
+  membership_id?: string;
+  needs_setup?: boolean;
+  effective_access?: Record<string, boolean>;
+  companies?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    logo_url?: string | null;
+    role?: string;
+    accent_color?: string;
+  }>;
 }

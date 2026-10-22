@@ -6,6 +6,7 @@ import os
 import io
 import re
 import uuid
+import hashlib
 import secrets
 import logging
 import asyncio
@@ -16,7 +17,9 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import UploadFile, HTTPException, status, Request
+from fastapi.responses import Response
 from pymongo import UpdateOne, IndexModel, ASCENDING
+from pymongo.errors import DuplicateKeyError, PyMongoError
 
 from app.schemas.content_calendar import (
     ContentCalendarItemCreate,
@@ -40,6 +43,7 @@ from app.schemas.content_calendar import (
 )
 from app.services.content_calendar_workflow import (
     WorkflowError,
+    CLIENT_REVIEW_STAGES,
     CONTENT_STAGES,
     CREATIVE_STAGES,
     can_edit_item,
@@ -68,6 +72,8 @@ from app.core.uploads import (
 )
 
 
+from app.services.company_members import company_member_user, company_member_users
+
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "content_calendar_items"
@@ -88,9 +94,24 @@ async def ensure_indexes(db) -> None:
             return
         try:
             coll = db[COLLECTION_NAME]
+            from app.core.index_migration import ensure_company_unique_index
+
+            raw_coll = getattr(coll, "_coll", coll)
+            await ensure_company_unique_index(
+                raw_coll,
+                ["idx_cc_id"],
+                [[("id", 1)]],
+                [("company_id", 1), ("id", 1)],
+                "uniq_company_cc_id",
+            )
+            await ensure_company_unique_index(
+                raw_coll,
+                ["idx_cc_serial"],
+                [[("serial", 1)]],
+                [("company_id", 1), ("serial", 1)],
+                "uniq_company_cc_serial",
+            )
             models = [
-                IndexModel([("id", ASCENDING)], name="idx_cc_id"),
-                IndexModel([("serial", ASCENDING)], name="idx_cc_serial"),
                 IndexModel([("share_token", ASCENDING)], name="idx_cc_share_token", sparse=True),
                 IndexModel([("stage", ASCENDING), ("serial", ASCENDING)], name="idx_cc_stage_serial"),
                 IndexModel([("client_name", ASCENDING)], name="idx_cc_client"),
@@ -100,29 +121,38 @@ async def ensure_indexes(db) -> None:
             ]
             await coll.create_indexes(models)
 
-            # Backfill persistent share_tokens for existing documents missing them
-            try:
-                missing_cursor = coll.find(
-                    {"$or": [{"share_token": None}, {"share_token": {"$exists": False}}, {"share_token": ""}]},
-                    {"_id": 1, "id": 1}
-                )
-                backfill_ops = []
-                async for mdoc in missing_cursor:
-                    backfill_ops.append(
-                        UpdateOne(
-                            {"_id": mdoc["_id"]},
-                            {"$set": {"share_token": f"cc_tok_{uuid.uuid4().hex}"}}
-                        )
-                    )
-                if backfill_ops:
-                    await coll.bulk_write(backfill_ops, ordered=False)
-                    logger.info("Backfilled persistent share_tokens for %d items", len(backfill_ops))
-            except Exception as backfill_exc:
-                logger.warning("Could not backfill share_tokens: %s", backfill_exc)
-
+            if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+                await backfill_share_tokens(db)
             _indexes_ready = True
         except Exception as exc:
             logger.warning("Content calendar index setup skipped: %s", exc)
+
+
+async def backfill_share_tokens(db) -> int:
+    """Backfill persistent share_tokens for existing calendar items missing them."""
+    if db is None:
+        return 0
+    try:
+        coll = db[COLLECTION_NAME]
+        missing_cursor = coll.find(
+            {"$or": [{"share_token": None}, {"share_token": {"$exists": False}}, {"share_token": ""}]},
+            {"_id": 1, "id": 1}
+        )
+        backfill_ops = []
+        async for mdoc in missing_cursor:
+            backfill_ops.append(
+                UpdateOne(
+                    {"_id": mdoc["_id"]},
+                    {"$set": {"share_token": f"cc_tok_{uuid.uuid4().hex}"}}
+                )
+            )
+        if backfill_ops:
+            await coll.bulk_write(backfill_ops, ordered=False)
+            logger.info("Backfilled persistent share_tokens for %d items", len(backfill_ops))
+            return len(backfill_ops)
+    except Exception as backfill_exc:
+        logger.warning("Could not backfill share_tokens: %s", backfill_exc)
+    return 0
 
 
 def _now_iso() -> str:
@@ -328,10 +358,14 @@ async def get_items(
         ]
         if missing_uids and db is not None:
             try:
-                user_docs = await db["users"].find(
+                user_docs = await company_member_users(
                     {"$or": [{"id": {"$in": missing_uids}}, {"_id": {"$in": missing_uids}}]},
-                    {"id": 1, "_id": 1, "full_name": 1, "name": 1}
-                ).to_list(len(missing_uids))
+                    db=db,
+                    include_needs_setup=True,
+                    include_inactive=True,
+                    projection={"id": 1, "_id": 1, "full_name": 1, "name": 1},
+                    limit=len(missing_uids),
+                )
                 u_map = {}
                 for u in user_docs:
                     uid = str(u.get("id") or u.get("_id") or "")
@@ -399,10 +433,7 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
         return None
     if doc.get("created_by") and not doc.get("created_by_name"):
         try:
-            u = await db["users"].find_one(
-                {"$or": [{"id": doc["created_by"]}, {"_id": doc["created_by"]}]},
-                {"full_name": 1, "name": 1}
-            )
+            u = await company_member_user(doc["created_by"], db=db)
             if u:
                 doc["created_by_name"] = str(u.get("full_name") or u.get("name") or "")
         except Exception:
@@ -466,11 +497,83 @@ def format_client_serial(raw_serial: Optional[str], client_name: Optional[str], 
     return f"{prefix}-{fallback_num:03d}"
 
 
-async def get_next_serial(db, client_name: Optional[str] = None) -> str:
+async def _scan_max_serial(coll, prefix: str) -> int:
+    """Read-only scan of the highest numeric suffix for a given serial prefix."""
+    if coll is None:
+        return 0
+    pattern = rf"^{prefix}-(\d+)$"
+    max_num = 0
+    try:
+        cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
+        if hasattr(cursor, "__aiter__"):
+            async for doc in cursor:
+                s = doc.get("serial", "")
+                m = re.search(r"-(\d+)$", s)
+                if m:
+                    try:
+                        num = int(m.group(1))
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+        elif hasattr(cursor, "__iter__"):
+            for doc in cursor:
+                s = doc.get("serial", "")
+                m = re.search(r"-(\d+)$", s)
+                if m:
+                    try:
+                        num = int(m.group(1))
+                        if num > max_num:
+                            max_num = num
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return max_num
+
+
+async def peek_next_serial(db, client_name: Optional[str] = None) -> str:
     """
-    Auto-generates the next sequential serial ID formatted as:
-    'C' + client abbreviation + '-' + 3-digit number (e.g. CAT-001, CAT-002).
-    Uses atomic counter increments to prevent race conditions and duplicate serials.
+    Read-only inspection of the next sequential serial ID for a client.
+    Returns counter seq+1 (or max existing serial+1 for that company if no counter).
+    Never writes to counters or collections.
+    """
+    abbr = get_client_abbreviation(client_name)
+    prefix = f"C{abbr}"
+
+    if db is None:
+        return f"{prefix}-001"
+
+    counter_coll = None
+    if isinstance(db, dict):
+        counter_coll = db.get("content_calendar_counters")
+    else:
+        try:
+            counter_coll = db["content_calendar_counters"]
+        except Exception:
+            counter_coll = None
+
+    if counter_coll is not None and hasattr(counter_coll, "find_one"):
+        try:
+            from app.core.tenant import company_singleton_id
+            counter_id = company_singleton_id(f"serial_{abbr.upper()}")
+            counter_doc = await counter_coll.find_one({"_id": counter_id})
+            if counter_doc is not None and "seq" in counter_doc:
+                seq = int(counter_doc.get("seq", 0))
+                return f"{prefix}-{(seq + 1):03d}"
+        except Exception:
+            pass
+
+    # No counter doc yet: scan max existing serial without writing
+    coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+    max_num = await _scan_max_serial(coll, prefix)
+    return f"{prefix}-{(max_num + 1):03d}"
+
+
+async def reserve_next_serial(db, client_name: Optional[str] = None) -> str:
+    """
+    Atomically allocates and increments the next sequential serial ID for a client.
+    Keeps company_singleton_id per-company ids and first-time seeding from max existing serial.
     """
     abbr = get_client_abbreviation(client_name)
     prefix = f"C{abbr}"
@@ -489,24 +592,13 @@ async def get_next_serial(db, client_name: Optional[str] = None) -> str:
 
     if counter_coll is not None and hasattr(counter_coll, "find_one_and_update"):
         try:
-            counter_id = f"serial_{abbr.upper()}"
+            from app.core.tenant import company_singleton_id
+            counter_id = company_singleton_id(f"serial_{abbr.upper()}")
             counter_doc = await counter_coll.find_one({"_id": counter_id})
 
             if counter_doc is None:
-                coll = db[COLLECTION_NAME]
-                pattern = f"^{prefix}-(\\d+)$"
-                cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
-                max_num = 0
-                async for doc in cursor:
-                    s = doc.get("serial", "")
-                    m = re.search(r"-(\d+)$", s)
-                    if m:
-                        try:
-                            num = int(m.group(1))
-                            if num > max_num:
-                                max_num = num
-                        except ValueError:
-                            pass
+                coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+                max_num = await _scan_max_serial(coll, prefix)
                 try:
                     await counter_coll.update_one(
                         {"_id": counter_id},
@@ -528,24 +620,13 @@ async def get_next_serial(db, client_name: Optional[str] = None) -> str:
             pass
 
     # Fallback to direct collection max scan if counter collection unavailable (e.g. in test mocks)
-    coll = db[COLLECTION_NAME]
-    pattern = f"^{prefix}-(\\d+)$"
-    cursor = coll.find({"serial": {"$regex": pattern, "$options": "i"}}, {"serial": 1})
-    max_num = 0
-    async for doc in cursor:
-        s = doc.get("serial", "")
-        m = re.search(r"-(\d+)$", s)
-        if m:
-            try:
-                num = int(m.group(1))
-                if num > max_num:
-                    max_num = num
-            except ValueError:
-                pass
-
+    coll = db[COLLECTION_NAME] if not isinstance(db, dict) else db.get(COLLECTION_NAME)
+    max_num = await _scan_max_serial(coll, prefix)
     next_num = max_num + 1
     return f"{prefix}-{next_num:03d}"
 
+
+get_next_serial = reserve_next_serial
 
 async def create_item(
     db,
@@ -570,10 +651,16 @@ async def create_item(
     doc["assignee_id"] = None
     doc["assignee_name"] = None
     doc["revision_note"] = None
-    if not doc.get("serial") or not str(doc["serial"]).strip() or doc["serial"].upper() == "AUTO":
-        doc["serial"] = await get_next_serial(db, doc.get("client_name"))
-    else:
-        doc["serial"] = format_client_serial(doc["serial"], doc.get("client_name"))
+    client_name = doc.get("client_name")
+    raw_serial = doc.get("serial")
+    peeked = await peek_next_serial(db, client_name)
+
+    is_manual = False
+    if raw_serial and str(raw_serial).strip() and str(raw_serial).strip().upper() != "AUTO":
+        formatted_serial = format_client_serial(raw_serial, client_name)
+        if formatted_serial != peeked:
+            is_manual = True
+            doc["serial"] = formatted_serial
 
     doc["share_token"] = secrets.token_urlsafe(24)
     doc["id"] = item_id
@@ -590,7 +677,24 @@ async def create_item(
         if isinstance(v, str):
             doc[k] = sanitize_spreadsheet_string(v)
 
-    await coll.insert_one(doc)
+    max_retries = 3
+    for attempt in range(max_retries):
+        doc.pop("_id", None)
+        if not is_manual:
+            doc["serial"] = await reserve_next_serial(db, client_name)
+        try:
+            await coll.insert_one(doc)
+            break
+        except Exception as exc:
+            is_dup = (
+                isinstance(exc, DuplicateKeyError)
+                or "duplicate key" in str(exc).lower()
+                or "e11000" in str(exc).lower()
+            )
+            if is_dup and not is_manual and attempt < max_retries - 1:
+                continue
+            raise
+
     doc["id"] = item_id
     if "_id" in doc:
         del doc["_id"]
@@ -690,14 +794,18 @@ async def update_item(
             provided_serial = payload.serial
             old_serial = current_doc.get("serial")
             target_prefix = f"C{get_client_abbreviation(new_client)}-"
+            peeked = await peek_next_serial(db, new_client)
             if (
                 not provided_serial
                 or provided_serial.upper() == "AUTO"
                 or provided_serial == old_serial
                 or not provided_serial.startswith(target_prefix)
+                or provided_serial == peeked
             ):
-                new_serial = await get_next_serial(db, new_client)
+                new_serial = await reserve_next_serial(db, new_client)
                 update_data["serial"] = new_serial
+            else:
+                update_data["serial"] = format_client_serial(provided_serial, new_client)
 
     # Auto-link or synchronize workspace_id with matching active workspace for the client
     target_client = update_data.get("client_name") or current_doc.get("client_name")
@@ -748,11 +856,34 @@ async def update_item(
 
     update_data["updated_at"] = _now_iso()
 
-    result = await coll.find_one_and_update(
-        {"$or": [{"id": item_id}, {"serial": item_id}]},
-        {"$set": update_data},
-        return_document=True,
+    serial_was_reserved = bool(
+        "client_name" in update_data
+        and "serial" in update_data
+        and update_data.get("client_name") != current_doc.get("client_name")
     )
+    new_client = update_data.get("client_name")
+    max_retries = 3 if serial_was_reserved else 1
+    result = None
+    for attempt in range(max_retries):
+        if attempt > 0 and serial_was_reserved and new_client:
+            new_serial = await reserve_next_serial(db, new_client)
+            update_data["serial"] = new_serial
+        try:
+            result = await coll.find_one_and_update(
+                {"$or": [{"id": item_id}, {"serial": item_id}]},
+                {"$set": update_data},
+                return_document=True,
+            )
+            break
+        except Exception as exc:
+            is_dup = (
+                isinstance(exc, DuplicateKeyError)
+                or "duplicate key" in str(exc).lower()
+                or "e11000" in str(exc).lower()
+            )
+            if is_dup and serial_was_reserved and attempt < max_retries - 1:
+                continue
+            raise
     if result:
         presented_res = _present_doc(result)
         try:
@@ -854,12 +985,12 @@ async def list_creative_assignees(db) -> List[Dict[str, str]]:
     """Creative team leads and members a creative lead can assign."""
     if db is None:
         return []
-    cursor = db["users"].find(
-        {"is_active": {"$ne": False}},
-        {"_id": 0, "hashed_password": 0},
-    )
     people: List[Dict[str, str]] = []
-    async for doc in cursor:
+    for doc in await company_member_users(
+        {"is_active": {"$ne": False}},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+    ):
         if not is_creative_actor(doc):
             continue
         people.append({
@@ -874,12 +1005,12 @@ async def list_content_assignees(db) -> List[Dict[str, str]]:
     """Content team leads and members a content lead can assign."""
     if db is None:
         return []
-    cursor = db["users"].find(
-        {"is_active": {"$ne": False}},
-        {"_id": 0, "hashed_password": 0},
-    )
     people: List[Dict[str, str]] = []
-    async for doc in cursor:
+    for doc in await company_member_users(
+        {"is_active": {"$ne": False}},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+    ):
         if not is_content_actor(doc):
             continue
         people.append({
@@ -1500,7 +1631,17 @@ async def attach_drive_assets(
         role = f.get("role") or default_role
 
         if gdrive.configured():
-            meta = await gdrive.ingest_picked_file(drive_file_id, dest_folder_id)
+            company_root = None
+            try:
+                company_root = await gdrive._ensure_root(db)
+            except Exception:
+                company_root = dest_folder_id
+            meta = await gdrive.ingest_picked_file(
+                drive_file_id,
+                dest_folder_id,
+                actor=viewer,
+                company_root_folder_id=company_root,
+            )
             if meta:
                 drive_file_id = str(meta.get("id") or drive_file_id)
                 filename = meta.get("name") or filename
@@ -1817,7 +1958,8 @@ async def get_constants_from_db(db=None) -> Dict[str, Any]:
     if db is None:
         return base
     try:
-        doc = await db[SETTINGS_COLLECTION].find_one({"_id": "field_constants"})
+        from app.core.tenant import company_singleton_id
+        doc = await db[SETTINGS_COLLECTION].find_one({"_id": company_singleton_id("field_constants")})
         if doc:
             for k in ["creative_types", "campaign_types", "content_types", "creative_categories", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]:
                 if k in doc and isinstance(doc[k], list) and len(doc[k]) > 0:
@@ -1847,8 +1989,9 @@ async def update_constants(db, updates: Dict[str, Any]) -> Dict[str, Any]:
                 to_save[k] = cleaned
                 base[k] = cleaned
     if to_save:
+        from app.core.tenant import company_singleton_id
         await db[SETTINGS_COLLECTION].update_one(
-            {"_id": "field_constants"},
+            {"_id": company_singleton_id("field_constants")},
             {"$set": {**to_save, "updated_at": _now_iso()}},
             upsert=True,
         )
@@ -2114,13 +2257,17 @@ async def batch_update_items(
                 old_serial = current_doc.get("serial")
                 provided_serial = clean_set.get("serial")
                 target_prefix = f"C{get_client_abbreviation(new_client)}-"
+                peeked = await peek_next_serial(db, new_client)
                 if (
                     not provided_serial
                     or provided_serial == old_serial
                     or not str(provided_serial).startswith(target_prefix)
+                    or provided_serial == peeked
                 ):
-                    new_serial = await get_next_serial(db, new_client)
+                    new_serial = await reserve_next_serial(db, new_client)
                     clean_set["serial"] = new_serial
+                else:
+                    clean_set["serial"] = format_client_serial(provided_serial, new_client)
 
         clean_set["updated_at"] = now
         operations.append(
@@ -2200,7 +2347,7 @@ async def bulk_import_items(
 
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await get_next_serial(db, c_name)
+                    serial = await reserve_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
@@ -2274,7 +2421,7 @@ async def bulk_import_items(
 
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await get_next_serial(db, c_name)
+                    serial = await reserve_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
@@ -2326,6 +2473,42 @@ def check_review_link_expiration(doc: Dict[str, Any]) -> Tuple[bool, Optional[st
     return False, None
 
 
+_REVIEW_DOWNLOAD_BLOCK_STAGES = {
+    "Content Revision",
+    "Creative Revision",
+    "Creative Production",
+    "Content",
+    "Content Internal Review",
+    "Creative Internal Review",
+}
+_REVIEW_DOWNLOAD_APPROVED_STATUSES = {
+    "Approved",
+    "Approved for Campaign",
+    "Creative Approved",
+    "Content Approved",
+}
+
+
+def check_review_link_download_allowed(doc: Dict[str, Any]) -> bool:
+    """Downloads are allowed only during client review, or after approval if not sent back."""
+    stage = normalize_stage(doc.get("stage"))
+    approval_status = str(doc.get("approval_status") or "").strip()
+    # Client review wins first: an item re-sent after changes may still say Changes Requested.
+    if stage in CLIENT_REVIEW_STAGES:
+        return True
+    # Block revision / in-progress production before any later allow rule (including leftover Approved).
+    if (
+        stage in ("Content Revision", "Creative Revision")
+        or approval_status == "Changes Requested"
+        or stage == "Creative Production"
+        or stage in _REVIEW_DOWNLOAD_BLOCK_STAGES
+    ):
+        return False
+    if approval_status in _REVIEW_DOWNLOAD_APPROVED_STATUSES:
+        return True
+    return stage in ("Ready to Post", "Posted")
+
+
 async def get_public_review_item(db, token: str) -> Dict[str, Any]:
     """Public lookup for client review strictly via cryptographically secure share_token."""
     if db is None:
@@ -2349,10 +2532,16 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
 
     presented = _present_doc(dict(doc))
 
-    # Review links only expire once approved or changes requested
+    # Review links only expire once approved or changes requested.
+    # Approved items stay readable for downloads (read_only / download_only).
     is_expired, expire_msg = check_review_link_expiration(presented)
+    download_allowed = check_review_link_download_allowed(presented)
+    download_only = False
     if is_expired:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+        if download_allowed:
+            download_only = True
+        else:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
 
     # Rewrite attachment URLs to secure public review streaming endpoints so external guests can view media
     public_attachments = []
@@ -2363,6 +2552,9 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         att_id = att_copy.get("id")
         if att_copy.get("kind") != "link" and att_id:
             att_copy["url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}"
+            att_copy["download_url"] = (
+                f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?download=1"
+            )
             if att_copy.get("thumbnail_url"):
                 att_copy["thumbnail_url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1"
         public_attachments.append(att_copy)
@@ -2398,6 +2590,9 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         "share_token": presented.get("share_token") or clean_tok,
         "revision_note": presented.get("revision_note"),
         "updated_at": presented.get("updated_at"),
+        "read_only": download_only,
+        "download_only": download_only,
+        "download_allowed": download_allowed,
     }
 
 
@@ -2559,7 +2754,11 @@ async def notify_content_calendar_event(
         }
 
         async def _iter_staff():
-            async for u in db.users.find({"is_active": {"$ne": False}}, _access_fields):
+            for u in await company_member_users(
+                {"is_active": {"$ne": False}},
+                db=db,
+                projection=_access_fields,
+            ):
                 u["is_active"] = True
                 yield u
 
@@ -2581,9 +2780,10 @@ async def notify_content_calendar_event(
             if not workspace_id:
                 return []
             uids = []
-            async for u in db.users.find(
+            for u in await company_member_users(
                 {"is_active": {"$ne": False}, "role": "client", "$or": [{"workspace_id": workspace_id}, {"workspace_ids": workspace_id}]},
-                _access_fields,
+                db=db,
+                projection=_access_fields,
             ):
                 uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
@@ -2725,12 +2925,12 @@ async def notify_content_calendar_event(
         if not cleaned_recipients:
             return
 
-        recipient_docs = []
-        async for u in db.users.find(
+        recipient_docs = await company_member_users(
             {"$or": [{"id": {"$in": cleaned_recipients}}, {"_id": {"$in": cleaned_recipients}}]},
-            _access_fields,
-        ):
-            recipient_docs.append(u)
+            db=db,
+            include_needs_setup=True,
+            projection=_access_fields,
+        )
         by_id = {}
         for u in recipient_docs:
             by_id[str(u.get("id") or "")] = u
@@ -2768,11 +2968,55 @@ async def notify_content_calendar_event(
 
 
 
+def _public_asset_etag(asset_id: str, target: Dict[str, Any], presented: Dict[str, Any], *, thumb: bool) -> str:
+    """Weak validator for a private review stream. Not shared across clients."""
+    if thumb:
+        drive_id = str(target.get("google_drive_thumb_file_id") or target.get("google_drive_file_id") or "")
+    else:
+        drive_id = str(target.get("google_drive_file_id") or "")
+    modified = str(
+        target.get("modifiedTime")
+        or target.get("modified_time")
+        or target.get("uploaded_at")
+        or presented.get("updated_at")
+        or ""
+    )
+    if target.get("size_bytes") is not None:
+        size = str(target.get("size_bytes"))
+    elif target.get("size") is not None:
+        size = str(target.get("size"))
+    else:
+        size = str(target.get("file_size") or "")
+    raw = "|".join([str(asset_id), drive_id, modified, size, "thumb" if thumb else "full"])
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return f'W/"{digest}"'
+
+
+def _if_none_match_matches(header: Optional[str], etag: str) -> bool:
+    if not header:
+        return False
+    raw = header.strip()
+    if raw == "*":
+        return True
+
+    def _norm(value: str) -> str:
+        text = value.strip()
+        if len(text) > 2 and text[:2].lower() == "w/":
+            text = text[2:].strip()
+        if len(text) >= 2 and text.startswith('"') and text.endswith('"'):
+            text = text[1:-1]
+        return text
+
+    wanted = _norm(etag)
+    return any(_norm(part) == wanted for part in raw.split(",") if part.strip())
+
+
 async def stream_public_asset(
     db,
     token: str,
     asset_id: str,
     thumb: bool = False,
+    download: bool = False,
     request: Request = None,
 ):
     """Streams a deliverable asset for a client viewing a campaign via a valid magic link."""
@@ -2788,15 +3032,26 @@ async def stream_public_asset(
 
     presented = _present_doc(dict(doc))
     is_expired, expire_msg = check_review_link_expiration(presented)
-    if is_expired:
+    download_allowed = check_review_link_download_allowed(presented)
+    if is_expired and not download_allowed:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+    if download and not download_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=expire_msg or "Downloads are not available until this campaign is sent for client review.",
+        )
 
     attachments = presented.get("attachments") or []
     target = next((a for a in attachments if isinstance(a, dict) and a.get("id") == clean_aid), None)
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
 
-    target_url = target.get("thumbnail_url") if (thumb and target.get("thumbnail_url")) else target.get("url")
+    if download and str(target.get("kind") or "").lower() == "link":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+
+    # download=1 always serves the original file (ignore thumb).
+    use_thumb = bool(thumb and not download and target.get("thumbnail_url"))
+    target_url = target.get("thumbnail_url") if use_thumb else target.get("url")
     if not target_url:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset file not found.")
 
@@ -2809,7 +3064,6 @@ async def stream_public_asset(
     is_valid_internal = clean_url.startswith("content_calendar/") and (
         f"content_calendar/{doc_id}/" in clean_url
         or (doc_serial and f"content_calendar/{doc_serial}/" in clean_url)
-        or clean_url.startswith("content_calendar/")
     )
     is_valid_gdrive = clean_url.startswith("gdrive/") and (
         (gdrive_id and gdrive_id in clean_url)
@@ -2819,7 +3073,40 @@ async def stream_public_asset(
     if not (is_valid_internal or is_valid_gdrive):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this asset.")
 
-    from app.core.uploads import open_upload_response
+    # Token, expiry, and path checks above must pass before a conditional 304.
+    # Download responses stay uncacheable and never short-circuit.
+    etag = _public_asset_etag(clean_aid, target, presented, thumb=use_thumb)
+    if not download:
+        if_none_match = request.headers.get("if-none-match") if request is not None else None
+        if _if_none_match_matches(if_none_match, etag):
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED,
+                headers={
+                    "ETag": etag,
+                    "Cache-Control": "private, max-age=3600",
+                    "Accept-Ranges": "bytes",
+                },
+            )
+
+    from app.core.uploads import content_disposition_header, open_upload_response
     range_header = request.headers.get("range") if request else None
-    return await open_upload_response(db, target_url, download=False, range_header=range_header)
+    response = await open_upload_response(db, target_url, download=download, range_header=range_header)
+    if download:
+        filename = str(target.get("filename") or "").strip()
+        if not filename:
+            ext = Path(clean_url).suffix
+            try:
+                index = next(
+                    i for i, att in enumerate(attachments)
+                    if isinstance(att, dict) and att.get("id") == clean_aid
+                )
+            except StopIteration:
+                index = 0
+            filename = f"{doc_serial or doc_id or 'file'}-{index + 1}{ext}"
+        response.headers["Content-Disposition"] = content_disposition_header(filename, inline=False)
+        response.headers["Cache-Control"] = "private, no-store"
+    else:
+        response.headers["Cache-Control"] = "private, max-age=3600"
+        response.headers["ETag"] = etag
+    return response
 

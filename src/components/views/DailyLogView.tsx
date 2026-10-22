@@ -58,6 +58,7 @@ import { useOffDays } from '../../hooks/useOffDays';
 import { getRoleLabel } from '../../utils/badgeStyles';
 import { formatHours, isLogDateExpired } from '../../utils/logTimeChecks';
 import { exportDailyLogWorkbook } from '../../utils/dailyLogExcelExport';
+import { brandNameOf } from '../../utils/branding';
 import { PageHeader } from '../ui/PageHeader';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import { StatusPill } from '../ui/StatusPill';
@@ -588,6 +589,7 @@ export const DailyLogView: React.FC = () => {
       const period = getExportPeriodMeta();
       const filename = exportDailyLogWorkbook(exportEntries, columns, {
         ...period,
+        companyName: brandNameOf(user?.company),
         department: selectedDept || 'All',
         exportedBy: user?.full_name || user?.name || user?.email || 'Unknown',
         exportedByRole: getRoleLabel(user?.role),

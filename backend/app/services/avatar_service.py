@@ -93,17 +93,15 @@ async def upload_user_avatar(
     Deletes the previous avatar if public_id differs.
     Returns (secure_url, public_id).
     """
-    init_cloudinary()
-    import cloudinary.uploader
+    from app.services import cloudinary_service
 
     try:
-        result = cloudinary.uploader.upload(
+        secure_url, new_public_id = await cloudinary_service.upload_image(
             file_bytes,
             folder="reamarc/avatars",
             public_id=user_id,
             overwrite=True,
             invalidate=True,
-            resource_type="image",
             transformation=[
                 {
                     "width": 512,
@@ -114,6 +112,8 @@ async def upload_user_avatar(
                     "quality": "auto",
                 }
             ],
+            not_configured_detail="Image storage is not configured.",
+            upload_error_detail="Failed to upload avatar to image service.",
         )
     except HTTPException:
         raise
@@ -124,13 +124,10 @@ async def upload_user_avatar(
             detail="Failed to upload avatar to image service.",
         )
 
-    new_public_id = result.get("public_id")
-    secure_url = result.get("secure_url")
-
     # If previous public_id was different, delete it
     if current_avatar_public_id and current_avatar_public_id != new_public_id:
         try:
-            cloudinary.uploader.destroy(current_avatar_public_id, invalidate=True)
+            await cloudinary_service.destroy(current_avatar_public_id)
         except Exception as del_exc:
             logger.warning(
                 "Could not delete old avatar %s: %s",
@@ -147,10 +144,8 @@ async def delete_user_avatar(public_id: Optional[str]) -> None:
     """
     if not is_cloudinary_configured() or not public_id:
         return
-    init_cloudinary()
-    import cloudinary.uploader
-
     try:
-        cloudinary.uploader.destroy(public_id, invalidate=True)
+        from app.services import cloudinary_service
+        await cloudinary_service.destroy(public_id)
     except Exception as exc:
         logger.warning("Could not delete avatar %s: %s", public_id, type(exc).__name__)

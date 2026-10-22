@@ -47,6 +47,9 @@ class MobileNotificationResponse(BaseModel):
     sender_role: Optional[str] = None
     created_at: Optional[str] = None
     read: bool = False
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+    data: Optional[dict] = None
 
 
 class PushDispatchResponse(BaseModel):

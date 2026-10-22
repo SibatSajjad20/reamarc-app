@@ -6,22 +6,26 @@ from typing import List, Optional
 
 from app.database import get_database
 from app.services.email_service import EmailService
+from app.services.company_members import company_member_users
 
 logger = logging.getLogger("app.scheduler")
 
 PK_TZ = ZoneInfo("Asia/Karachi")
 
 # In-memory fast cache for run dates
-_last_morning_run_date: Optional[str] = None
-_last_evening_run_date: Optional[str] = None
+_last_morning_run_date: dict[str, str] = {}
+_last_evening_run_date: dict[str, str] = {}
 
 
 async def _has_run_today(job_name: str, today_str: str) -> bool:
     """Checks both in-memory cache and MongoDB persistence to see if the job ran today."""
     global _last_morning_run_date, _last_evening_run_date
-    if job_name == "morning" and _last_morning_run_date == today_str:
-        return True
-    if job_name == "evening" and _last_evening_run_date == today_str:
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    cid = (ctx.company_id if ctx else None) or "default"
+
+    cache = _last_morning_run_date if job_name == "morning" else _last_evening_run_date
+    if cache.get(cid) == today_str:
         return True
 
     db = get_database()
@@ -29,10 +33,7 @@ async def _has_run_today(job_name: str, today_str: str) -> bool:
         try:
             doc = await db.system_config.find_one({"key": f"scheduler_last_{job_name}"})
             if doc and doc.get("last_run_date") == today_str:
-                if job_name == "morning":
-                    _last_morning_run_date = today_str
-                if job_name == "evening":
-                    _last_evening_run_date = today_str
+                cache[cid] = today_str
                 return True
         except Exception as e:
             logger.warning(f"[Scheduler] Error checking persistent run status for {job_name}: {e}")
@@ -43,10 +44,12 @@ async def _has_run_today(job_name: str, today_str: str) -> bool:
 async def _mark_run_today(job_name: str, today_str: str):
     """Marks job as completed for today in-memory and in MongoDB."""
     global _last_morning_run_date, _last_evening_run_date
-    if job_name == "morning":
-        _last_morning_run_date = today_str
-    if job_name == "evening":
-        _last_evening_run_date = today_str
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    cid = (ctx.company_id if ctx else None) or "default"
+
+    cache = _last_morning_run_date if job_name == "morning" else _last_evening_run_date
+    cache[cid] = today_str
 
     db = get_database()
     if db is not None:
@@ -123,14 +126,16 @@ async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
     return on_leave
 
 
-async def run_evening_log_reminder_check():
+async def run_evening_log_reminder_check(company: Optional[dict] = None, now_override: Optional[datetime] = None):
     """Evening 8:00 PM Check: Dispatches reminder emails to members who haven't logged today."""
     db = get_database()
     if db is None:
         logger.warning("[Scheduler] Database unavailable for evening reminder check.")
         return
 
-    now_pk = datetime.now(PK_TZ)
+    from app.core.tenant import company_tz
+    tz = ZoneInfo(company_tz(company)) if company else PK_TZ
+    now_pk = now_override or datetime.now(tz)
     today_str = now_pk.strftime("%Y-%m-%d")
 
     # Off-day check: Skip reminders on Sunday and 1st Saturday of the month
@@ -141,11 +146,12 @@ async def run_evening_log_reminder_check():
     logger.info(f"[Scheduler] Running Evening 8:00 PM Log Reminder Check for {today_str}...")
 
     # Fetch active members (excluding super admin, client, and operations accounts)
-    cursor = db.users.find(
+    members = await company_member_users(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
     )
-    members = await cursor.to_list(length=500)
     from app.services.access import is_tracked
     members = [m for m in members if is_tracked(m, "daily_log")]
 
@@ -182,6 +188,7 @@ async def run_evening_log_reminder_check():
                     recipient_name=fname,
                     missing_dates=[today_str],
                     custom_message="Evening Reminder: Please remember to record your daily tasks and hours for today before wrapping up your shift.",
+                    company=company,
                 )
                 reminded_count += 1
                 logger.info(f"[Scheduler] Evening reminder email dispatched to {m['email']}")
@@ -204,14 +211,16 @@ async def run_evening_log_reminder_check():
     logger.info(f"[Scheduler] Evening reminder check complete. {reminded_count} members reminded for {today_str}.")
 
 
-async def run_morning_log_reminder_check():
+async def run_morning_log_reminder_check(company: Optional[dict] = None, now_override: Optional[datetime] = None):
     """Morning 10:00 AM Check: Dispatches reminder emails to members who missed the previous workday's log."""
     db = get_database()
     if db is None:
         logger.warning("[Scheduler] Database unavailable for morning reminder check.")
         return
 
-    now_pk = datetime.now(PK_TZ)
+    from app.core.tenant import company_tz
+    tz = ZoneInfo(company_tz(company)) if company else PK_TZ
+    now_pk = now_override or datetime.now(tz)
     today_str = now_pk.strftime("%Y-%m-%d")
 
     # Off-day check: Skip morning reminders on Sunday and 1st Saturday of the month
@@ -228,11 +237,12 @@ async def run_morning_log_reminder_check():
     logger.info(f"[Scheduler] Running Morning 10:00 AM Log Reminder Check (Checking previous workday: {prev_workday_str})...")
 
     # Fetch active members (excluding super admin, client, and operations accounts)
-    cursor = db.users.find(
+    members = await company_member_users(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
     )
-    members = await cursor.to_list(length=500)
     from app.services.access import is_tracked
     members = [m for m in members if is_tracked(m, "daily_log")]
 
@@ -268,6 +278,7 @@ async def run_morning_log_reminder_check():
                     recipient_name=fname,
                     missing_dates=[prev_workday_str],
                     custom_message=f"Morning Reminder: You have an unlogged work submission for {prev_workday_str}. Please take 2 minutes to backfill your tasks.",
+                    company=company,
                 )
                 reminded_count += 1
                 logger.info(f"[Scheduler] Morning reminder email dispatched to {m['email']}")
@@ -291,30 +302,53 @@ async def run_morning_log_reminder_check():
 
 
 async def start_automated_log_reminder_scheduler():
-    """Background continuous polling loop with widened catch-up windows for 10:00 AM and 8:00 PM Asia/Karachi."""
-    logger.info("[Scheduler] Automated Daily Log Email Reminder background worker started (Working Days: 10:00 AM & 8:00 PM PKT).")
+    """Background continuous polling loop with widened catch-up windows for 10:00 AM and 8:00 PM local time."""
+    from app.config import settings
+    from app.core.job_locks import job_lease
+    from app.core.tenant import for_each_active_company, company_tz
+
+    logger.info("[Scheduler] Automated Daily Log Email Reminder background worker started.")
 
     while True:
         try:
-            now_pk = datetime.now(PK_TZ)
-            today_str = now_pk.strftime("%Y-%m-%d")
-            hour = now_pk.hour
+            async with job_lease("daily_log_reminders", ttl_seconds=30) as acquired:
+                if acquired:
+                    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                        async def _check_company_reminders(comp: dict):
+                            tz_str = company_tz(comp)
+                            try:
+                                comp_tz = ZoneInfo(tz_str)
+                            except Exception:
+                                comp_tz = PK_TZ
+                            now_comp = datetime.now(comp_tz)
+                            today_comp = now_comp.strftime("%Y-%m-%d")
+                            hour = now_comp.hour
 
-            # Working days check: Monday-Friday + 2nd, 3rd, 4th, 5th Saturday (1st Saturday & Sunday are OFF)
-            if await _is_company_workday(now_pk):
-                # 1. Morning Catch-up Window: Anytime from 10:00 AM until 7:59 PM
-                if 10 <= hour < 20:
-                    already_ran_morning = await _has_run_today("morning", today_str)
-                    if not already_ran_morning:
-                        await _mark_run_today("morning", today_str)
-                        await run_morning_log_reminder_check()
+                            if await _is_company_workday(now_comp):
+                                if 10 <= hour < 20:
+                                    if not await _has_run_today("morning", today_comp):
+                                        await _mark_run_today("morning", today_comp)
+                                        await run_morning_log_reminder_check(company=comp, now_override=now_comp)
+                                if hour >= 20:
+                                    if not await _has_run_today("evening", today_comp):
+                                        await _mark_run_today("evening", today_comp)
+                                        await run_evening_log_reminder_check(company=comp, now_override=now_comp)
 
-                # 2. Evening Catch-up Window: Anytime from 8:00 PM onwards (hour >= 20)
-                if hour >= 20:
-                    already_ran_evening = await _has_run_today("evening", today_str)
-                    if not already_ran_evening:
-                        await _mark_run_today("evening", today_str)
-                        await run_evening_log_reminder_check()
+                        await for_each_active_company(_check_company_reminders)
+                    else:
+                        now_pk = datetime.now(PK_TZ)
+                        today_str = now_pk.strftime("%Y-%m-%d")
+                        hour = now_pk.hour
+
+                        if await _is_company_workday(now_pk):
+                            if 10 <= hour < 20:
+                                if not await _has_run_today("morning", today_str):
+                                    await _mark_run_today("morning", today_str)
+                                    await run_morning_log_reminder_check()
+                            if hour >= 20:
+                                if not await _has_run_today("evening", today_str):
+                                    await _mark_run_today("evening", today_str)
+                                    await run_evening_log_reminder_check()
 
             # Sleep 30 seconds before next time check
             await asyncio.sleep(30)

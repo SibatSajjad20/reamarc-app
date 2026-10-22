@@ -19,6 +19,7 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { brandNameOf } from '@/utils/branding';
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { getSettingsSection } from '@/utils/settingsAccess';
@@ -159,6 +160,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           directory: 'Team directory',
           compliance: 'Log compliance',
           workspaces: 'Client workspaces',
+          companies: 'Companies',
         };
         const activeLabel = adminLabels[activeAdminSection] || 'Team directory';
         return [
@@ -233,8 +235,19 @@ export const TopBar: React.FC<TopBarProps> = ({
           },
         ];
       }
+      case 'owner':
+        return [
+          { label: 'Admin panel' },
+          {
+            label: 'Companies',
+            onClick: () => {
+              onSelectView('admin');
+              if (onSelectAdminSection) onSelectAdminSection('companies');
+            },
+          },
+        ];
       default:
-        return [{ label: 'Reamarc' }];
+        return [{ label: brandNameOf(user?.company) }];
     }
   };
 

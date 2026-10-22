@@ -66,7 +66,6 @@ export const AppShell: React.FC<AppShellProps> = ({
           />
         )}
 
-        {/* TopBar (§9.1) */}
         {topBar}
 
         {/* Content area: each view manages its own scrolling (§6.1) */}

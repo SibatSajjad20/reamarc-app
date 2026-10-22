@@ -21,6 +21,7 @@ from app.services.attendance_service import (
 from app.services.crm_access import can_assign_leads, is_crm_user, lead_visible_to
 from app.services.crm_form_fields import sources_equivalent
 from app.services.workdays import classify_date
+from app.services.company_members import company_member_users
 
 logger = logging.getLogger("app.crm.assignment")
 
@@ -116,8 +117,13 @@ async def is_crm_assignable(user: Dict[str, Any]) -> Tuple[bool, str]:
 async def _load_users(ids: List[str]) -> Dict[str, Dict[str, Any]]:
     if not ids:
         return {}
-    db = _db()
-    docs = await db.users.find({"id": {"$in": ids}}, {"_id": 0, "hashed_password": 0}).to_list(400)
+    docs = await company_member_users(
+        {"id": {"$in": ids}},
+        db=_db(),
+        projection={"_id": 0, "hashed_password": 0},
+        include_needs_setup=True,
+        limit=400,
+    )
     return {d.get("id"): d for d in docs if d.get("id")}
 
 
@@ -280,10 +286,11 @@ async def _require_crm_assignee(user_id: str) -> Tuple[str, str]:
     """Resolve assignee and enforce CRM eligibility (no client/hr/disabled)."""
     docs = await _load_users([user_id])
     doc = docs.get(user_id)
-    if not doc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found.")
-    if not is_crm_user(doc):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
+    if not doc or doc.get("needs_setup") or not is_crm_user(doc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assignee is not an active, set-up member of this company.",
+        )
     name = str(doc.get("full_name") or doc.get("name") or doc.get("email") or user_id)
     return user_id, name
 
@@ -346,12 +353,12 @@ def recipient_should_get_new_lead_alert(
 
 async def get_crm_broadcast_recipients(lead: Dict[str, Any]) -> List[str]:
     """CRM users who can see this lead and should receive its new-lead alert."""
-    db = _db()
-    cursor = db.users.find(
+    docs = await company_member_users(
         {"is_active": {"$ne": False}, "role": {"$nin": ["client", "hr"]}},
-        {"_id": 0, "id": 1, "role": 1, "department": 1, "crm_enabled": 1},
+        db=_db(),
+        projection={"_id": 0, "id": 1, "role": 1, "department": 1, "crm_enabled": 1, "access": 1, "primary_department": 1, "departments": 1, "needs_setup": 1},
+        limit=400,
     )
-    docs = await cursor.to_list(400)
     by_id = {u.get("id"): u for u in docs if u.get("id")}
     assignee = by_id.get(lead.get("assigned_to"))
     recipients: List[str] = []
@@ -475,10 +482,12 @@ async def _leave_unassigned_claim(
     if not notify_ids:
         from app.services.push_service import get_admin_user_ids
 
-        ops = await _db().users.find(
+        ops = await company_member_users(
             {"role": {"$in": ["admin", "operations"]}, "is_active": {"$ne": False}},
-            {"id": 1, "_id": 0},
-        ).to_list(100)
+            db=_db(),
+            projection={"id": 1, "_id": 0},
+            limit=100,
+        )
         notify_ids = [d.get("id") for d in ops if d.get("id")]
         if not notify_ids:
             notify_ids = await get_admin_user_ids()
@@ -633,18 +642,22 @@ async def claim_lead(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def admin_user_ids() -> List[str]:
-    docs = await _db().users.find(
+    docs = await company_member_users(
         {"role": "admin", "is_active": {"$ne": False}},
-        {"id": 1, "_id": 0},
-    ).to_list(100)
+        db=_db(),
+        projection={"id": 1, "_id": 0},
+        limit=100,
+    )
     return [d["id"] for d in docs if d.get("id")]
 
 
 async def manager_user_ids() -> List[str]:
-    docs = await _db().users.find(
+    docs = await company_member_users(
         {"role": {"$in": ["admin", "operations"]}, "is_active": {"$ne": False}},
-        {"id": 1, "_id": 0},
-    ).to_list(100)
+        db=_db(),
+        projection={"id": 1, "_id": 0},
+        limit=100,
+    )
     return [d["id"] for d in docs if d.get("id")]
 
 

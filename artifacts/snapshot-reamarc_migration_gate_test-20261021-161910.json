@@ -1,0 +1,58 @@
+{
+  "db": "reamarc_migration_gate_test",
+  "timestamp": "2026-10-21T11:19:10.942300+00:00",
+  "total_collections": 7,
+  "total_documents": 59,
+  "total_missing_company_id": 2,
+  "collections": {
+    "attendance_records": {
+      "count": 14,
+      "missing_company_id": 0,
+      "id_hash": "8103c03fe5bafd5abf8be00ddb0af67f37e29ad36b7129ea14f3dfc60235b3fb",
+      "content_hash": "87b55bfe0c3e03a7a5f53dd18128e31388a9f2e01e5cf2ba49a6116e72a4d09e",
+      "checksum": "a39b65c1b23ccc4453d6c07fed1033def6b7bf5ae39ed311da91ea377b0a56ca"
+    },
+    "companies": {
+      "count": 1,
+      "missing_company_id": 1,
+      "id_hash": "d50b8da363db4cc28d31ae3eefdbb4a0af8611f61e7b554a8cf3b213fe0ede07",
+      "content_hash": "328520a1a12d7e848dfae0cc0c09444ec2fa6117d4a51417f6d270d0d1ff4f0e",
+      "checksum": "e2ed9f15ffe3476c0062036020286c80bf6377003475a7f28aac1f3268c62e5e"
+    },
+    "crm_leads": {
+      "count": 14,
+      "missing_company_id": 0,
+      "id_hash": "5c5a86cfc821b7ef9574d8dabc891c148ef8eaf9f26fd7b4892167eb9ada92cc",
+      "content_hash": "0b9c224a37721f3c1e82508041d3ac57f54c4d6016c24aec866132f2d15adeda",
+      "checksum": "0c598f29231cc0d56dfa35377746ed0507af3c12c6650f5dc013f373a3fead26"
+    },
+    "daily_log_columns": {
+      "count": 1,
+      "missing_company_id": 0,
+      "id_hash": "2b29773dc198dd8ef7a81ba884655c36be2345735c3cf35582f5ad371aefbc6b",
+      "content_hash": "ee322e5b4ade232f3f08f92ae4782800532a73bfb536fc72381716cf37b6fdbf",
+      "checksum": "982bac5f6582766de33faab49b362a70891d2ce93c95c3b210384bd7db053300"
+    },
+    "migrations": {
+      "count": 1,
+      "missing_company_id": 1,
+      "id_hash": "885328e8f2f026205983b152e49ca1a9fd3265ba1337399edf21970b30a697fd",
+      "content_hash": "1e4a3bb3cff7068f97ee7f916d13abbbd1abb72edaaa644e51a9a7b6c241eb25",
+      "checksum": "e19905101fd4a4170e13151e862daeca06c7689a2037ec48aeacab42ceac3c84"
+    },
+    "users": {
+      "count": 14,
+      "missing_company_id": 0,
+      "id_hash": "fd0445a288d59a518f76215400634728491b8e3273ca29636880f775086ae7f8",
+      "content_hash": "5042a97b337e4105b770f83efd817031f1468d6a29f78d2cf8310bf640c37b23",
+      "checksum": "dcfc309933771e8b9e7d567e09e261581f6b6b6044447874a4d00e370b1db709"
+    },
+    "workspaces": {
+      "count": 14,
+      "missing_company_id": 0,
+      "id_hash": "126bf8563087e630b6408ec5d27dcd47b2004e6600e3ef4eeb71791e96f807a6",
+      "content_hash": "bc63f6314882474aa2bf73d9078feeaca7b0f004513ca143b024a06b08091825",
+      "checksum": "28916f539545884ec708a4ac4bc1900215124b1e889b7f61a69e34828df8d887"
+    }
+  }
+}

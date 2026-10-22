@@ -21,6 +21,7 @@ from pymongo import ReturnDocument
 
 from app.database import get_database
 from app.core.mongo_filters import exact_ci
+from app.services.company_members import company_member_user, company_member_users
 from app.models.attendance import (
     AttendanceStatus,
     LeaveType,
@@ -226,10 +227,14 @@ async def _attach_applicant_roles(docs: List[dict]) -> None:
     user_ids = list({d.get("user_id") for d in docs if d.get("user_id")})
     if not user_ids:
         return
-    users = await db.users.find(
+    users = await company_member_users(
         {"id": {"$in": user_ids}},
-        {"_id": 0, "id": 1, "role": 1},
-    ).to_list(2000)
+        db=db,
+        include_needs_setup=True,
+        include_inactive=True,
+        projection={"_id": 0, "id": 1, "role": 1},
+        limit=2000,
+    )
     role_map = {
         str(u.get("id")): str(u.get("role") or "team_member").lower()
         for u in users
@@ -309,10 +314,7 @@ async def _heal_overtime_requests(docs: List[dict], active_only_pending: bool = 
 async def _resolve_applicant_role(user_id: Optional[str], stored_role: Optional[str] = None) -> str:
     db = get_database()
     if db is not None and user_id:
-        user = await db.users.find_one(
-            {"$or": [{"id": user_id}, {"_id": user_id}]},
-            {"_id": 0, "role": 1},
-        )
+        user = await company_member_user(user_id, db=db)
         if user and user.get("role"):
             return str(user.get("role")).lower()
     return str(stored_role or "team_member").lower()
@@ -966,39 +968,44 @@ def is_sunday_date(d: date) -> bool:
 # 1. SHIFT MANAGEMENT & SEEDING
 # ──────────────────────────────────────────────────────────
 
-_default_shifts_ensured = False
-_cached_active_shifts: Optional[List[dict]] = None
-_cached_shifts_time: float = 0.0
+_default_shifts_ensured: Dict[str, bool] = {}
+_cached_active_shifts: Dict[str, List[dict]] = {}
+_cached_shifts_time: Dict[str, float] = {}
+
+
+def _shift_cache_key() -> str:
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    return (ctx.company_id if ctx and ctx.company_id else None) or "default"
 
 
 def invalidate_shifts_cache() -> None:
     """Invalidate in-memory shifts cache when shifts are modified."""
-    global _cached_active_shifts, _cached_shifts_time
-    _cached_active_shifts = None
-    _cached_shifts_time = 0.0
+    _cached_active_shifts.clear()
+    _cached_shifts_time.clear()
 
 
 async def ensure_default_shifts() -> List[dict]:
     """
     Ensures standard shift templates exist in the database.
     If the `shifts` collection is empty, seeds DEFAULT_SHIFTS.
-    Seed/backfill runs once per process so dashboard and admin reads stay cheap.
+    Seed/backfill runs once per process per company so dashboard and admin reads stay cheap.
     Active shifts are cached in memory for 5 minutes (invalidated on mutation).
     """
-    global _default_shifts_ensured, _cached_active_shifts, _cached_shifts_time
     db = get_database()
     if db is None:
         return []
 
+    key = _shift_cache_key()
     now = time.time()
-    if _default_shifts_ensured and _cached_active_shifts is not None and (now - _cached_shifts_time < 300):
-        return _cached_active_shifts
+    if _default_shifts_ensured.get(key) and key in _cached_active_shifts and (now - _cached_shifts_time.get(key, 0) < 300):
+        return _cached_active_shifts[key]
 
-    if _default_shifts_ensured:
+    if _default_shifts_ensured.get(key):
         cursor = db.shifts.find({"is_active": True}, {"_id": 0})
-        _cached_active_shifts = await cursor.to_list(100)
-        _cached_shifts_time = now
-        return _cached_active_shifts
+        _cached_active_shifts[key] = await cursor.to_list(100)
+        _cached_shifts_time[key] = now
+        return _cached_active_shifts[key]
 
     count = await db.shifts.count_documents({})
     if count == 0:
@@ -1015,21 +1022,28 @@ async def ensure_default_shifts() -> List[dict]:
             if isinstance(shift_dict.get("shift_type"), ShiftType):
                 shift_dict["shift_type"] = shift_dict["shift_type"].value
             seeded_docs.append(shift_dict)
-        if seeded_docs:
-            await db.shifts.insert_many(seeded_docs)
-        _default_shifts_ensured = True
-        _cached_active_shifts = [dict(d) for d in seeded_docs if d.get("is_active", True)]
-        _cached_shifts_time = time.time()
+        for shift_dict in seeded_docs:
+            try:
+                await db.shifts.update_one(
+                    {"id": shift_dict["id"]},
+                    {"$setOnInsert": shift_dict},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                pass
+        _default_shifts_ensured[key] = True
+        _cached_active_shifts[key] = [dict(d) for d in seeded_docs if d.get("is_active", True)]
+        _cached_shifts_time[key] = time.time()
         return seeded_docs
 
     await _ensure_wfh_shift_templates()
     await _backfill_shift_break_windows()
     await _reclassify_noncanonical_category_shifts()
-    _default_shifts_ensured = True
+    _default_shifts_ensured[key] = True
     cursor = db.shifts.find({"is_active": True}, {"_id": 0})
-    _cached_active_shifts = await cursor.to_list(100)
-    _cached_shifts_time = time.time()
-    return _cached_active_shifts
+    _cached_active_shifts[key] = await cursor.to_list(100)
+    _cached_shifts_time[key] = time.time()
+    return _cached_active_shifts[key]
 
 
 async def _ensure_wfh_shift_templates() -> None:
@@ -1042,15 +1056,20 @@ async def _ensure_wfh_shift_templates() -> None:
         shift_dict = dict(s)
         if not shift_dict.get("id"):
             continue
-        existing = await db.shifts.find_one({"id": shift_dict["id"]}, {"id": 1})
-        if existing:
-            continue
         if isinstance(shift_dict.get("shift_type"), ShiftType):
             shift_dict["shift_type"] = shift_dict["shift_type"].value
         shift_dict["created_at"] = now_iso
         shift_dict["updated_at"] = now_iso
-        await db.shifts.insert_one(shift_dict)
-        logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
+        try:
+            res = await db.shifts.update_one(
+                {"id": shift_dict["id"]},
+                {"$setOnInsert": shift_dict},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            continue
+        if getattr(res, "upserted_id", None):
+            logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
 
 
 async def _reclassify_noncanonical_category_shifts() -> None:
@@ -1264,11 +1283,14 @@ async def is_auto_wfh_for_date(user_id: str, date_str: str) -> bool:
     return bool(resolve_shift_assignment_for_date(assignment, date_str).get("auto_wfh"))
 
 
-async def assign_user_shift(assignment: ShiftAssignmentRequest) -> dict:
+async def assign_user_shift(assignment: ShiftAssignmentRequest, current_user: dict) -> dict:
     """Assigns or updates a user's default shift and optional weekday / date pattern."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
+
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(current_user, assignment.user_id)
 
     shift_ids = {assignment.shift_id}
     if assignment.weekday_rules:
@@ -1654,31 +1676,51 @@ async def persist_auto_absent(
 # 2. SECURITY SETTINGS
 # ──────────────────────────────────────────────────────────
 
+def _is_current_reamarc() -> bool:
+    from app.core.integrations import current_company_id, is_reamarc_company
+    return is_reamarc_company(current_company_id())
+
+
 async def get_security_settings() -> SecuritySettingsSchema:
     """Retrieves system attendance security settings from system_config collection."""
+    reamarc = _is_current_reamarc()
     db = get_database()
     if db is None:
+        if reamarc:
+            return SecuritySettingsSchema(
+                office_latitude=OFFICE_LATITUDE,
+                office_longitude=OFFICE_LONGITUDE,
+                office_public_ips=list(get_built_in_office_ips()),
+                office_ip_whitelist=list(get_built_in_office_ips()),
+            )
         return SecuritySettingsSchema(
-            office_latitude=OFFICE_LATITUDE,
-            office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(get_built_in_office_ips()),
-            office_ip_whitelist=list(get_built_in_office_ips()),
+            office_latitude=None,
+            office_longitude=None,
+            office_public_ips=[],
+            office_ip_whitelist=[],
         )
 
     doc = await db.system_config.find_one({"key": "attendance_security"}, {"_id": 0})
     if not doc:
-        default_settings = SecuritySettingsSchema(
-            office_latitude=OFFICE_LATITUDE,
-            office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(get_built_in_office_ips()),
-            office_ip_whitelist=list(get_built_in_office_ips()),
+        if reamarc:
+            default_settings = SecuritySettingsSchema(
+                office_latitude=OFFICE_LATITUDE,
+                office_longitude=OFFICE_LONGITUDE,
+                office_public_ips=list(get_built_in_office_ips()),
+                office_ip_whitelist=list(get_built_in_office_ips()),
+            )
+            await db.system_config.update_one(
+                {"key": "attendance_security"},
+                {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
+                upsert=True
+            )
+            return default_settings
+        return SecuritySettingsSchema(
+            office_latitude=None,
+            office_longitude=None,
+            office_public_ips=[],
+            office_ip_whitelist=[],
         )
-        await db.system_config.update_one(
-            {"key": "attendance_security"},
-            {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
-            upsert=True
-        )
-        return default_settings
 
     doc.pop("key", None)
     extra_list = doc.get("office_ip_whitelist") or []
@@ -1691,7 +1733,8 @@ async def get_security_settings() -> SecuritySettingsSchema:
     ]
     merged_ips: List[str] = []
     seen = set()
-    for item in list(get_built_in_office_ips()) + public_ips + extra_list:
+    builtin = list(get_built_in_office_ips()) if reamarc else []
+    for item in builtin + public_ips + extra_list:
         text = str(item or "").strip()
         if not text or text in seen:
             continue
@@ -1700,25 +1743,32 @@ async def get_security_settings() -> SecuritySettingsSchema:
     doc["office_public_ips"] = merged_ips
     doc["office_subnets"] = [str(s).strip() for s in subnets if str(s).strip()]
     doc["office_ip_whitelist"] = merged_ips
-    doc["office_latitude"] = OFFICE_LATITUDE
-    doc["office_longitude"] = OFFICE_LONGITUDE
+    if reamarc:
+        doc["office_latitude"] = OFFICE_LATITUDE
+        doc["office_longitude"] = OFFICE_LONGITUDE
+    else:
+        lat = doc.get("office_latitude")
+        lng = doc.get("office_longitude")
+        doc["office_latitude"] = lat if lat not in ("", None) else None
+        doc["office_longitude"] = lng if lng not in ("", None) else None
     return SecuritySettingsSchema(**doc)
 
 
 async def update_security_settings(new_settings: SecuritySettingsSchema) -> SecuritySettingsSchema:
-    """Updates attendance security settings. HQ pin is fixed; env OFFICE_PUBLIC_IPS is always merged in."""
+    """Updates attendance security settings. HQ pin is fixed for Reamarc only."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    # Hardcode office coordinates
-    new_settings.office_latitude = OFFICE_LATITUDE
-    new_settings.office_longitude = OFFICE_LONGITUDE
+    reamarc = _is_current_reamarc()
+    if reamarc:
+        new_settings.office_latitude = OFFICE_LATITUDE
+        new_settings.office_longitude = OFFICE_LONGITUDE
 
-    # Ensure hardcoded office IPs are never removed
     merged_ips = []
     seen = set()
-    for ip in list(get_built_in_office_ips()) + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
+    builtin = list(get_built_in_office_ips()) if reamarc else []
+    for ip in builtin + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
         text = str(ip or "").strip()
         if text and text not in seen:
             seen.add(text)
@@ -3016,7 +3066,7 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    user_doc = await company_member_user(user_id, db=db)
     if not user_doc:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -3155,7 +3205,13 @@ async def get_daily_matrix(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    users = await company_member_users(
+        user_query,
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("full_name", 1),
+        limit=1000,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "attendance")]
 
@@ -3668,7 +3724,13 @@ async def get_monthly_punctuality_summary(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    users = await company_member_users(
+        user_query,
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("full_name", 1),
+        limit=1000,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "attendance")]
     month_prefix = f"{year:04d}-{month:02d}"
@@ -4239,7 +4301,7 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
     if not rec:
         return None
 
-    user = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    user = await company_member_user(user_id, db=db) or {}
     user_dept = user.get("department")
     shift = await get_shift_for_user(user_id, user_dept, date_str)
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
@@ -5876,9 +5938,12 @@ async def admin_manual_attendance_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    target_user = await company_member_user(user_id, db=db)
     if not target_user:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(admin_user, target_user)
 
     user_name = target_user.get("full_name") or target_user.get("name", "User")
     department = target_user.get("department")
@@ -6069,7 +6134,7 @@ async def override_attendance_record(
         date_str = rec.get("date", date_str)
     else:
         # 2. Check if target_id is user_id
-        target_user = await db.users.find_one({"id": target_id})
+        target_user = await company_member_user(target_id, db=db)
         if target_user:
             user_id = target_id
             rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
@@ -6261,9 +6326,12 @@ async def create_missed_punch_inquiry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    user_doc = await company_member_user(user_id, db=db)
     if not user_doc:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(actor, user_doc)
 
     employee_name = user_doc.get("full_name") or user_doc.get("name", "Employee")
     department = user_doc.get("department", "")
@@ -6413,7 +6481,7 @@ async def respond_to_missed_punch_inquiry(
     target_date = inq.get("date")
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    user_doc = await company_member_user(user_id, db=db)
     dept = (user_doc or {}).get("department", "")
     shift = await get_shift_for_user(user_id, dept, target_date)
     existing_rec = await db.attendance_records.find_one({"user_id": user_id, "date": target_date}, {"_id": 0})

@@ -1,3 +1,5 @@
+import { useAuth } from '../../../context/AuthContext';
+import { brandNameOf, initialsOf } from '../../../utils/branding';
 import React, { useCallback, useEffect, useState, useMemo } from 'react';
 import {
   Bell,
@@ -53,6 +55,7 @@ const AndroidIcon: React.FC<{ size?: number; className?: string }> = ({ size = 1
 );
 
 export const MobileOpsSection: React.FC = () => {
+  const { user } = useAuth();
   const { addToast } = useToast();
   const confirm = useConfirm();
 
@@ -236,10 +239,10 @@ export const MobileOpsSection: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-md bg-accent flex items-center justify-center text-white text-[10px] font-semibold">
-                    R
+                    {initialsOf(brandNameOf(user?.company))}
                   </div>
                   <span className="text-xs font-semibold text-fg">
-                    Reamarc
+                    {brandNameOf(user?.company)}
                   </span>
                 </div>
                 <span className="text-xs text-fg-faint tabular-nums">Just now</span>

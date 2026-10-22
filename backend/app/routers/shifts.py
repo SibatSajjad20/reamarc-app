@@ -64,7 +64,7 @@ async def assign_shift_to_user(
     current_user: dict = Depends(require_hr_or_admin),
 ):
     """Assign or update a user's designated shift template (HR / Admin only)."""
-    return await attendance_service.assign_user_shift(assignment)
+    return await attendance_service.assign_user_shift(assignment, current_user)
 
 
 @router.get("/{id}", response_model=ShiftResponse)

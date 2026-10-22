@@ -14,8 +14,10 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.core.security import require_admin
+from app.config import settings
+from app.core.security import require_admin, invalidate_auth_cache, get_current_user
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.services.access import (
     MODULES,
     VALID_CONTENT_STAGES,
@@ -128,8 +130,70 @@ async def list_access_users(
     role: Optional[str] = Query(None),
     q: Optional[str] = Query(None),
     changed_only: Optional[bool] = Query(False),
+    current_user: dict = Depends(get_current_user),
 ):
     """List users with effective and default access settings for the admin Access page."""
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        current_cid = current_user.get("company_id")
+        mem_query: Dict[str, Any] = {
+            "company_id": current_cid,
+            "status": "active",
+            "role": {"$ne": "client"},
+        }
+        if role:
+            norm_r = normalize_role(role)
+            mem_query["role"] = {"$in": [norm_r, role, role.lower()]}
+
+        mems = await gdb.company_memberships.find(mem_query).to_list(2000)
+        if not mems:
+            return []
+
+        user_ids = [m["user_id"] for m in mems]
+        users = await gdb.users.find({"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]}).to_list(2000)
+        user_by_id = {u.get("id") or str(u.get("_id")): u for u in users}
+
+        rows: List[Dict[str, Any]] = []
+        dept_filter = normalize_dept(department) if department else None
+        q_clean = q.strip().lower() if q else None
+
+        for m in mems:
+            u = user_by_id.get(m["user_id"])
+            if not u:
+                continue
+            merged = dict(u)
+            merged["role"] = m.get("role", "team_member")
+            merged["department"] = m.get("department")
+            merged["departments"] = m.get("departments") or []
+            merged["primary_department"] = m.get("primary_department")
+            merged["access"] = m.get("access") or {}
+            merged["content_stages"] = m.get("content_stages") or []
+            merged["company_id"] = current_cid
+
+            row = _serialize_user_row(merged)
+
+            if dept_filter:
+                u_dept = normalize_dept(row["primary_department"])
+                if u_dept != dept_filter:
+                    continue
+
+            if q_clean:
+                name = (row["name"] or "").lower()
+                email = str(u.get("email") or "").lower()
+                if q_clean not in name and q_clean not in email:
+                    continue
+
+            if changed_only:
+                has_mod_change = any(mod["changed"] for mod in row["modules"].values())
+                has_stage_change = bool(row["content_stages"]["extra"])
+                if not (has_mod_change or has_stage_change):
+                    continue
+
+            rows.append(row)
+
+        return rows
+
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
@@ -140,8 +204,7 @@ async def list_access_users(
         norm_r = normalize_role(role)
         query["role"] = {"$in": [norm_r, role, role.lower()]}
 
-    cursor = db.users.find(query)
-    users = await cursor.to_list(length=2000)
+    users = await company_member_users(query, db=db, include_needs_setup=True, limit=2000)
 
     rows: List[Dict[str, Any]] = []
     dept_filter = normalize_dept(department) if department else None
@@ -183,9 +246,31 @@ async def patch_user_access(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    target = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    target_mem = None
+    if multi_enabled:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        target = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        target_mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": current_user.get("company_id"),
+            "status": "active",
+        })
+        if not target_mem:
+            raise HTTPException(status_code=404, detail="User not found")
+        target["role"] = target_mem.get("role", "team_member")
+        target["access"] = target_mem.get("access") or {}
+        target["content_stages"] = target_mem.get("content_stages") or []
+        target["department"] = target_mem.get("department")
+        target["departments"] = target_mem.get("departments") or []
+        target["primary_department"] = target_mem.get("primary_department")
+    else:
+        target = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
 
     target_role = normalize_role(target.get("role"))
     if target_role in ("admin", "client"):
@@ -227,6 +312,16 @@ async def patch_user_access(
                 "$inc": {"access_version": 1},
             },
         )
+
+        if multi_enabled and target_mem:
+            await gdb.company_memberships.update_one(
+                {"id": target_mem["id"]},
+                {
+                    "$set": {f"access.{payload.module}": stored_val},
+                    "$inc": {"token_version": 1},
+                },
+            )
+            invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
 
         audit_entry = {
             "id": str(uuid.uuid4()),
@@ -279,6 +374,16 @@ async def patch_user_access(
             },
         )
 
+        if multi_enabled and target_mem:
+            await gdb.company_memberships.update_one(
+                {"id": target_mem["id"]},
+                {
+                    "$set": {"content_stages": extra_to_store},
+                    "$inc": {"token_version": 1},
+                },
+            )
+            invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
+
         audit_entry = {
             "id": str(uuid.uuid4()),
             "at": now_iso,
@@ -296,6 +401,19 @@ async def patch_user_access(
         await db.permission_audit.insert_one(audit_entry)
 
     # Return refreshed serialized user
+    if multi_enabled and target_mem:
+        refreshed_mem = await gdb.company_memberships.find_one({"id": target_mem["id"]})
+        updated = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if refreshed_mem and updated:
+            updated["role"] = refreshed_mem.get("role", "team_member")
+            updated["access"] = refreshed_mem.get("access") or {}
+            updated["content_stages"] = refreshed_mem.get("content_stages") or []
+            updated["department"] = refreshed_mem.get("department")
+            updated["departments"] = refreshed_mem.get("departments") or []
+            updated["primary_department"] = refreshed_mem.get("primary_department")
+            updated["company_id"] = current_user.get("company_id")
+        return _serialize_user_row(updated)
+
     updated = await db.users.find_one({"_id": target["_id"]})
     return _serialize_user_row(updated)
 
@@ -311,9 +429,31 @@ async def reset_user_access(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    target = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    if not target:
-        raise HTTPException(status_code=404, detail="User not found")
+    multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    target_mem = None
+    if multi_enabled:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        target = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
+        target_mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": current_user.get("company_id"),
+            "status": "active",
+        })
+        if not target_mem:
+            raise HTTPException(status_code=404, detail="User not found")
+        target["role"] = target_mem.get("role", "team_member")
+        target["access"] = target_mem.get("access") or {}
+        target["content_stages"] = target_mem.get("content_stages") or []
+        target["department"] = target_mem.get("department")
+        target["departments"] = target_mem.get("departments") or []
+        target["primary_department"] = target_mem.get("primary_department")
+    else:
+        target = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not target:
+            raise HTTPException(status_code=404, detail="User not found")
 
     target_role = normalize_role(target.get("role"))
     if target_role in ("admin", "client"):
@@ -340,6 +480,15 @@ async def reset_user_access(
                 "$inc": {"access_version": 1},
             },
         )
+        if multi_enabled and target_mem:
+            await gdb.company_memberships.update_one(
+                {"id": target_mem["id"]},
+                {
+                    "$set": {f"access.{payload.module}": None},
+                    "$inc": {"token_version": 1},
+                },
+            )
+            invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
         mod_label = payload.module
     else:
         # Reset whole row
@@ -351,6 +500,15 @@ async def reset_user_access(
                 "$inc": {"access_version": 1},
             },
         )
+        if multi_enabled and target_mem:
+            await gdb.company_memberships.update_one(
+                {"id": target_mem["id"]},
+                {
+                    "$set": {"access": {m: False for m in MODULES}, "content_stages": []},
+                    "$inc": {"token_version": 1},
+                },
+            )
+            invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
         mod_label = "all modules"
 
     audit_entry = {
@@ -368,6 +526,19 @@ async def reset_user_access(
         "reason": f"Reset {mod_label} to default",
     }
     await db.permission_audit.insert_one(audit_entry)
+
+    if multi_enabled and target_mem:
+        refreshed_mem = await gdb.company_memberships.find_one({"id": target_mem["id"]})
+        updated = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if refreshed_mem and updated:
+            updated["role"] = refreshed_mem.get("role", "team_member")
+            updated["access"] = refreshed_mem.get("access") or {}
+            updated["content_stages"] = refreshed_mem.get("content_stages") or []
+            updated["department"] = refreshed_mem.get("department")
+            updated["departments"] = refreshed_mem.get("departments") or []
+            updated["primary_department"] = refreshed_mem.get("primary_department")
+            updated["company_id"] = current_user.get("company_id")
+        return _serialize_user_row(updated)
 
     updated = await db.users.find_one({"_id": target["_id"]})
     return _serialize_user_row(updated)
@@ -394,7 +565,7 @@ async def bulk_apply_access(
         norm_r = normalize_role(payload.role)
         query["role"] = {"$in": [norm_r, payload.role, payload.role.lower()]}
 
-    users = await db.users.find(query).to_list(length=2000)
+    users = await company_member_users(query, db=db, include_needs_setup=True, limit=2000)
 
     actor_id = str(current_user.get("id") or current_user.get("_id") or "admin")
     actor_name = current_user.get("full_name") or current_user.get("name") or "Administrator"
