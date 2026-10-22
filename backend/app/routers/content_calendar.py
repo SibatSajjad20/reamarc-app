@@ -125,7 +125,7 @@ async def get_next_serial(
 ):
     """Returns the next sequential serial ID for a client, formatted as C + Client Abbr + Number."""
     db = get_database()
-    serial = await content_calendar_service.get_next_serial(db, client_name)
+    serial = await content_calendar_service.peek_next_serial(db, client_name)
     return {"serial": serial}
 
 

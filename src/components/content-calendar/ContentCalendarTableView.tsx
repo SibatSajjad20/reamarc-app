@@ -369,21 +369,6 @@ export const ContentCalendarTableView: React.FC<Props> = ({
       pendingUpdatesRef.current.set(rowId, { ...existing, [colKey]: cleanNew });
       setSaveStatus('saving');
 
-      // If client changed, auto-reassign serial to the new client's sequence
-      if (colKey === 'client_name') {
-        contentCalendarService
-          .getNextSerial(String(cleanNew))
-          .then((res) => {
-            if (res?.serial) {
-              if (onUpdateItemLocal) {
-                onUpdateItemLocal(rowId, { client_name: cleanNew, serial: res.serial });
-              }
-              const curr = pendingUpdatesRef.current.get(rowId) || {};
-              pendingUpdatesRef.current.set(rowId, { ...curr, client_name: cleanNew, serial: res.serial });
-            }
-          })
-          .catch(() => {});
-      }
 
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);

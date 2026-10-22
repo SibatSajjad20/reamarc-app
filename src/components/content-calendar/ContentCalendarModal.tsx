@@ -53,6 +53,8 @@ export const ContentCalendarModal: React.FC<Props> = ({
   constants,
   activeClients = [],
 }) => {
+  const [previewSerial, setPreviewSerial] = useState<string>('');
+  const [isSerialManuallyEdited, setIsSerialManuallyEdited] = useState<boolean>(false);
   const [formData, setFormData] = useState<Partial<ContentCalendarItem>>({
     serial: '',
     client_name: 'Apex Transfers LLC',
@@ -178,18 +180,22 @@ export const ContentCalendarModal: React.FC<Props> = ({
         notes: '',
       });
 
-      // Auto-generate serial formatted as C + Client Abbr + Number
+      // Peek serial formatted as C + Client Abbr + Number (preview hint only)
       contentCalendarService
         .getNextSerial(defaultClient)
         .then((res) => {
           if (res?.serial) {
-            setFormData((prev) => ({ ...prev, serial: res.serial }));
+            setPreviewSerial(res.serial);
           }
         })
         .catch(() => {
-          setFormData((prev) => ({ ...prev, serial: 'CAT-001' }));
+          setPreviewSerial('CAT-001');
         });
     }
+    if (item) {
+      setPreviewSerial(item.serial || '');
+    }
+    setIsSerialManuallyEdited(false);
     setFieldErrors({});
     setServerError(null);
     setHasSubmitted(false);
@@ -211,12 +217,13 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
     if (item && resolvedName === item.client_name) {
       setFormData((prev) => ({ ...prev, serial: item.serial }));
+      setPreviewSerial(item.serial || '');
     } else {
       contentCalendarService
         .getNextSerial(resolvedName)
         .then((res) => {
           if (res?.serial) {
-            setFormData((prev) => ({ ...prev, serial: res.serial }));
+            setPreviewSerial(res.serial);
           }
         })
         .catch(() => {});
@@ -330,7 +337,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
         primary_text: formData.primary_text?.trim(),
         content_on_creative: formData.content_on_creative?.trim(),
         design_owner: autoOwner,
-        serial: formData.serial?.trim() || undefined,
+        serial: item
+          ? (formData.serial?.trim() || undefined)
+          : (isSerialManuallyEdited && formData.serial?.trim() && formData.serial.trim().toUpperCase() !== 'AUTO'
+              ? formData.serial.trim()
+              : undefined),
         draft_preview_link: formData.draft_preview_link?.trim() || undefined,
         final_asset_link: formData.final_asset_link?.trim() || undefined,
       });
@@ -356,7 +367,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
           </div>
           <div>
             <DialogTitle className="text-ui font-semibold text-fg">
-              {item ? `Edit campaign item: ${item.serial}` : 'Create new campaign item'}
+              {item ? `Edit campaign item: ${item.serial}` : `Create new campaign item${previewSerial ? ` (${previewSerial})` : ''}`}
             </DialogTitle>
             <DialogDescription className="text-caption text-fg-muted mt-0.5">
               Configure campaign strategy, copy, schedule, and assets
@@ -392,6 +403,29 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
               <div>
                 <label className="block text-caption font-medium text-fg mb-1">
+                  Serial {item ? '' : '(Preview / Optional override)'}
+                </label>
+                <input
+                  type="text"
+                  name="serial"
+                  placeholder={previewSerial || 'AUTO'}
+                  value={formData.serial || ''}
+                  onChange={(e) => {
+                    setIsSerialManuallyEdited(true);
+                    updateField('serial', e.target.value);
+                  }}
+                  disabled={Boolean(item)}
+                  className="w-full px-3 py-1.5 rounded-md text-xs bg-subtle border border-border text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden disabled:opacity-60"
+                />
+                <p className="text-micro text-fg-muted mt-1">
+                  {item ? 'Auto-assigned serial ID' : `Auto-assigned server-side on save (preview: ${previewSerial || 'AUTO'})`}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-caption font-medium text-fg mb-1">
                   Creative type *
                 </label>
                 <CustomSelect
@@ -403,9 +437,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
                   error={fieldErrors.creative_type}
                 />
               </div>
-            </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-caption font-medium text-fg mb-1">
                   Content type (Scheduled / Runtime) *
@@ -422,35 +454,35 @@ export const ContentCalendarModal: React.FC<Props> = ({
                   Execution schedule: Scheduled vs Runtime task content
                 </p>
               </div>
+            </div>
 
-              <div>
-                <label className="block text-caption font-medium text-fg mb-1">
-                  Creative category (Organic / Ad) *
-                </label>
-                <CustomSelect
-                  size="sm"
-                  name="creative_category"
-                  value={formData.creative_category || 'Organic Creative'}
-                  onChange={(val) => {
-                    const next = {
-                      ...formData,
-                      creative_category: val,
-                      posting_type: val,
-                      design_owner: detectStageOwner(formData.stage, val),
-                    };
-                    setFormData(next);
-                    if (hasSubmitted) {
-                      const cur = validate(next);
-                      setFieldErrors(cur);
-                    }
-                  }}
-                  options={creativeCategoryOptions}
-                  error={fieldErrors.creative_category}
-                />
-                <p className="text-micro text-fg-muted mt-1">
-                  Routes posting to Social Media (Organic) or Performance Marketing (Ad)
-                </p>
-              </div>
+            <div>
+              <label className="block text-caption font-medium text-fg mb-1">
+                Creative category (Organic / Ad) *
+              </label>
+              <CustomSelect
+                size="sm"
+                name="creative_category"
+                value={formData.creative_category || 'Organic Creative'}
+                onChange={(val) => {
+                  const next = {
+                    ...formData,
+                    creative_category: val,
+                    posting_type: val,
+                    design_owner: detectStageOwner(formData.stage, val),
+                  };
+                  setFormData(next);
+                  if (hasSubmitted) {
+                    const cur = validate(next);
+                    setFieldErrors(cur);
+                  }
+                }}
+                options={creativeCategoryOptions}
+                error={fieldErrors.creative_category}
+              />
+              <p className="text-micro text-fg-muted mt-1">
+                Routes posting to Social Media (Organic) or Performance Marketing (Ad)
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
