@@ -41,7 +41,8 @@ _PARENT_CACHE_LOCK = threading.Lock()
 _file_meta_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
 _FILE_META_CACHE_LOCK = threading.Lock()
 _FILE_META_TTL_SECONDS = 600.0
-_DRIVE_STREAM_SEM = asyncio.Semaphore(4)
+_DRIVE_STREAM_SEM = asyncio.Semaphore(6)
+_DRIVE_STREAM_ACQUIRE_TIMEOUT = 3.0
 _PICKER_GRANT_TTL = timedelta(hours=1)
 FILE_NOT_IN_COMPANY_FOLDER = "This file isn't in your company's Drive folder."
 
@@ -634,16 +635,29 @@ async def relocate_item_folder(file_id: str, parent_id: str, name: str) -> None:
         logger.warning("Could not move Drive folder %s: %s", file_id, exc)
 
 
+class _SlotStreamingResponse(StreamingResponse):
+    def __init__(self, *a, on_close, **kw):
+        super().__init__(*a, **kw)
+        self._on_close = on_close
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self._on_close()
+
+
 async def open_drive_response(file_id: str, filename: str, download: bool = False, range_header: Optional[str] = None):
     from app.core.uploads import VIEWABLE_EXTENSIONS, content_disposition_header, playable_media_type
 
-    if _DRIVE_STREAM_SEM.locked():
+    try:
+        await asyncio.wait_for(_DRIVE_STREAM_SEM.acquire(), timeout=_DRIVE_STREAM_ACQUIRE_TIMEOUT)
+    except asyncio.TimeoutError:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Drive is busy. Retry shortly.",
             headers={"Retry-After": "5"},
         )
-    await _DRIVE_STREAM_SEM.acquire()
     slot_held = True
 
     def _release_slot() -> None:
@@ -716,7 +730,13 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
             await client.aclose()
             _release_slot()
 
-    return StreamingResponse(_iter(), status_code=response.status_code, media_type=media_type, headers=out_headers)
+    return _SlotStreamingResponse(
+        _iter(),
+        status_code=response.status_code,
+        media_type=media_type,
+        headers=out_headers,
+        on_close=_release_slot,
+    )
 
 
 def get_access_token() -> str:
