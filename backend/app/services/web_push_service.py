@@ -239,6 +239,11 @@ async def upsert_subscription(
         raise WebPushConfigError("Database is unavailable.")
     await _ensure_indexes(db)
     now = _now_iso()
+    raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
+    if raw_db is not None:
+        await raw_db.web_push_subscriptions.delete_many(
+            {"endpoint": endpoint, "user_id": {"$ne": user_id}}
+        )
     update = {
         "$set": {
             "user_id": user_id,
@@ -261,7 +266,7 @@ async def upsert_subscription(
         )
     except DuplicateKeyError:
         await db.web_push_subscriptions.update_one(
-            {"endpoint": endpoint, "user_id": user_id},
+            {"endpoint": endpoint},
             {"$set": update["$set"]},
         )
     owned = (

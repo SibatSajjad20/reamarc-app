@@ -112,17 +112,13 @@ REAMARC_OFFICE_MAP_URL = DEFAULT_SCHEDULER_SETTINGS["office_map_url"]
 async def scheduler_brand_context() -> Dict[str, Any]:
     """Brand, admin reply email, and whether the current tenant is Reamarc."""
     from app.core.integrations import current_company_id, is_reamarc_company
-    from app.core.tenant import get_global_db
-    from app.services.company_branding import brand_name_of, company_admin_reply_email
+    from app.services.company_branding import brand_name_of, company_admin_reply_email, get_company_doc
 
     cid = current_company_id()
-    gdb = get_global_db()
     company = None
-    if cid and gdb is not None:
+    if cid:
         try:
-            company = await gdb.companies.find_one({"id": cid})
-            if not company:
-                company = await gdb.companies.find_one({"slug": cid})
+            company = await get_company_doc(cid)
         except Exception:
             company = None
     reamarc_flag = is_reamarc_company(cid)

@@ -133,6 +133,8 @@ class TestSchedulerBrandIsolation(unittest.IsolatedAsyncioTestCase):
         with _flags(True), tenant_scope(DATAVIZ), patch("app.services.crm_scheduler._db", return_value=db), patch(
             "app.core.tenant.get_global_db", return_value=gdb
         ), patch(
+            "app.services.company_branding.get_company_doc", new=AsyncMock(return_value=company)
+        ), patch(
             "app.services.company_branding.company_admin_reply_email", new=AsyncMock(return_value="ops@dataviz.test")
         ):
             sched = await crm_scheduler.get_scheduler_settings()
@@ -289,6 +291,142 @@ class TestWebPushIndexSpec(unittest.TestCase):
         spec = next(s for s in COMPANY_UNIQUE_INDEXES if s["collection"] == "web_push_subscriptions")
         self.assertEqual(spec["new_keys"], [("endpoint", 1), ("company_id", 1)])
         self.assertIn("idx_web_push_endpoint", spec["old_names"])
+
+
+PUSH_ENDPOINT = "https://fcm.googleapis.com/fcm/send/shared-browser-endpoint"
+PUSH_P256DH = "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+PUSH_AUTH = "AAAAAAAAAAAAAAAAAAAAAA"
+
+
+class _MemPush:
+    def __init__(self, rows, company_id=None):
+        self.rows = rows
+        self.company_id = company_id
+
+    def _match(self, query, doc):
+        query = dict(query or {})
+        if self.company_id and "company_id" not in query:
+            if doc.get("company_id") != self.company_id:
+                return False
+        for key, value in query.items():
+            if isinstance(value, dict):
+                if "$ne" in value and doc.get(key) == value["$ne"]:
+                    return False
+                if "$in" in value and doc.get(key) not in value["$in"]:
+                    return False
+            elif doc.get(key) != value:
+                return False
+        return True
+
+    async def update_one(self, query, update, upsert=False):
+        from pymongo.errors import DuplicateKeyError
+
+        for row in self.rows:
+            if self._match(query, row):
+                row.update((update or {}).get("$set") or {})
+                return SimpleNamespace(modified_count=1, upserted_id=None)
+        if not upsert:
+            return SimpleNamespace(modified_count=0, upserted_id=None)
+        stored = dict((update or {}).get("$setOnInsert") or {})
+        stored.update((update or {}).get("$set") or {})
+        stored.update(dict(query or {}))
+        if self.company_id:
+            stored.setdefault("company_id", self.company_id)
+        for row in self.rows:
+            if row.get("endpoint") == stored.get("endpoint") and row.get("company_id") == stored.get("company_id"):
+                raise DuplicateKeyError("uniq_web_push_endpoint_company")
+        self.rows.append(stored)
+        return SimpleNamespace(modified_count=0, upserted_id=stored.get("id"))
+
+    async def delete_many(self, query):
+        kept = [row for row in self.rows if not self._match(query, row)]
+        n = len(self.rows) - len(kept)
+        self.rows[:] = kept
+        return SimpleNamespace(deleted_count=n)
+
+    def find(self, query=None, *args, **kwargs):
+        matched = [dict(row) for row in self.rows if self._match(query, row)]
+
+        class _Cursor:
+            def sort(self, *a, **k):
+                return self
+
+            async def to_list(self, _n=500):
+                return matched
+
+        return _Cursor()
+
+
+class _PushTenantDB:
+    def __init__(self, company_id, rows):
+        self.company_id = company_id
+        self._rows = rows
+        self.web_push_subscriptions = _MemPush(rows, company_id)
+
+    def raw(self):
+        return SimpleNamespace(web_push_subscriptions=_MemPush(self._rows, company_id=None))
+
+
+class TestWebPushEndpointHandoff(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from app.services import web_push_service
+
+        self._web = web_push_service
+        self._ensure = patch.object(web_push_service, "_ensure_indexes", new=AsyncMock())
+        self._ensure.start()
+        self.addCleanup(self._ensure.stop)
+
+    async def _subscribe(self, db, company_id, user_id):
+        with patch("app.services.web_push_service.get_database", return_value=db), tenant_scope(company_id):
+            return await self._web.upsert_subscription(user_id, PUSH_ENDPOINT, PUSH_P256DH, PUSH_AUTH)
+
+    async def test_other_user_other_company_drops_endpoint_for_x(self):
+        rows = []
+        db_a = _PushTenantDB("comp_a", rows)
+        db_b = _PushTenantDB("comp_b", rows)
+        await self._subscribe(db_a, "comp_a", "user_x")
+        await self._subscribe(db_b, "comp_b", "user_y")
+        self.assertFalse(any(r.get("user_id") == "user_x" and r.get("endpoint") == PUSH_ENDPOINT for r in rows))
+        self.assertEqual(rows[0]["user_id"], "user_y")
+        self.assertEqual(rows[0]["company_id"], "comp_b")
+
+        delivered = []
+
+        def fake_deliver(sub, payload):
+            delivered.append(sub.get("endpoint"))
+            return "ok"
+
+        with _flags(True), tenant_scope("comp_a"), patch(
+            "app.services.web_push_service.get_database", return_value=db_a
+        ), patch("app.services.push_service.filter_allowed_recipients", new=AsyncMock(side_effect=lambda ids, *a, **k: ids)), patch.object(
+            self._web, "web_push_configured", return_value=True
+        ), patch.object(
+            self._web, "public_application_server_key", return_value="pk"
+        ), patch.object(
+            self._web, "_deliver_one", side_effect=fake_deliver
+        ):
+            sent = await self._web.send_web_push(["user_x"], "Hello", "Body")
+        self.assertEqual(sent, 0)
+        self.assertNotIn(PUSH_ENDPOINT, delivered)
+
+    async def test_other_user_same_company_reassigns_row(self):
+        rows = []
+        db_a = _PushTenantDB("comp_a", rows)
+        await self._subscribe(db_a, "comp_a", "user_x")
+        await self._subscribe(db_a, "comp_a", "user_y")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["user_id"], "user_y")
+        self.assertEqual(rows[0]["company_id"], "comp_a")
+
+    async def test_same_user_two_companies_keeps_both_rows(self):
+        rows = []
+        db_a = _PushTenantDB("comp_a", rows)
+        db_b = _PushTenantDB("comp_b", rows)
+        await self._subscribe(db_a, "comp_a", "user_x")
+        await self._subscribe(db_b, "comp_b", "user_x")
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({r["company_id"] for r in rows}, {"comp_a", "comp_b"})
+        self.assertTrue(all(r["user_id"] == "user_x" and r["endpoint"] == PUSH_ENDPOINT for r in rows))
 
 
 class TestGoLiveJobUnregistered(unittest.TestCase):
