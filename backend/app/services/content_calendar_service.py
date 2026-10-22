@@ -91,9 +91,24 @@ async def ensure_indexes(db) -> None:
             return
         try:
             coll = db[COLLECTION_NAME]
+            from app.core.index_migration import ensure_company_unique_index
+
+            raw_coll = getattr(coll, "_coll", coll)
+            await ensure_company_unique_index(
+                raw_coll,
+                ["idx_cc_id"],
+                [[("id", 1)]],
+                [("company_id", 1), ("id", 1)],
+                "uniq_company_cc_id",
+            )
+            await ensure_company_unique_index(
+                raw_coll,
+                ["idx_cc_serial"],
+                [[("serial", 1)]],
+                [("company_id", 1), ("serial", 1)],
+                "uniq_company_cc_serial",
+            )
             models = [
-                IndexModel([("id", ASCENDING)], name="idx_cc_id"),
-                IndexModel([("serial", ASCENDING)], name="idx_cc_serial"),
                 IndexModel([("share_token", ASCENDING)], name="idx_cc_share_token", sparse=True),
                 IndexModel([("stage", ASCENDING), ("serial", ASCENDING)], name="idx_cc_stage_serial"),
                 IndexModel([("client_name", ASCENDING)], name="idx_cc_client"),
@@ -501,7 +516,8 @@ async def get_next_serial(db, client_name: Optional[str] = None) -> str:
 
     if counter_coll is not None and hasattr(counter_coll, "find_one_and_update"):
         try:
-            counter_id = f"serial_{abbr.upper()}"
+            from app.core.tenant import company_singleton_id
+            counter_id = company_singleton_id(f"serial_{abbr.upper()}")
             counter_doc = await counter_coll.find_one({"_id": counter_id})
 
             if counter_doc is None:
@@ -1839,7 +1855,8 @@ async def get_constants_from_db(db=None) -> Dict[str, Any]:
     if db is None:
         return base
     try:
-        doc = await db[SETTINGS_COLLECTION].find_one({"_id": "field_constants"})
+        from app.core.tenant import company_singleton_id
+        doc = await db[SETTINGS_COLLECTION].find_one({"_id": company_singleton_id("field_constants")})
         if doc:
             for k in ["creative_types", "campaign_types", "content_types", "creative_categories", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]:
                 if k in doc and isinstance(doc[k], list) and len(doc[k]) > 0:
@@ -1869,8 +1886,9 @@ async def update_constants(db, updates: Dict[str, Any]) -> Dict[str, Any]:
                 to_save[k] = cleaned
                 base[k] = cleaned
     if to_save:
+        from app.core.tenant import company_singleton_id
         await db[SETTINGS_COLLECTION].update_one(
-            {"_id": "field_constants"},
+            {"_id": company_singleton_id("field_constants")},
             {"$set": {**to_save, "updated_at": _now_iso()}},
             upsert=True,
         )

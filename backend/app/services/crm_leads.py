@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import HTTPException, status
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
 from app.database import get_database
 from app.services.crm_form_fields import form_answer_rows, is_no_website, pull_form_answers
@@ -183,45 +184,53 @@ def serialize_activity(doc: Dict[str, Any]) -> Dict[str, Any]:
 
 async def ensure_default_pipeline() -> Dict[str, Any]:
     db = _db()
+    now = _now()
+    seed_stages = [dict(s) for s in DEFAULT_STAGES]
+    try:
+        await db.crm_pipeline.update_one(
+            {"id": "default"},
+            {"$setOnInsert": {"id": "default", "stages": seed_stages, "updated_at": now}},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        pass
     existing = await db.crm_pipeline.find_one({"id": "default"}, {"_id": 0})
+    if not existing:
+        existing = {"id": "default", "stages": seed_stages, "updated_at": now}
     lead_stage_ids = {s["id"] for s in DEFAULT_STAGES}
-    if existing:
-        stages = existing.get("stages") or []
-        needs_update = False
-        cleaned: List[Dict[str, Any]] = []
-        for s in stages:
-            sid = s.get("id")
-            # Drop legacy commercial stages now owned by the deal pipeline
-            if sid in ("proposal_sent", "negotiation"):
-                needs_update = True
-                continue
-            if sid == "session_booked" and s.get("name") != "Meeting Booked":
-                s = {**s, "name": "Meeting Booked"}
-                needs_update = True
-            elif sid == "session_done" and s.get("name") != "Meeting Completed":
-                s = {**s, "name": "Meeting Completed"}
-                needs_update = True
-            if sid in lead_stage_ids:
-                cleaned.append(s)
-            else:
-                needs_update = True
-        # Ensure all default stages exist
-        have = {s.get("id") for s in cleaned}
-        for s in DEFAULT_STAGES:
-            if s["id"] not in have:
-                cleaned.append(dict(s))
-                needs_update = True
-        cleaned.sort(key=lambda x: int(x.get("order") or 99))
-        if needs_update or cleaned != stages:
-            await db.crm_pipeline.update_one(
-                {"id": "default"},
-                {"$set": {"stages": cleaned, "updated_at": _now()}},
-            )
-            existing["stages"] = cleaned
-        return existing
-    doc = {"id": "default", "stages": DEFAULT_STAGES, "updated_at": _now()}
-    await db.crm_pipeline.insert_one(doc)
-    return doc
+    stages = existing.get("stages") or []
+    needs_update = False
+    cleaned: List[Dict[str, Any]] = []
+    for s in stages:
+        sid = s.get("id")
+        # Drop legacy commercial stages now owned by the deal pipeline
+        if sid in ("proposal_sent", "negotiation"):
+            needs_update = True
+            continue
+        if sid == "session_booked" and s.get("name") != "Meeting Booked":
+            s = {**s, "name": "Meeting Booked"}
+            needs_update = True
+        elif sid == "session_done" and s.get("name") != "Meeting Completed":
+            s = {**s, "name": "Meeting Completed"}
+            needs_update = True
+        if sid in lead_stage_ids:
+            cleaned.append(s)
+        else:
+            needs_update = True
+    # Ensure all default stages exist
+    have = {s.get("id") for s in cleaned}
+    for s in DEFAULT_STAGES:
+        if s["id"] not in have:
+            cleaned.append(dict(s))
+            needs_update = True
+    cleaned.sort(key=lambda x: int(x.get("order") or 99))
+    if needs_update or cleaned != stages:
+        await db.crm_pipeline.update_one(
+            {"id": "default"},
+            {"$set": {"stages": cleaned, "updated_at": _now()}},
+        )
+        existing["stages"] = cleaned
+    return existing
 
 
 async def append_activity(

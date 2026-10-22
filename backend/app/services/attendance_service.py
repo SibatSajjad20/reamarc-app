@@ -966,39 +966,44 @@ def is_sunday_date(d: date) -> bool:
 # 1. SHIFT MANAGEMENT & SEEDING
 # ──────────────────────────────────────────────────────────
 
-_default_shifts_ensured = False
-_cached_active_shifts: Optional[List[dict]] = None
-_cached_shifts_time: float = 0.0
+_default_shifts_ensured: Dict[str, bool] = {}
+_cached_active_shifts: Dict[str, List[dict]] = {}
+_cached_shifts_time: Dict[str, float] = {}
+
+
+def _shift_cache_key() -> str:
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    return (ctx.company_id if ctx and ctx.company_id else None) or "default"
 
 
 def invalidate_shifts_cache() -> None:
     """Invalidate in-memory shifts cache when shifts are modified."""
-    global _cached_active_shifts, _cached_shifts_time
-    _cached_active_shifts = None
-    _cached_shifts_time = 0.0
+    _cached_active_shifts.clear()
+    _cached_shifts_time.clear()
 
 
 async def ensure_default_shifts() -> List[dict]:
     """
     Ensures standard shift templates exist in the database.
     If the `shifts` collection is empty, seeds DEFAULT_SHIFTS.
-    Seed/backfill runs once per process so dashboard and admin reads stay cheap.
+    Seed/backfill runs once per process per company so dashboard and admin reads stay cheap.
     Active shifts are cached in memory for 5 minutes (invalidated on mutation).
     """
-    global _default_shifts_ensured, _cached_active_shifts, _cached_shifts_time
     db = get_database()
     if db is None:
         return []
 
+    key = _shift_cache_key()
     now = time.time()
-    if _default_shifts_ensured and _cached_active_shifts is not None and (now - _cached_shifts_time < 300):
-        return _cached_active_shifts
+    if _default_shifts_ensured.get(key) and key in _cached_active_shifts and (now - _cached_shifts_time.get(key, 0) < 300):
+        return _cached_active_shifts[key]
 
-    if _default_shifts_ensured:
+    if _default_shifts_ensured.get(key):
         cursor = db.shifts.find({"is_active": True}, {"_id": 0})
-        _cached_active_shifts = await cursor.to_list(100)
-        _cached_shifts_time = now
-        return _cached_active_shifts
+        _cached_active_shifts[key] = await cursor.to_list(100)
+        _cached_shifts_time[key] = now
+        return _cached_active_shifts[key]
 
     count = await db.shifts.count_documents({})
     if count == 0:
@@ -1015,21 +1020,28 @@ async def ensure_default_shifts() -> List[dict]:
             if isinstance(shift_dict.get("shift_type"), ShiftType):
                 shift_dict["shift_type"] = shift_dict["shift_type"].value
             seeded_docs.append(shift_dict)
-        if seeded_docs:
-            await db.shifts.insert_many(seeded_docs)
-        _default_shifts_ensured = True
-        _cached_active_shifts = [dict(d) for d in seeded_docs if d.get("is_active", True)]
-        _cached_shifts_time = time.time()
+        for shift_dict in seeded_docs:
+            try:
+                await db.shifts.update_one(
+                    {"id": shift_dict["id"]},
+                    {"$setOnInsert": shift_dict},
+                    upsert=True,
+                )
+            except DuplicateKeyError:
+                pass
+        _default_shifts_ensured[key] = True
+        _cached_active_shifts[key] = [dict(d) for d in seeded_docs if d.get("is_active", True)]
+        _cached_shifts_time[key] = time.time()
         return seeded_docs
 
     await _ensure_wfh_shift_templates()
     await _backfill_shift_break_windows()
     await _reclassify_noncanonical_category_shifts()
-    _default_shifts_ensured = True
+    _default_shifts_ensured[key] = True
     cursor = db.shifts.find({"is_active": True}, {"_id": 0})
-    _cached_active_shifts = await cursor.to_list(100)
-    _cached_shifts_time = time.time()
-    return _cached_active_shifts
+    _cached_active_shifts[key] = await cursor.to_list(100)
+    _cached_shifts_time[key] = time.time()
+    return _cached_active_shifts[key]
 
 
 async def _ensure_wfh_shift_templates() -> None:
@@ -1042,15 +1054,20 @@ async def _ensure_wfh_shift_templates() -> None:
         shift_dict = dict(s)
         if not shift_dict.get("id"):
             continue
-        existing = await db.shifts.find_one({"id": shift_dict["id"]}, {"id": 1})
-        if existing:
-            continue
         if isinstance(shift_dict.get("shift_type"), ShiftType):
             shift_dict["shift_type"] = shift_dict["shift_type"].value
         shift_dict["created_at"] = now_iso
         shift_dict["updated_at"] = now_iso
-        await db.shifts.insert_one(shift_dict)
-        logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
+        try:
+            res = await db.shifts.update_one(
+                {"id": shift_dict["id"]},
+                {"$setOnInsert": shift_dict},
+                upsert=True,
+            )
+        except DuplicateKeyError:
+            continue
+        if getattr(res, "upserted_id", None):
+            logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
 
 
 async def _reclassify_noncanonical_category_shifts() -> None:
