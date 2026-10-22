@@ -29,6 +29,7 @@ from app.services.crm_access import (
     visibility_filter,
 )
 from app.services.crm_phone import normalize_phone_e164, wa_me_url
+from app.services.company_members import company_member_user, company_member_users
 
 logger = logging.getLogger("app.crm")
 
@@ -263,8 +264,7 @@ async def append_activity(
 async def _user_label(user_id: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
     if not user_id:
         return None, None
-    db = _db()
-    doc = await db.users.find_one({"id": user_id}, {"_id": 0, "id": 1, "full_name": 1, "name": 1, "email": 1})
+    doc = await company_member_user(user_id, db=_db())
     if not doc:
         return user_id, None
     return user_id, str(doc.get("full_name") or doc.get("name") or doc.get("email") or user_id)
@@ -274,10 +274,7 @@ async def _assert_can_see(user: Dict[str, Any], lead: Dict[str, Any]) -> None:
     assignee = None
     assigned_to = lead.get("assigned_to")
     if assigned_to and is_sales_team_lead(user) and assigned_to != user.get("id"):
-        assignee = await _db().users.find_one(
-            {"id": assigned_to},
-            {"_id": 0, "id": 1, "role": 1, "department": 1},
-        )
+        assignee = await company_member_user(assigned_to, db=_db())
     if lead_visible_to(user, lead, assignee):
         return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
@@ -326,12 +323,12 @@ async def get_lead_or_404(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
 async def list_assignees() -> List[Dict[str, Any]]:
     from app.services.crm_access import is_crm_user
 
-    db = _db()
-    cursor = db.users.find(
+    users = await company_member_users(
         {"is_active": {"$ne": False}, "role": {"$nin": ["client", "hr"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=_db(),
+        projection={"_id": 0, "hashed_password": 0},
+        limit=400,
     )
-    users = await cursor.to_list(400)
     out = []
     for u in users:
         if not is_crm_user(u):
@@ -517,9 +514,12 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Cannot assign leads to others.")
         from app.services.crm_access import is_crm_user
 
-        assignee = await db.users.find_one({"id": assigned_to}, {"_id": 0, "hashed_password": 0})
-        if not assignee or not is_crm_user(assignee):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
+        assignee = await company_member_user(assigned_to, db=_db())
+        if not assignee or assignee.get("needs_setup") or not is_crm_user(assignee):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Assignee is not an active, set-up member of this company.",
+            )
         assigned_to = assignee.get("id")
         assigned_name = str(assignee.get("full_name") or assignee.get("name") or assignee.get("email") or assigned_to)
     elif not can_assign_leads(user):
@@ -693,11 +693,12 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed leads cannot be reassigned.")
     from app.services.crm_access import is_crm_user
 
-    assignee = await db.users.find_one({"id": target_user_id}, {"_id": 0, "hashed_password": 0})
-    if not assignee:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found.")
-    if not is_crm_user(assignee):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
+    assignee = await company_member_user(target_user_id, db=_db())
+    if not assignee or assignee.get("needs_setup") or not is_crm_user(assignee):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Assignee is not an active, set-up member of this company.",
+        )
     uid = assignee.get("id")
     name = str(assignee.get("full_name") or assignee.get("name") or assignee.get("email") or uid)
     now = _now()

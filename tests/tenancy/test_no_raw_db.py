@@ -49,6 +49,7 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "push_service.py",
     "company_branding.py",
     "workspaces.py",
+    "company_members.py",
 }
 
 ALLOW_LIST_RAW_DB = {

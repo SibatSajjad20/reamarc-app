@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from pymongo import ReturnDocument
 
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.schemas.crm import (
     DEAL_OPEN_STAGES,
     DEAL_STATUSES,
@@ -154,10 +155,14 @@ async def list_pending_won_approvals(_user: Dict[str, Any]) -> List[Dict[str, An
     owner_ids = [str(l.get("assigned_to")) for l in leads if l.get("assigned_to")]
     owner_map: Dict[str, str] = {}
     if owner_ids:
-        users = await db.users.find(
+        users = await company_member_users(
             {"id": {"$in": owner_ids}},
-            {"_id": 0, "id": 1, "full_name": 1, "name": 1, "email": 1},
-        ).to_list(400)
+            db=db,
+            include_needs_setup=True,
+            include_inactive=True,
+            projection={"_id": 0, "id": 1, "full_name": 1, "name": 1, "email": 1},
+            limit=400,
+        )
         for u in users:
             uid = str(u.get("id") or "")
             owner_map[uid] = u.get("full_name") or u.get("name") or u.get("email") or ""

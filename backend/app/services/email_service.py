@@ -585,7 +585,15 @@ class EmailService:
         if db is not None:
             from app.services.access import is_tracked
             from app.core.mongo_filters import exact_ci
-            u = await db.users.find_one({"email": exact_ci(target_email)}, {"_id": 0, "hashed_password": 0})
+            from app.services.company_members import company_member_users
+            found = await company_member_users(
+                {"email": exact_ci(target_email)},
+                db=db,
+                projection={"_id": 0, "hashed_password": 0},
+                include_needs_setup=True,
+                limit=1,
+            )
+            u = found[0] if found else None
             if u and not is_tracked(u, "daily_log"):
                 logger.info(f"Skipping log reminder for {target_email}: daily_log is off for this account.")
                 return False

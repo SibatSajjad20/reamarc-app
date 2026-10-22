@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from app.config import settings
 from app.core.security import require_admin, invalidate_auth_cache, get_current_user
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.services.access import (
     MODULES,
     VALID_CONTENT_STAGES,
@@ -203,8 +204,7 @@ async def list_access_users(
         norm_r = normalize_role(role)
         query["role"] = {"$in": [norm_r, role, role.lower()]}
 
-    cursor = db.users.find(query)
-    users = await cursor.to_list(length=2000)
+    users = await company_member_users(query, db=db, include_needs_setup=True, limit=2000)
 
     rows: List[Dict[str, Any]] = []
     dept_filter = normalize_dept(department) if department else None
@@ -565,7 +565,7 @@ async def bulk_apply_access(
         norm_r = normalize_role(payload.role)
         query["role"] = {"$in": [norm_r, payload.role, payload.role.lower()]}
 
-    users = await db.users.find(query).to_list(length=2000)
+    users = await company_member_users(query, db=db, include_needs_setup=True, limit=2000)
 
     actor_id = str(current_user.get("id") or current_user.get("_id") or "admin")
     actor_name = current_user.get("full_name") or current_user.get("name") or "Administrator"

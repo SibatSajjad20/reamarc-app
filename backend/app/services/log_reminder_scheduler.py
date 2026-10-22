@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from app.database import get_database
 from app.services.email_service import EmailService
+from app.services.company_members import company_member_users
 
 logger = logging.getLogger("app.scheduler")
 
@@ -145,11 +146,12 @@ async def run_evening_log_reminder_check(company: Optional[dict] = None, now_ove
     logger.info(f"[Scheduler] Running Evening 8:00 PM Log Reminder Check for {today_str}...")
 
     # Fetch active members (excluding super admin, client, and operations accounts)
-    cursor = db.users.find(
+    members = await company_member_users(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
     )
-    members = await cursor.to_list(length=500)
     from app.services.access import is_tracked
     members = [m for m in members if is_tracked(m, "daily_log")]
 
@@ -235,11 +237,12 @@ async def run_morning_log_reminder_check(company: Optional[dict] = None, now_ove
     logger.info(f"[Scheduler] Running Morning 10:00 AM Log Reminder Check (Checking previous workday: {prev_workday_str})...")
 
     # Fetch active members (excluding super admin, client, and operations accounts)
-    cursor = db.users.find(
+    members = await company_member_users(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "hashed_password": 0},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
     )
-    members = await cursor.to_list(length=500)
     from app.services.access import is_tracked
     members = [m for m in members if is_tracked(m, "daily_log")]
 

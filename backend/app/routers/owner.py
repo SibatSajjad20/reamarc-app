@@ -61,6 +61,30 @@ def _grant_access_map() -> Dict[str, bool]:
     }
 
 
+def _prefill_grant_departments(target_user: Dict[str, Any], role: str) -> Dict[str, Any]:
+    """Copy home-user departments onto a grant, but never auto-clear needs_setup."""
+    if (role or "").lower() == "admin":
+        return {
+            "primary_department": None,
+            "departments": [],
+            "department": None,
+        }
+    from app.services.access import canonicalize_departments
+
+    packed = canonicalize_departments(
+        departments=target_user.get("departments") if isinstance(target_user.get("departments"), list) else None,
+        primary=target_user.get("primary_department"),
+        department=target_user.get("department"),
+    )
+    if packed.get("primary_department") or packed.get("department") or packed.get("departments"):
+        return packed
+    return {
+        "primary_department": None,
+        "departments": [],
+        "department": None,
+    }
+
+
 def _assert_client_role_allowed(target_user: Dict[str, Any], body: Any) -> None:
     role = _grant_role(body)
     is_client = str(target_user.get("role") or "").lower() == "client"
@@ -707,14 +731,17 @@ async def provision_member(
                 detail=f"User is already an active member of {target_comp.get('name')}.",
             )
         mem_id = existing_mem["id"] if existing_mem else f"mem_{uuid.uuid4().hex[:12]}"
+        grant_role = body.role or "team_member"
+        depts = _prefill_grant_departments(existing_user, grant_role)
         mem_doc = {
             "status": "active",
-            "role": body.role or "team_member",
-            "primary_department": None,
-            "departments": [],
+            "role": grant_role,
+            "primary_department": depts.get("primary_department"),
+            "departments": depts.get("departments") or [],
+            "department": depts.get("department"),
             "content_stages": [],
             "access": _grant_access_map(),
-            "needs_setup": _grant_needs_setup(body.role or "team_member"),
+            "needs_setup": _grant_needs_setup(grant_role),
             "granted_by": current_user["id"],
             "granted_at": now_iso,
             "removed_by": None,
@@ -915,13 +942,15 @@ async def grant_company_access(
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
 
+    grant_depts = _prefill_grant_departments(target_user, grant_role)
     if existing_mem:
         mem_id = existing_mem["id"]
         update_doc = {
             "status": "active",
             "role": grant_role,
-            "primary_department": None,
-            "departments": [],
+            "primary_department": grant_depts.get("primary_department"),
+            "departments": grant_depts.get("departments") or [],
+            "department": grant_depts.get("department"),
             "content_stages": [],
             "access": _grant_access_map(),
             "needs_setup": needs_setup,
@@ -943,8 +972,9 @@ async def grant_company_access(
             "user_id": user_id,
             "company_id": body.company_id,
             "role": grant_role,
-            "primary_department": None,
-            "departments": [],
+            "primary_department": grant_depts.get("primary_department"),
+            "departments": grant_depts.get("departments") or [],
+            "department": grant_depts.get("department"),
             "content_stages": [],
             "access": _grant_access_map(),
             "status": "active",

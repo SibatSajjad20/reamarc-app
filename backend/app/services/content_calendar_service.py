@@ -71,6 +71,8 @@ from app.core.uploads import (
 )
 
 
+from app.services.company_members import company_member_user, company_member_users
+
 logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "content_calendar_items"
@@ -355,10 +357,14 @@ async def get_items(
         ]
         if missing_uids and db is not None:
             try:
-                user_docs = await db["users"].find(
+                user_docs = await company_member_users(
                     {"$or": [{"id": {"$in": missing_uids}}, {"_id": {"$in": missing_uids}}]},
-                    {"id": 1, "_id": 1, "full_name": 1, "name": 1}
-                ).to_list(len(missing_uids))
+                    db=db,
+                    include_needs_setup=True,
+                    include_inactive=True,
+                    projection={"id": 1, "_id": 1, "full_name": 1, "name": 1},
+                    limit=len(missing_uids),
+                )
                 u_map = {}
                 for u in user_docs:
                     uid = str(u.get("id") or u.get("_id") or "")
@@ -426,10 +432,7 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
         return None
     if doc.get("created_by") and not doc.get("created_by_name"):
         try:
-            u = await db["users"].find_one(
-                {"$or": [{"id": doc["created_by"]}, {"_id": doc["created_by"]}]},
-                {"full_name": 1, "name": 1}
-            )
+            u = await company_member_user(doc["created_by"], db=db)
             if u:
                 doc["created_by_name"] = str(u.get("full_name") or u.get("name") or "")
         except Exception:
@@ -882,12 +885,12 @@ async def list_creative_assignees(db) -> List[Dict[str, str]]:
     """Creative team leads and members a creative lead can assign."""
     if db is None:
         return []
-    cursor = db["users"].find(
-        {"is_active": {"$ne": False}},
-        {"_id": 0, "hashed_password": 0},
-    )
     people: List[Dict[str, str]] = []
-    async for doc in cursor:
+    for doc in await company_member_users(
+        {"is_active": {"$ne": False}},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+    ):
         if not is_creative_actor(doc):
             continue
         people.append({
@@ -902,12 +905,12 @@ async def list_content_assignees(db) -> List[Dict[str, str]]:
     """Content team leads and members a content lead can assign."""
     if db is None:
         return []
-    cursor = db["users"].find(
-        {"is_active": {"$ne": False}},
-        {"_id": 0, "hashed_password": 0},
-    )
     people: List[Dict[str, str]] = []
-    async for doc in cursor:
+    for doc in await company_member_users(
+        {"is_active": {"$ne": False}},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+    ):
         if not is_content_actor(doc):
             continue
         people.append({
@@ -2647,7 +2650,11 @@ async def notify_content_calendar_event(
         }
 
         async def _iter_staff():
-            async for u in db.users.find({"is_active": {"$ne": False}}, _access_fields):
+            for u in await company_member_users(
+                {"is_active": {"$ne": False}},
+                db=db,
+                projection=_access_fields,
+            ):
                 u["is_active"] = True
                 yield u
 
@@ -2669,9 +2676,10 @@ async def notify_content_calendar_event(
             if not workspace_id:
                 return []
             uids = []
-            async for u in db.users.find(
+            for u in await company_member_users(
                 {"is_active": {"$ne": False}, "role": "client", "$or": [{"workspace_id": workspace_id}, {"workspace_ids": workspace_id}]},
-                _access_fields,
+                db=db,
+                projection=_access_fields,
             ):
                 uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
@@ -2813,12 +2821,12 @@ async def notify_content_calendar_event(
         if not cleaned_recipients:
             return
 
-        recipient_docs = []
-        async for u in db.users.find(
+        recipient_docs = await company_member_users(
             {"$or": [{"id": {"$in": cleaned_recipients}}, {"_id": {"$in": cleaned_recipients}}]},
-            _access_fields,
-        ):
-            recipient_docs.append(u)
+            db=db,
+            include_needs_setup=True,
+            projection=_access_fields,
+        )
         by_id = {}
         for u in recipient_docs:
             by_id[str(u.get("id") or "")] = u

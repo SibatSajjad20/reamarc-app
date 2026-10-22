@@ -8,6 +8,8 @@ import logging
 import re
 from typing import Any, Dict, List, Set
 
+from app.services.company_members import company_member_users
+
 logger = logging.getLogger(__name__)
 
 RELATED_COLLECTIONS = (
@@ -94,7 +96,14 @@ async def purge_user_related_records(db, user_doc: dict, user_id: str) -> Dict[s
 
 
 async def _live_user_index(db) -> tuple[Set[str], Set[str]]:
-    users = await db.users.find({}, {"_id": 1, "id": 1, "full_name": 1, "name": 1}).to_list(4000)
+    users = await company_member_users(
+        {},
+        db=db,
+        include_inactive=True,
+        include_needs_setup=True,
+        projection={"_id": 1, "id": 1, "full_name": 1, "name": 1},
+        limit=4000,
+    )
     live_ids: Set[str] = set()
     live_names: Set[str] = set()
     for user in users:
