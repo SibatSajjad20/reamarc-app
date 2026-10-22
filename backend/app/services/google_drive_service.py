@@ -15,6 +15,7 @@ import os
 import re
 import tempfile
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, List, Tuple
 
@@ -37,6 +38,10 @@ _creds = None
 _creds_lock = threading.Lock()
 _parent_cache: Dict[str, Tuple[List[str], Optional[str]]] = {}
 _PARENT_CACHE_LOCK = threading.Lock()
+_file_meta_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+_FILE_META_CACHE_LOCK = threading.Lock()
+_FILE_META_TTL_SECONDS = 600.0
+_DRIVE_STREAM_SEM = asyncio.Semaphore(4)
 _PICKER_GRANT_TTL = timedelta(hours=1)
 FILE_NOT_IN_COMPANY_FOLDER = "This file isn't in your company's Drive folder."
 
@@ -335,6 +340,22 @@ def _file_meta(file_id: str) -> Dict[str, Any]:
     )
 
 
+def _cached_file_meta(file_id: str) -> Dict[str, Any]:
+    now = time.monotonic()
+    with _FILE_META_CACHE_LOCK:
+        hit = _file_meta_cache.get(file_id)
+        if hit and now - hit[0] < _FILE_META_TTL_SECONDS:
+            return hit[1]
+    meta = _file_meta(file_id)
+    with _FILE_META_CACHE_LOCK:
+        _file_meta_cache[file_id] = (now, meta)
+        if len(_file_meta_cache) > 256:
+            expired = [k for k, (ts, _) in _file_meta_cache.items() if now - ts >= _FILE_META_TTL_SECONDS]
+            for key in expired:
+                _file_meta_cache.pop(key, None)
+    return meta
+
+
 def storage_quota() -> Optional[Dict[str, Any]]:
     """Returns storage quota and user info from Google Drive."""
     try:
@@ -616,34 +637,58 @@ async def relocate_item_folder(file_id: str, parent_id: str, name: str) -> None:
 async def open_drive_response(file_id: str, filename: str, download: bool = False, range_header: Optional[str] = None):
     from app.core.uploads import VIEWABLE_EXTENSIONS, content_disposition_header, playable_media_type
 
+    if _DRIVE_STREAM_SEM.locked():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Drive is busy. Retry shortly.",
+            headers={"Retry-After": "5"},
+        )
+    await _DRIVE_STREAM_SEM.acquire()
+    slot_held = True
+
+    def _release_slot() -> None:
+        nonlocal slot_held
+        if slot_held:
+            slot_held = False
+            _DRIVE_STREAM_SEM.release()
+
     try:
-        meta = await asyncio.to_thread(_file_meta, file_id)
+        meta = await asyncio.to_thread(_cached_file_meta, file_id)
     except Exception as exc:
+        _release_slot()
         logger.warning("Google Drive file lookup failed for %s: %s", file_id, exc)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.") from exc
 
-    creds = _credentials()
-    from google.auth.transport.requests import Request
-    if not creds.valid or creds.expired:
-        with _creds_lock:
-            creds.refresh(Request())
-    token = creds.token
+    try:
+        token = await asyncio.to_thread(get_access_token)
+    except HTTPException:
+        _release_slot()
+        raise
+    except Exception as exc:
+        _release_slot()
+        logger.warning("Google Drive token refresh failed for stream %s: %s", file_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Drive login expired or invalid. Check client ID, secret, and refresh token.",
+        ) from exc
     headers = {"Authorization": f"Bearer {token}"}
     if range_header:
         headers["Range"] = range_header
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
 
-    client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, read=None))
+    client = httpx.AsyncClient(timeout=httpx.Timeout(connect=10.0, read=30.0, write=30.0, pool=10.0))
     try:
         response = await client.send(client.build_request("GET", url, headers=headers), stream=True)
     except Exception:
         await client.aclose()
+        _release_slot()
         raise
 
     if response.status_code not in (200, 206):
         logger.warning("Drive stream returned status %s for file_id %s", response.status_code, file_id)
         await response.aclose()
         await client.aclose()
+        _release_slot()
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.")
 
     display = filename or meta.get("name") or "file"
@@ -669,6 +714,7 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
         finally:
             await response.aclose()
             await client.aclose()
+            _release_slot()
 
     return StreamingResponse(_iter(), status_code=response.status_code, media_type=media_type, headers=out_headers)
 
@@ -979,14 +1025,9 @@ async def download_file_prefix(file_id: str, max_bytes: int = 8 * 1024 * 1024) -
     if not file_id or not configured():
         return b""
     cap = max(0, int(max_bytes))
-    creds = _credentials()
-    from google.auth.transport.requests import Request as GoogleAuthRequest
-
-    if not creds.valid or creds.expired:
-        with _creds_lock:
-            creds.refresh(GoogleAuthRequest())
+    token = await asyncio.to_thread(get_access_token)
     headers = {
-        "Authorization": f"Bearer {creds.token}",
+        "Authorization": f"Bearer {token}",
         "Range": f"bytes=0-{max(0, cap - 1)}",
     }
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
@@ -994,7 +1035,7 @@ async def download_file_prefix(file_id: str, max_bytes: int = 8 * 1024 * 1024) -
     try:
         fd, tmp_path = tempfile.mkstemp(suffix=".bin")
         os.close(fd)
-        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0)) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
             async with client.stream("GET", url, headers=headers) as response:
                 if response.status_code not in (200, 206):
                     logger.warning("Drive prefix download returned %s for %s", response.status_code, file_id)

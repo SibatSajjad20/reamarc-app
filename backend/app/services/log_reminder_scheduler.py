@@ -309,9 +309,14 @@ async def start_automated_log_reminder_scheduler():
 
     logger.info("[Scheduler] Automated Daily Log Email Reminder background worker started.")
 
+    tick_running = False
     while True:
+        if tick_running:
+            await asyncio.sleep(120)
+            continue
+        tick_running = True
         try:
-            async with job_lease("daily_log_reminders", ttl_seconds=30) as acquired:
+            async with job_lease("daily_log_reminders", ttl_seconds=120) as acquired:
                 if acquired:
                     if getattr(settings, "MULTI_TENANT_ENABLED", False):
                         async def _check_company_reminders(comp: dict):
@@ -350,11 +355,13 @@ async def start_automated_log_reminder_scheduler():
                                     await _mark_run_today("evening", today_str)
                                     await run_evening_log_reminder_check()
 
-            # Sleep 30 seconds before next time check
-            await asyncio.sleep(30)
+            # Sleep 120 seconds before next time check (window is hour-based)
+            await asyncio.sleep(120)
         except asyncio.CancelledError:
             logger.info("[Scheduler] Daily Log Email Reminder worker cancelled.")
             break
         except Exception as err:
             logger.error(f"[Scheduler] Exception in reminder worker loop: {err}")
-            await asyncio.sleep(30)
+            await asyncio.sleep(120)
+        finally:
+            tick_running = False

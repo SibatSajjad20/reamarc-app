@@ -180,15 +180,20 @@ async def run_event_queue_tick() -> None:
 
 
 async def start_crm_lead_queue_scheduler() -> None:
-    """Lifespan task: periodic check every 20 seconds for queued/retry lead events."""
+    """Lifespan task: periodic check every 60 seconds for queued/retry lead events."""
     from app.core.job_locks import job_lease
     from app.core.tenant import for_each_active_company
     from app.config import settings
 
-    logger.info("[CRM Processor] Ingest event queue scheduler started (20s interval).")
+    logger.info("[CRM Processor] Ingest event queue scheduler started (60s interval).")
+    tick_running = False
     while True:
+        if tick_running:
+            await asyncio.sleep(60)
+            continue
+        tick_running = True
         try:
-            async with job_lease("crm_lead_queue_tick", ttl_seconds=20) as acquired:
+            async with job_lease("crm_lead_queue_tick", ttl_seconds=60) as acquired:
                 if acquired:
                     if getattr(settings, "MULTI_TENANT_ENABLED", False):
                         await for_each_active_company(lambda comp: run_event_queue_tick())
@@ -198,7 +203,9 @@ async def start_crm_lead_queue_scheduler() -> None:
             raise
         except Exception as err:
             logger.warning("[CRM Processor] Queue scheduler tick failed: %s", err)
-        await asyncio.sleep(20)
+        finally:
+            tick_running = False
+        await asyncio.sleep(60)
 
 
 async def get_queue_stats() -> Dict[str, Any]:

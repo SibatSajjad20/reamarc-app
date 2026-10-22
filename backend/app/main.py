@@ -16,6 +16,35 @@ from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
 from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive
 
+_SECRET_QUERY_RE = re.compile(
+    r'(?i)((?:access_token|client_secret|fb_exchange_token|appsecret_proof|refresh_token|key)=)[^&\s"\']+'
+)
+
+
+class RedactSecretQueryFilter(logging.Filter):
+    """Strip OAuth/API secrets from log messages and interpolation args."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.msg, str):
+            record.msg = _SECRET_QUERY_RE.sub(r"\1[REDACTED]", record.msg)
+        args = record.args
+        if args:
+            if isinstance(args, dict):
+                record.args = {
+                    k: _SECRET_QUERY_RE.sub(r"\1[REDACTED]", v) if isinstance(v, str) else v
+                    for k, v in args.items()
+                }
+            else:
+                try:
+                    record.args = tuple(
+                        _SECRET_QUERY_RE.sub(r"\1[REDACTED]", a) if isinstance(a, str) else a
+                        for a in args
+                    )
+                except TypeError:
+                    pass
+        return True
+
+
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
     def format(self, record: logging.LogRecord) -> str:
@@ -32,9 +61,12 @@ class JSONFormatter(logging.Formatter):
 def setup_logging():
     handler = logging.StreamHandler()
     handler.setFormatter(JSONFormatter())
+    handler.addFilter(RedactSecretQueryFilter())
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     root_logger.handlers = [handler]
+    for name in ("httpx", "httpcore", "urllib3", "hpack"):
+        logging.getLogger(name).setLevel(logging.WARNING)
 
 setup_logging()
 
@@ -86,19 +118,20 @@ async def lifespan(app: FastAPI):
             from app.services.content_calendar_service import backfill_share_tokens
             from app.core.tenant import for_each_active_company
 
-            if getattr(settings, "MULTI_TENANT_ENABLED", False):
-                async def _startup_for_company(company):
+            if os.getenv("RUN_STARTUP_MIGRATIONS", "0") == "1":
+                if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                    async def _startup_for_company(company):
+                        await backfill_primary_departments(db)
+                        await normalize_operations_role_labels(db)
+                        await run_access_settings_migration(db)
+                        await backfill_share_tokens(db)
+
+                    await for_each_active_company(_startup_for_company)
+                else:
                     await backfill_primary_departments(db)
                     await normalize_operations_role_labels(db)
                     await run_access_settings_migration(db)
                     await backfill_share_tokens(db)
-
-                await for_each_active_company(_startup_for_company)
-            else:
-                await backfill_primary_departments(db)
-                await normalize_operations_role_labels(db)
-                await run_access_settings_migration(db)
-                await backfill_share_tokens(db)
         except Exception as perm_err:
             logging.getLogger(__name__).exception(f"Primary department / access migration failed: {perm_err}")
 

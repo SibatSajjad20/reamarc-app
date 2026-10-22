@@ -285,7 +285,7 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str, data: Opt
         return 0
     sent = 0
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
             for i in range(0, len(messages), 100):
                 chunk = messages[i : i + 100]
                 resp = await client.post(EXPO_PUSH_URL, json=chunk)
@@ -431,13 +431,12 @@ async def dispatch_to_users(
         )
 
     sent = 0
+    tokens_by_title: dict[str, list[str]] = {}
     for uid, user_tokens in tokens_by_user.items():
-        sent += await send_expo_push(
-            user_tokens,
-            company_prefixed_title(title, brand, multi_company=uid in multi_ids),
-            body,
-            data=data,
-        )
+        display_title = company_prefixed_title(title, brand, multi_company=uid in multi_ids)
+        tokens_by_title.setdefault(display_title, []).extend(user_tokens)
+    for display_title, grouped_tokens in tokens_by_title.items():
+        sent += await send_expo_push(grouped_tokens, display_title, body, data=data)
     web_targets = inbox_ids if user_ids is not None else browser_user_ids
     try:
         web_sent = await send_web_push(web_targets, title, body, kind=kind, data=data, item=item)

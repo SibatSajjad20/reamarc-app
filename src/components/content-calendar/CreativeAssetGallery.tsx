@@ -637,6 +637,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   controls
                   playsInline
                   preload="metadata"
+                  data-active-video="true"
                   className={`${compact ? 'max-h-[280px]' : 'max-h-[420px]'} max-w-full rounded-lg shadow-md`}
                 >
                   Your browser does not support HTML5 video streaming.
@@ -811,13 +812,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                             loading="lazy"
                           />
                         ) : (
-                          <video
-                            src={`${getBackendFileUrl(asset.url) || asset.url}#t=0.001`}
-                            preload="metadata"
-                            muted
-                            playsInline
-                            className="w-full h-full object-cover pointer-events-none"
-                          />
+                          <div className="w-full h-full bg-black flex items-center justify-center" />
                         )}
                         <div className="absolute inset-0 bg-black/25 flex items-center justify-center pointer-events-none">
                           <Play className="w-4 h-4 fill-white text-white drop-shadow-xs" />

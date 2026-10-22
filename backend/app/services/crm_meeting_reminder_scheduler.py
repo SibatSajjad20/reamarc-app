@@ -264,7 +264,12 @@ async def start_crm_meeting_reminder_scheduler() -> None:
     from app.config import settings
 
     logger.info("[CRM] Meeting reminder scheduler started (60s tick).")
+    tick_running = False
     while True:
+        if tick_running:
+            await asyncio.sleep(60)
+            continue
+        tick_running = True
         try:
             async with job_lease("crm_meeting_reminder_tick", ttl_seconds=60) as acquired:
                 if acquired:
@@ -277,4 +282,6 @@ async def start_crm_meeting_reminder_scheduler() -> None:
             raise
         except Exception as err:
             logger.warning("[CRM] Meeting reminder tick error: %s", err)
+        finally:
+            tick_running = False
         await asyncio.sleep(60)

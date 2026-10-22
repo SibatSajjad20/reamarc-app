@@ -641,7 +641,9 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       const isActive = reviewAssetCacheKey(activeAsset) === key;
                       const entry = getCachedAsset(asset);
                       if (asset.kind === 'video') {
+                        if (!isActive) return null;
                         const ready = readyMediaIds.has(key);
+                        const poster = asset.thumbnail_url || undefined;
                         return (
                           <video
                             key={key}
@@ -650,16 +652,16 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                               else videoNodesRef.current.delete(key);
                             }}
                             src={asset.url}
-                            hidden={!isActive}
-                            controls={isActive && ready}
+                            poster={poster}
+                            controls={ready}
                             playsInline
-                            preload={isActive ? 'auto' : 'metadata'}
+                            preload="metadata"
                             onLoadedData={() => markMediaReady(key)}
                             onCanPlay={() => markMediaReady(key)}
                             onError={() => markMediaReady(key)}
                             className={cn(
                               'w-full h-auto max-h-[70vh] object-contain',
-                              isActive && !ready && 'opacity-0',
+                              !ready && 'opacity-0',
                             )}
                           />
                         );
@@ -786,19 +788,27 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                             : 'border-border opacity-70 hover:opacity-100',
                         )}
                       >
-                        {asset.thumbnail_url || asset.kind === 'image' ? (
+                        {asset.kind === 'video' ? (
                           <>
-                            <img
-                              src={asset.thumbnail_url || asset.url}
-                              alt=""
-                              className="w-full h-full object-cover"
-                            />
-                            {asset.kind === 'video' && (
-                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                                <Play className="w-3.5 h-3.5 text-white fill-white/80" />
-                              </div>
+                            {asset.thumbnail_url ? (
+                              <img
+                                src={asset.thumbnail_url}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              <div className="w-full h-full bg-black" />
                             )}
+                            <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                              <Play className="w-3.5 h-3.5 text-white fill-white/80" />
+                            </div>
                           </>
+                        ) : asset.thumbnail_url || asset.kind === 'image' ? (
+                          <img
+                            src={asset.thumbnail_url || asset.url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                          />
                         ) : (
                           <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
                             <FileText className="w-4 h-4" />

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+import asyncio
 import uuid
 import re
 import secrets
@@ -172,7 +173,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
     stored_hash = (user_doc or {}).get("hashed_password") or _DUMMY_PASSWORD_HASH
-    password_ok = verify_password(user_in.password, stored_hash)
+    password_ok = await asyncio.to_thread(verify_password, user_in.password, stored_hash)
     if not user_doc or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -632,10 +633,12 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
 
         current_hash = user_doc.get("hashed_password")
-        if not profile_in.current_password or not current_hash or not verify_password(profile_in.current_password, current_hash):
+        if not profile_in.current_password or not current_hash or not await asyncio.to_thread(
+            verify_password, profile_in.current_password, current_hash
+        ):
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
-        update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
+        update_fields["hashed_password"] = await asyncio.to_thread(get_password_hash, profile_in.new_password)
         update_fields["token_version"] = int(user_doc.get("token_version") or 0) + 1
         update_fields["session_epoch"] = user_session_epoch(user_doc) + 1
         update_fields["refresh_jtis"] = []
@@ -936,7 +939,7 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
     if user_doc and user_doc.get("is_active", True):
         # Generate secure random 6-digit numeric verification code
         code = f"{secrets.randbelow(900000) + 100000:06d}"
-        code_hash = get_password_hash(code)
+        code_hash = await asyncio.to_thread(get_password_hash, code)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=10)
 
@@ -1049,7 +1052,7 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
             detail="Verification code has expired. Please request a new code.",
         )
 
-    if not verify_password(code_clean, reset_doc.get("code_hash", "")):
+    if not await asyncio.to_thread(verify_password, code_clean, reset_doc.get("code_hash", "")):
         updated = await gdb.password_resets.find_one_and_update(
             {"_id": reset_doc["_id"]},
             {"$inc": {"attempts": 1}},
@@ -1145,7 +1148,7 @@ async def accept_invite(request: Request, payload: InviteAcceptRequest):
     if exp and now > exp:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
 
-    hashed_pwd = get_password_hash(payload.password)
+    hashed_pwd = await asyncio.to_thread(get_password_hash, payload.password)
     mt_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
     cid = user_doc.get("company_id") or (None if mt_enabled else "company_reamarc")
     if mt_enabled and not cid:

@@ -228,6 +228,19 @@ COMPANY_UNIQUE_INDEXES: List[Dict[str, Any]] = [
     },
 ]
 
+LOOKUP_INDEXES: List[Dict[str, Any]] = [
+    {
+        "collection": "content_calendar_items",
+        "keys": [("attachments.google_drive_file_id", 1)],
+        "name": "idx_cc_attachments_gdrive_file_id",
+    },
+    {
+        "collection": "content_calendar_items",
+        "keys": [("attachments.google_drive_thumb_file_id", 1)],
+        "name": "idx_cc_attachments_gdrive_thumb_file_id",
+    },
+]
+
 
 def _normalize_keys(keys: Union[str, KeySpec, Sequence[Any]]) -> List[Tuple[str, Any]]:
     if keys is None:
@@ -370,6 +383,21 @@ async def _drop_listed_old(coll, info, old_names, old_keys, keep_name: str) -> N
             logger.warning("Could not drop old index %s on %s: %s", iname, coll_name, exc)
 
 
+async def ensure_lookup_indexes(db) -> None:
+    for spec in LOOKUP_INDEXES:
+        try:
+            coll = db[spec["collection"]]
+            inner = getattr(coll, "_coll", coll)
+            await _create_index(inner, spec["keys"], name=spec["name"])
+        except Exception as exc:
+            logger.warning(
+                "ensure_lookup_index failed for %s/%s: %s",
+                spec.get("collection"),
+                spec.get("name"),
+                exc,
+            )
+
+
 async def ensure_all_company_unique_indexes(db) -> None:
     for spec in COMPANY_UNIQUE_INDEXES:
         try:
@@ -389,3 +417,4 @@ async def ensure_all_company_unique_indexes(db) -> None:
                 spec.get("name"),
                 exc,
             )
+    await ensure_lookup_indexes(db)

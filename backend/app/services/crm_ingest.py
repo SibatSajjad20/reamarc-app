@@ -32,7 +32,7 @@ INGEST_MAX_FIELD_CHARS = 2_000
 INGEST_MAX_RAW_CHARS = 8_192
 SYSTEM_ACTOR = {"id": "system:crm_ingest", "full_name": "CRM Ingest", "name": "CRM Ingest"}
 META_POLL_LOOKBACK_HOURS = 48
-META_POLL_INTERVAL_SECONDS = 600
+META_POLL_INTERVAL_SECONDS = 1800
 
 _PHONE_KEYS = (
     "phone",
@@ -992,7 +992,7 @@ async def fetch_meta_lead(leadgen_id: str, *, access_token: Optional[str] = None
             "campaign_id,campaign_name,form_id,platform,field_data"
         ),
     }
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
         res = await _execute_meta_request_with_retry(client, url, params)
     data = res.json() if res is not None else {}
     if res is None or res.status_code != 200 or "error" in data:
@@ -1146,7 +1146,7 @@ async def process_meta_webhook_payload(payload: Dict[str, Any]) -> Dict[str, Any
 async def _graph_get(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     url = f"{META_GRAPH_BASE_URL}/{path.lstrip('/')}"
     query = {"access_token": token, **(params or {})}
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
         res = await _execute_meta_request_with_retry(client, url, query)
     data = res.json() if res is not None else {}
     if res is None or res.status_code != 200 or not isinstance(data, dict) or "error" in data:
@@ -1305,16 +1305,21 @@ async def poll_configured_meta_forms() -> Dict[str, Any]:
 
 
 async def start_meta_form_poll_scheduler() -> None:
-    """Catch leads Meta never pushed. First pass shortly after boot, then every 10 minutes."""
+    """Catch leads Meta never pushed. First pass shortly after boot, then every 30 minutes."""
     from app.core.job_locks import job_lease
     from app.core.tenant import for_each_active_company
     from app.config import settings
 
     logger.info("[CRM Meta] Form poll scheduler started (%ss interval).", META_POLL_INTERVAL_SECONDS)
     await asyncio.sleep(20)
+    tick_running = False
     while True:
+        if tick_running:
+            await asyncio.sleep(META_POLL_INTERVAL_SECONDS)
+            continue
+        tick_running = True
         try:
-            async with job_lease("crm_meta_poll_tick", ttl_seconds=600) as acquired:
+            async with job_lease("crm_meta_poll_tick", ttl_seconds=META_POLL_INTERVAL_SECONDS) as acquired:
                 if acquired:
                     if getattr(settings, "MULTI_TENANT_ENABLED", False):
                         async def _poll_for_comp(comp: dict):
@@ -1335,6 +1340,8 @@ async def start_meta_form_poll_scheduler() -> None:
             raise
         except Exception as err:
             logger.warning("[CRM Meta] Form poll failed: %s", err)
+        finally:
+            tick_running = False
         await asyncio.sleep(META_POLL_INTERVAL_SECONDS)
 
 

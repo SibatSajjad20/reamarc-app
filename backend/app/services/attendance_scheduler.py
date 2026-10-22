@@ -654,13 +654,15 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
 
     _attendance_scheduler = AsyncIOScheduler(timezone=PK_TZ)
 
+    _job_opts = {"coalesce": True, "max_instances": 1, "misfire_grace_time": 60, "replace_existing": True}
+
     # Schedule daily job at 00:01 PKT
     _attendance_scheduler.add_job(
         run_midnight_attendance_job_now,
         CronTrigger(hour=0, minute=1, timezone=PK_TZ),
         id="midnight_attendance_job",
         name="Daily Midnight Attendance & Missed Punch Processing",
-        replace_existing=True,
+        **_job_opts,
     )
 
     # Schedule monthly leave settlement at 00:05 PKT on the 1st of every month
@@ -669,7 +671,7 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         CronTrigger(day=1, hour=0, minute=5, timezone=PK_TZ),
         id="monthly_leave_settlement",
         name="Monthly Leave & Undertime Settlement",
-        replace_existing=True,
+        **_job_opts,
     )
 
     # Close shifts throughout the day once each employee's end time has passed
@@ -678,19 +680,19 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         IntervalTrigger(minutes=5, timezone=PK_TZ),
         id="close_elapsed_shifts",
         name="Auto-close unpunched shifts after end time",
-        replace_existing=True,
         next_run_time=datetime.now(PK_TZ) + timedelta(seconds=15),
+        **_job_opts,
     )
 
     from app.services.mobile_push_scheduler import run_mobile_reminder_tick
 
     _attendance_scheduler.add_job(
         run_mobile_reminder_tick,
-        IntervalTrigger(minutes=1, timezone=PK_TZ),
+        IntervalTrigger(minutes=5, timezone=PK_TZ),
         id="mobile_punch_reminders",
         name="Shift-relative mobile punch reminders",
-        replace_existing=True,
         next_run_time=datetime.now(PK_TZ) + timedelta(seconds=30),
+        **_job_opts,
     )
 
     _attendance_scheduler.start()

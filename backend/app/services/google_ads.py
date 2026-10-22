@@ -73,7 +73,7 @@ async def refresh_google_access_token(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
             resp = await client.post(GOOGLE_TOKEN_URL, data=payload)
             if resp.status_code == 200:
                 data = resp.json()
@@ -162,7 +162,7 @@ async def fetch_google_insights(
     body = {"query": query}
 
     try:
-        async with httpx.AsyncClient(timeout=25.0) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
             response = await _post_google_ads_with_retry(client, url, headers, body)
 
 

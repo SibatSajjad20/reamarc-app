@@ -11,6 +11,7 @@ import mimetypes
 import os
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 from dataclasses import dataclass
@@ -21,6 +22,19 @@ from motor.motor_asyncio import AsyncIOMotorGridFSBucket
 from pymongo.errors import PyMongoError
 
 logger = logging.getLogger(__name__)
+
+_GDRIVE_AUTH_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}
+_GDRIVE_AUTH_TTL = 60.0
+_GDRIVE_ITEM_PROJECTION = {
+    "_id": 0,
+    "id": 1,
+    "company_id": 1,
+    "workspace_id": 1,
+    "assigned_to": 1,
+    "created_by": 1,
+    "stage": 1,
+    "client_name": 1,
+}
 
 _GRIDFS_BUCKET = "uploads"
 VIEWABLE_EXTENSIONS = {
@@ -499,6 +513,17 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
         from app.services.google_drive_service import file_id_from_path
 
         file_id = file_id_from_path(relative)
+        uid = str(current_user.get("id") or "")
+        cache_key = (uid, file_id or "")
+        now = time.monotonic()
+        cached = _GDRIVE_AUTH_CACHE.get(cache_key)
+        if cached and cached[0] > now:
+            if cached[1]:
+                return
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this file.",
+            )
         item = None
         if file_id and db is not None:
             item = await db.content_calendar_items.find_one(
@@ -507,9 +532,17 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
                         {"attachments.google_drive_file_id": file_id},
                         {"attachments.google_drive_thumb_file_id": file_id},
                     ]
-                }
+                },
+                _GDRIVE_ITEM_PROJECTION,
             )
-        if item and can_view_item(current_user, item):
+        allowed = bool(item and can_view_item(current_user, item))
+        if item:
+            _GDRIVE_AUTH_CACHE[cache_key] = (now + _GDRIVE_AUTH_TTL, allowed)
+            if len(_GDRIVE_AUTH_CACHE) > 512:
+                expired = [k for k, (exp, _) in _GDRIVE_AUTH_CACHE.items() if exp <= now]
+                for key in expired:
+                    _GDRIVE_AUTH_CACHE.pop(key, None)
+        if allowed:
             return
         if item:
             raise HTTPException(

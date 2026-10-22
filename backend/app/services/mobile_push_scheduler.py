@@ -193,7 +193,7 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
     grace = _grace_minutes(shift)
 
     if not on_leave_today and is_workday_today:
-        if _in_window(now, start - timedelta(minutes=10), before_minutes=1, after_minutes=1):
+        if _in_window(now, start - timedelta(minutes=10), before_minutes=5, after_minutes=6):
             if not await _has_check_in(db, uid, today):
                 if await push_service.try_claim_scheduled_push(uid, today, "pre_shift"):
                     await push_service.dispatch_to_users(
@@ -203,11 +203,11 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
                         kind="pre_shift",
                     )
 
-        if _in_window(now, start + timedelta(minutes=grace), before_minutes=1, after_minutes=2):
+        if _in_window(now, start + timedelta(minutes=grace), before_minutes=5, after_minutes=6):
             if not await _has_check_in(db, uid, today):
                 await _notify_late_at_grace(user, shift, start, today, grace)
 
-        if _in_window(now, end, before_minutes=1, after_minutes=2):
+        if _in_window(now, end, before_minutes=5, after_minutes=6):
             if await _still_checked_in(db, uid, today):
                 if await push_service.try_claim_scheduled_push(uid, today, "checkout"):
                     await push_service.dispatch_to_users(

@@ -247,7 +247,7 @@ describe('PublicClientReviewView preview cache', () => {
     expect(await screen.findByAltText('TEST asset image B')).toBeTruthy();
   });
 
-  it('keeps the same video node and currentTime across thumbnail switches', async () => {
+  it('renders a video node only for the selected asset with preload metadata', async () => {
     const item = reviewItem('post-video', [
       imageAsset('asset-a', 'TEST asset image A', IMAGE_A),
       {
@@ -258,26 +258,35 @@ describe('PublicClientReviewView preview cache', () => {
         content_type: 'video/mp4',
         size_bytes: 50 * 1024 * 1024,
       },
+      {
+        id: 'video-2',
+        filename: 'TEST asset video B',
+        kind: 'video',
+        url: 'https://cdn.example.com/test-asset-video-b.mp4',
+        content_type: 'video/mp4',
+        size_bytes: 40 * 1024 * 1024,
+      },
     ]);
     installFetch({ 'cache-token': item });
 
     render(<PublicClientReviewView />);
     await screen.findByRole('button', { name: 'TEST asset image A' });
+    expect(document.querySelector('video')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'TEST asset video' }));
     const video = document.querySelector('video');
     expect(video).toBeTruthy();
-    if (!video) return;
-    video.currentTime = 4.5;
-    expect(video.getAttribute('preload')).toBe('metadata');
+    expect(document.querySelectorAll('video')).toHaveLength(1);
+    expect(video?.getAttribute('preload')).toBe('metadata');
+    expect(video?.getAttribute('src')).toContain('test-asset-video.mp4');
 
-    fireEvent.click(screen.getByRole('button', { name: 'TEST asset video' }));
-    expect(document.querySelector('video')).toBe(video);
-    expect(video.getAttribute('preload')).toBe('auto');
-    expect(video.currentTime).toBe(4.5);
+    fireEvent.click(screen.getByRole('button', { name: 'TEST asset video B' }));
+    const next = document.querySelector('video');
+    expect(document.querySelectorAll('video')).toHaveLength(1);
+    expect(next?.getAttribute('preload')).toBe('metadata');
+    expect(next?.getAttribute('src')).toContain('test-asset-video-b.mp4');
 
     fireEvent.click(screen.getByRole('button', { name: 'TEST asset image A' }));
-    fireEvent.click(screen.getByRole('button', { name: 'TEST asset video' }));
-    expect(document.querySelectorAll('video')).toHaveLength(1);
-    expect(document.querySelector('video')).toBe(video);
-    expect(video.currentTime).toBe(4.5);
+    expect(document.querySelector('video')).toBeNull();
   });
 });

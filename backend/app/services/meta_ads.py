@@ -237,7 +237,7 @@ async def fetch_meta_insights(
 
     # 1. Fetch live campaign configuration shell metadata
     campaign_config_lookup: Dict[str, Dict[str, Any]] = {}
-    async with httpx.AsyncClient(timeout=25.0) as client:
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5)) as client:
         try:
             camp_url = f"{META_GRAPH_BASE_URL}/{formatted_account_id}/campaigns"
             camp_params = {
