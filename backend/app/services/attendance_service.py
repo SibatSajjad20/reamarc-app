@@ -21,6 +21,7 @@ from pymongo import ReturnDocument
 
 from app.database import get_database
 from app.core.mongo_filters import exact_ci
+from app.services.company_members import company_member_user, company_member_users
 from app.models.attendance import (
     AttendanceStatus,
     LeaveType,
@@ -226,10 +227,14 @@ async def _attach_applicant_roles(docs: List[dict]) -> None:
     user_ids = list({d.get("user_id") for d in docs if d.get("user_id")})
     if not user_ids:
         return
-    users = await db.users.find(
+    users = await company_member_users(
         {"id": {"$in": user_ids}},
-        {"_id": 0, "id": 1, "role": 1},
-    ).to_list(2000)
+        db=db,
+        include_needs_setup=True,
+        include_inactive=True,
+        projection={"_id": 0, "id": 1, "role": 1},
+        limit=2000,
+    )
     role_map = {
         str(u.get("id")): str(u.get("role") or "team_member").lower()
         for u in users
@@ -309,10 +314,7 @@ async def _heal_overtime_requests(docs: List[dict], active_only_pending: bool = 
 async def _resolve_applicant_role(user_id: Optional[str], stored_role: Optional[str] = None) -> str:
     db = get_database()
     if db is not None and user_id:
-        user = await db.users.find_one(
-            {"$or": [{"id": user_id}, {"_id": user_id}]},
-            {"_id": 0, "role": 1},
-        )
+        user = await company_member_user(user_id, db=db)
         if user and user.get("role"):
             return str(user.get("role")).lower()
     return str(stored_role or "team_member").lower()
@@ -3061,7 +3063,7 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    user_doc = await company_member_user(user_id, db=db)
     if not user_doc:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -3200,7 +3202,13 @@ async def get_daily_matrix(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    users = await company_member_users(
+        user_query,
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("full_name", 1),
+        limit=1000,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "attendance")]
 
@@ -3713,7 +3721,13 @@ async def get_monthly_punctuality_summary(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    users = await company_member_users(
+        user_query,
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("full_name", 1),
+        limit=1000,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "attendance")]
     month_prefix = f"{year:04d}-{month:02d}"
@@ -4284,7 +4298,7 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
     if not rec:
         return None
 
-    user = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    user = await company_member_user(user_id, db=db) or {}
     user_dept = user.get("department")
     shift = await get_shift_for_user(user_id, user_dept, date_str)
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
@@ -5921,7 +5935,7 @@ async def admin_manual_attendance_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    target_user = await db.users.find_one({"id": user_id}, {"_id": 0})
+    target_user = await company_member_user(user_id, db=db)
     if not target_user:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
 
@@ -6114,7 +6128,7 @@ async def override_attendance_record(
         date_str = rec.get("date", date_str)
     else:
         # 2. Check if target_id is user_id
-        target_user = await db.users.find_one({"id": target_id})
+        target_user = await company_member_user(target_id, db=db)
         if target_user:
             user_id = target_id
             rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
@@ -6306,7 +6320,7 @@ async def create_missed_punch_inquiry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    user_doc = await company_member_user(user_id, db=db)
     if not user_doc:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
 
@@ -6458,7 +6472,7 @@ async def respond_to_missed_punch_inquiry(
     target_date = inq.get("date")
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    user_doc = await company_member_user(user_id, db=db)
     dept = (user_doc or {}).get("department", "")
     shift = await get_shift_for_user(user_id, dept, target_date)
     existing_rec = await db.attendance_records.find_one({"user_id": user_id, "date": target_date}, {"_id": 0})

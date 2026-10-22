@@ -8,6 +8,7 @@ import httpx
 
 from app.database import get_database
 from app.services.device_registry import active_devices
+from app.services.company_members import company_member_user, company_member_users
 
 logger = logging.getLogger("app.push_service")
 
@@ -90,8 +91,13 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     elif k in ads_kinds:
         req_module = "ads"
 
-    users_cursor = db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "hashed_password": 0})
-    users_list = await users_cursor.to_list(len(user_ids))
+    users_list = await company_member_users(
+        {"id": {"$in": user_ids}},
+        db=db,
+        include_needs_setup=True,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=len(user_ids) or 1,
+    )
     user_map = {u.get("id"): u for u in users_list if u.get("id")}
 
     classified = bool(req_module or req_tracking or k in STAFF_ATT_KINDS)
@@ -488,11 +494,12 @@ async def _user_ids_by_roles(roles: Iterable[str]) -> List[str]:
     role_list = list(roles)
     if not role_list:
         return []
-    cursor = db.users.find(
+    docs = await company_member_users(
         {"role": {"$in": role_list}, "is_active": {"$ne": False}},
-        {"id": 1, "_id": 0},
+        db=db,
+        projection={"id": 1, "_id": 0},
+        limit=200,
     )
-    docs = await cursor.to_list(200)
     return [d["id"] for d in docs if d.get("id")]
 
 
@@ -521,7 +528,7 @@ async def get_team_lead_user_ids_for_member(
         return []
 
     if subject_user is None:
-        subject_user = await db.users.find_one({"id": subject_user_id}, {"_id": 0, "hashed_password": 0})
+        subject_user = await company_member_user(subject_user_id, db=db)
     if not subject_user:
         return []
 
@@ -545,14 +552,15 @@ async def get_team_lead_user_ids_for_member(
     if not sub_depts:
         return []
 
-    leads_cursor = db.users.find(
+    leads = await company_member_users(
         {
             "role": {"$in": ["team_lead", "lead", "TEAM_LEAD"]},
             "is_active": {"$ne": False},
         },
-        {"_id": 0, "hashed_password": 0},
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=100,
     )
-    leads = await leads_cursor.to_list(100)
 
     matched_lead_ids: List[str] = []
     for lead in leads:

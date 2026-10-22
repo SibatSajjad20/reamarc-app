@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.models.attendance import LeaveStatus, NON_LEAVE_REQUEST_TYPES
 from app.services import attendance_service, push_service
 
@@ -140,10 +141,12 @@ async def _tick_for_active_company(db, company: Optional[dict] = None) -> None:
     from app.services.attendance_scheduler import is_workday_for_date
     from app.services.access import is_tracked
 
-    users = await db.users.find(
+    users = await company_member_users(
         {"is_active": True, "role": {"$nin": list(SKIP_ROLES)}},
-        {"_id": 0, "hashed_password": 0},
-    ).to_list(1000)
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=1000,
+    )
 
     for user in users:
         uid = user.get("id")

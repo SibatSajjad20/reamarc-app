@@ -6,6 +6,7 @@ import uuid
 
 from app.core.security import get_current_user, require_management_role, require_roles
 from app.database import get_database
+from app.services.company_members import company_member_user, company_member_users
 from app.models.user import UserRole
 from app.schemas.log_exception import (
     ExceptionActionRequest,
@@ -129,7 +130,7 @@ async def list_exception_inbox(
     user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
     if role == "team_lead":
         from app.services.permissions import load_context, departments_with, normalize_dept
-        lead_user_doc = await db.users.find_one({"id": viewer_id})
+        lead_user_doc = await company_member_user(viewer_id, db=db)
         ctx = await load_context(lead_user_doc or current_user, db=db)
         lead_depts = departments_with(ctx, "exceptions", "department")
         if not lead_depts:
@@ -142,7 +143,12 @@ async def list_exception_inbox(
         user_query["role"] = {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}
         user_query["id"] = {"$ne": viewer_id}
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).to_list(500)
+    users = await company_member_users(
+        user_query,
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "daily_log")]
     user_ids = [u.get("id") for u in users if u.get("id") and u.get("id") != viewer_id]
@@ -423,7 +429,7 @@ async def act_on_exception(
     if not user_id or not date_str:
         raise HTTPException(status_code=404, detail="Exception not found.")
 
-    member = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    member = await company_member_user(user_id, db=db)
     if not member:
         raise HTTPException(status_code=404, detail="Employee not found.")
     member_role = str(member.get("role") or "").lower()
@@ -436,7 +442,7 @@ async def act_on_exception(
             normalize_dept,
             get_user_primary_department,
         )
-        lead_user_doc = await db.users.find_one({"id": current_user.get("id")})
+        lead_user_doc = await company_member_user(current_user.get("id"), db=db)
         ctx = await load_context(lead_user_doc or current_user, db=db)
         lead_depts = [normalize_dept(d) for d in departments_with(ctx, "exceptions", "department")]
         if not lead_depts:
@@ -669,10 +675,12 @@ async def get_operating_snapshot(
     if db is None:
         return empty
 
-    users = await db.users.find(
+    users = await company_member_users(
         {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}},
-        {"_id": 0, "hashed_password": 0},
-    ).to_list(500)
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=500,
+    )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "daily_log")]
 
@@ -1008,7 +1016,7 @@ async def get_employee_compliance_detail(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    member = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    member = await company_member_user(user_id, db=db)
     if not member:
         raise HTTPException(status_code=404, detail="Employee not found.")
 

@@ -25,6 +25,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.models.attendance import (
     AttendanceStatus,
     LeaveType,
@@ -232,10 +233,12 @@ async def _run_midnight_attendance_internal(
         try:
             # 1. Fetch all active internal users (excluding client accounts)
             user_query = {"is_active": True, "role": {"$nin": ["client", "CLIENT"]}}
-            users = await db.users.find(
+            users = await company_member_users(
                 user_query,
-                {"_id": 0, "hashed_password": 0},
-            ).to_list(1000)
+                db=db,
+                projection={"_id": 0, "hashed_password": 0},
+                limit=1000,
+            )
 
             # 2. Fetch existing attendance records for target_date
             existing_records = await db.attendance_records.find(
@@ -394,10 +397,12 @@ async def _close_elapsed_shifts_internal(company: Optional[Dict[str, Any]] = Non
     missed_flagged = 0
     skipped = 0
     try:
-        users = await db.users.find(
+        users = await company_member_users(
             {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
-            {"_id": 0, "hashed_password": 0},
-        ).to_list(1000)
+            db=db,
+            projection={"_id": 0, "hashed_password": 0},
+            limit=1000,
+        )
         today_str = now_pkt.strftime("%Y-%m-%d")
         yesterday_str = (now_pkt.date() - timedelta(days=1)).isoformat()
         from app.services.access import is_tracked
@@ -542,10 +547,12 @@ async def _run_monthly_settlement_internal(
 
     logger.info(f"[Scheduler] Running Monthly Leave Settlement Job for {target_year_month}...")
 
-    users = await db.users.find(
+    users = await company_member_users(
         {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
-        {"_id": 0, "hashed_password": 0},
-    ).to_list(1000)
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        limit=1000,
+    )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     settled_count = 0

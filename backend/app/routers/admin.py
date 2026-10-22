@@ -41,6 +41,7 @@ from app.core.security import (
 )
 from app.core.mongo_filters import exact_ci
 from app.database import get_database
+from app.services.company_members import company_member_user, company_member_users
 from app.core.encryption import encrypt_credential_fields
 from app.services.email_service import EmailService
 from app.services.log_compliance import pkt_today, PKT, batch_expected_targets, person_day_is_leave, person_day_is_due
@@ -155,6 +156,10 @@ MEMBERSHIP_ONLY_USER_KEYS = {
     "departments",
     "primary_department",
     "needs_setup",
+    "access",
+    "content_stages",
+    "crm_enabled",
+    "crm_paused",
 }
 
 
@@ -409,8 +414,7 @@ async def list_members_activity(
             ]
         users.sort(key=lambda u: (u.get("full_name") or u.get("name") or "").lower())
     else:
-        cursor = db.users.find(query).sort("full_name", 1)
-        users = await cursor.to_list(200)
+        users = await company_member_users(query, db=db, sort=("full_name", 1), limit=200)
         from app.services.access import is_tracked
         users = [u for u in users if is_tracked(u, "daily_log")]
 
@@ -532,7 +536,7 @@ async def remind_member_log(
 
     req = reminder_in or ReminderRequest()
 
-    member = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    member = await company_member_user(user_id, db=db)
     if not member:
         raise HTTPException(status_code=404, detail="Member not found.")
 
@@ -905,7 +909,8 @@ async def update_member(
             update_fields["departments"] = []
             update_fields["primary_department"] = None
 
-    target_role = member_in.role.value if member_in.role else existing_user.get("role")
+    role_source = target_mem if (multi_enabled and target_mem) else existing_user
+    target_role = member_in.role.value if member_in.role else role_source.get("role")
     is_special_role = target_role in (
         "admin", "operations", "hr", "client",
         UserRole.ADMIN.value, UserRole.OPERATIONS.value, UserRole.HR.value, UserRole.CLIENT.value
@@ -915,11 +920,11 @@ async def update_member(
         or member_in.departments is not None
         or member_in.department is not None
     ):
-        incoming_depts = member_in.departments if member_in.departments is not None else existing_user.get("departments")
+        incoming_depts = member_in.departments if member_in.departments is not None else role_source.get("departments")
         incoming_primary = (
             member_in.primary_department
             if member_in.primary_department is not None
-            else existing_user.get("primary_department")
+            else role_source.get("primary_department")
         )
         incoming_dept_str = member_in.department if member_in.department is not None else None
         packed = canonicalize_departments(
@@ -945,7 +950,7 @@ async def update_member(
         update_fields["crm_enabled"] = bool(member_in.crm_enabled)
     if member_in.crm_paused is not None:
         update_fields["crm_paused"] = bool(member_in.crm_paused)
-    target_role = member_in.role.value if member_in.role else existing_user.get("role")
+    target_role = member_in.role.value if member_in.role else role_source.get("role")
     if target_role in (UserRole.CLIENT.value, "client"):
         if member_in.workspace_ids is not None:
             update_fields["workspace_ids"] = await _client_workspace_ids(db, member_in.workspace_ids)
@@ -1054,13 +1059,18 @@ async def update_member(
         mem_set: Dict[str, Any] = {"updated_at": now_iso}
         if member_in.role is not None:
             mem_set["role"] = member_in.role.value
-            mem_set["needs_setup"] = False
         if "department" in update_fields:
             mem_set["department"] = update_fields["department"]
         if "departments" in update_fields:
             mem_set["departments"] = update_fields["departments"]
         if "primary_department" in update_fields:
             mem_set["primary_department"] = update_fields["primary_department"]
+        if "content_stages" in update_fields:
+            mem_set["content_stages"] = update_fields["content_stages"]
+        if "crm_enabled" in update_fields:
+            mem_set["crm_enabled"] = update_fields["crm_enabled"]
+        if "crm_paused" in update_fields:
+            mem_set["crm_paused"] = update_fields["crm_paused"]
         if "is_active" in update_fields and may_edit_identity:
             if update_fields["is_active"] is False:
                 mem_set["status"] = "inactive"
@@ -1071,8 +1081,41 @@ async def update_member(
                 mem_set["deactivated_at"] = None
                 mem_set["deactivation_date"] = None
 
-        await gdb.company_memberships.update_one({"id": target_mem["id"]}, {"$set": mem_set})
+        preview = dict(target_mem)
+        preview.update(mem_set)
+        from app.services.company_members import access_is_blank, membership_setup_is_complete
+        from app.services.access import default_access
+
+        was_needs_setup = bool(target_mem.get("needs_setup", False))
+        setup_done = membership_setup_is_complete(preview)
+        if setup_done:
+            mem_set["needs_setup"] = False
+            if was_needs_setup and access_is_blank(preview.get("access")):
+                seeded = default_access(preview)
+                mem_set["access"] = seeded
+                preview["access"] = seeded
+        else:
+            mem_set["needs_setup"] = True
+
+        mem_update: Dict[str, Any] = {"$set": mem_set}
+        setup_flipped = was_needs_setup and mem_set.get("needs_setup") is False
+        if setup_flipped:
+            mem_update["$inc"] = {"token_version": 1}
+        await gdb.company_memberships.update_one({"id": target_mem["id"]}, mem_update)
         invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
+        if setup_flipped:
+            await db.permission_audit.insert_one({
+                "id": str(uuid.uuid4()),
+                "at": now_iso,
+                "actor_id": current_user.get("id"),
+                "actor_name": current_user.get("full_name") or current_user.get("name") or "Admin",
+                "target_type": "user",
+                "target_id": user_id,
+                "target_name": existing_user.get("full_name") or existing_user.get("name"),
+                "action": "setup_completed",
+                "reason": "setup completed",
+                "company_id": current_user.get("company_id"),
+            })
 
         user_set = {
             k: v for k, v in update_fields.items() if k not in MEMBERSHIP_ONLY_USER_KEYS

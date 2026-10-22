@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.security import get_current_user
 from app.database import get_database
+from app.services.company_members import company_member_user
 from app.services.access import (
     ADS_DEPTS,
     COMPANY_WIDE_ROLES,
@@ -532,7 +533,7 @@ async def _role_for_write_guard(request: Request) -> str:
     db = get_database()
     if db is not None and user_id:
         try:
-            user = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+            user = await company_member_user(user_id, db=db)
         except Exception:
             user = None
         if user:

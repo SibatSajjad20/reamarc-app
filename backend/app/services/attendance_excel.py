@@ -18,6 +18,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from app.database import get_database
+from app.services.company_members import company_member_users
 from app.models.attendance import (
     AttendanceStatus,
     LeaveType,
@@ -157,7 +158,13 @@ async def generate_multi_tab_attendance_workbook(
 
     users = []
     if db is not None:
-        users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+        users = await company_member_users(
+            user_query,
+            db=db,
+            projection={"_id": 0, "hashed_password": 0},
+            sort=("full_name", 1),
+            limit=1000,
+        )
 
     # 2. Fetch Company Calendar Events for target month
     calendar_events = []

@@ -153,4 +153,36 @@ describe('member edit guards', () => {
     expect(submitted[0].email).toBeUndefined();
     expect(submitted[0].role).toBeUndefined();
   });
+
+  it('sends role and department and shows Finish setup when needs_setup is true', async () => {
+    const submitted: UpdateMemberPayload[] = [];
+    const onSubmit = vi.fn().mockImplementation(async (_id, payload: UpdateMemberPayload) => {
+      submitted.push(payload);
+    });
+    renderWithProviders(
+      <EditMemberModal
+        isOpen={true}
+        member={{
+          ...baseMember,
+          needs_setup: true,
+          department: 'Sales',
+          departments: ['Sales'],
+          primary_department: 'Sales',
+        }}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+      />
+    );
+
+    expect(screen.getByText("Pick a role and department to finish this member's setup.")).toBeDefined();
+    const saveBtn = screen.getByRole('button', { name: /Finish setup/i });
+    fireEvent.click(saveBtn);
+    await waitFor(() => {
+      expect(onSubmit).toHaveBeenCalled();
+    });
+    expect(submitted[0].role).toBe('team_member');
+    expect(submitted[0].primary_department).toBe('Sales');
+    expect(submitted[0].department).toBe('Sales');
+    expect(submitted[0].departments).toEqual(['Sales']);
+  });
 });

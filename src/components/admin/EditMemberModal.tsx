@@ -84,7 +84,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
+    const finishingSetup = Boolean(member?.needs_setup);
+    const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
   const canEditIdentity =
     member?.can_edit_identity != null ? Boolean(member.can_edit_identity) : !loginManagedElsewhere;
   const canEditRole = member?.can_edit_role !== false;
@@ -202,15 +203,15 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setIsSubmitting(true);
       if (loginManagedElsewhere || !canEditIdentity) {
         const payload: UpdateMemberPayload = {};
-        if (canEditRole && role !== member.role) {
+        if (finishingSetup || (canEditRole && role !== member.role)) {
           payload.role = role;
         }
         const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));
-        if (newPrimary !== member.primary_department && (newPrimary !== undefined || member.primary_department !== undefined)) {
+        const initialDepts = (member.departments && member.departments.length > 0) ? member.departments : (member.department ? [member.department] : []);
+        if (finishingSetup || (newPrimary !== member.primary_department && (newPrimary !== undefined || member.primary_department !== undefined))) {
           payload.primary_department = newPrimary;
         }
-        const initialDepts = (member.departments && member.departments.length > 0) ? member.departments : (member.department ? [member.department] : []);
-        if (JSON.stringify(deptsList) !== JSON.stringify(initialDepts)) {
+        if (finishingSetup || JSON.stringify(deptsList) !== JSON.stringify(initialDepts)) {
           payload.department = deptValue;
           payload.departments = deptsList;
         }
@@ -230,10 +231,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         // Never send is_active for login_managed_elsewhere
         await onSubmit(member.id, payload);
       } else {
+        const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));
+        const initialDepts = (member.departments && member.departments.length > 0) ? member.departments : (member.department ? [member.department] : []);
         const payload: UpdateMemberPayload = {
-          department: deptValue,
-          departments: deptsList,
-          primary_department: role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
           joining_date: role === 'client' ? null : joiningDate.trim() || null,
           employment_type: role === 'client' ? 'contract' : employmentType,
           is_active: isActive,
@@ -241,8 +241,15 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           full_name: fullName.trim(),
           phone: normalizedPhone,
         };
-        if (canEditRole && role !== member.role) {
+        if (finishingSetup || (canEditRole && role !== member.role)) {
           payload.role = role;
+        }
+        if (finishingSetup || (newPrimary !== member.primary_department && (newPrimary !== undefined || member.primary_department !== undefined))) {
+          payload.primary_department = newPrimary;
+        }
+        if (finishingSetup || JSON.stringify(deptsList) !== JSON.stringify(initialDepts)) {
+          payload.department = deptValue;
+          payload.departments = deptsList;
         }
         if (canEditIdentity && normalizedEmail !== (member.email || '').toLowerCase()) {
           payload.email = normalizedEmail;
@@ -270,6 +277,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     >
       <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
         <FormDialogBody className="space-y-4">
+          {finishingSetup && (
+            <p className="text-ui text-fg-muted">
+              Pick a role and department to finish this member&apos;s setup.
+            </p>
+          )}
           {/* Row 1: Full name + Work email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -684,7 +696,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             loading={isSubmitting}
             disabled={isSubmitting}
           >
-            Save changes
+            {finishingSetup ? 'Finish setup' : 'Save changes'}
           </Button>
         </FormFooter>
       </form>

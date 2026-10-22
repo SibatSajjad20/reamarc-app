@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from fastapi import HTTPException, status
 
 from app.database import get_database
+from app.services.company_members import company_member_user, company_member_users
 from app.models.attendance import LeaveStatus, LeaveType
 from app.schemas.leave import LeaveBalanceResponse, LeaveBalanceUpdateRequest
 from app.services.attendance_golive import ATTENDANCE_GO_LIVE_DATE, get_effective_start_date
@@ -250,7 +251,7 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
             sick_approved += sick_d
 
     from app.services.attendance_golive import get_employee_attendance_start
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "department": 1, "employment_type": 1, "joining_date": 1})
+    user_doc = await company_member_user(user_id, db=db)
     employee_start = get_employee_attendance_start(user_doc)
     att_start = max(start, employee_start)
 
@@ -400,10 +401,13 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
     from app.services.workdays import load_off_day_index
 
     y = year or _current_year()
-    users = await db.users.find(
+    users = await company_member_users(
         {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
-        {"_id": 0, "hashed_password": 0},
-    ).sort("full_name", 1).to_list(1000)
+        db=db,
+        projection={"_id": 0, "hashed_password": 0},
+        sort=("full_name", 1),
+        limit=1000,
+    )
 
     start_d = datetime(y, 1, 1).date()
     end_d = datetime(y, 12, 31).date()
@@ -556,7 +560,7 @@ async def update_opening_balance(user_id: str, payload: LeaveBalanceUpdateReques
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    user = await company_member_user(user_id, db=db)
     if not user:
         raise HTTPException(status_code=404, detail="Employee not found")
 

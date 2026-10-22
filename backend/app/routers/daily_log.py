@@ -8,6 +8,7 @@ import os
 import asyncio
 from app.core.limiter import limiter
 from app.database import get_database
+from app.services.company_members import company_member_user, company_member_users
 from app.core.security import get_current_user, require_admin, require_internal_user, assert_workspace_access
 from app.core.mongo_filters import exact_ci, contains_ci
 from app.core.uploads import (
@@ -402,7 +403,7 @@ async def get_team_hours(
 
     viewer_id = current_user.get("id")
     from app.services.permissions import load_context, departments_with, normalize_dept
-    lead_user_doc = await db.users.find_one({"id": viewer_id})
+    lead_user_doc = await company_member_user(viewer_id, db=db)
     ctx = await load_context(lead_user_doc or current_user, db=db)
     lead_depts = departments_with(ctx, "daily_log", "department")
     if not lead_depts:
@@ -415,10 +416,12 @@ async def get_team_hours(
         "$or": dept_regexes,
         "id": {"$ne": viewer_id},
     }
-    members = await db.users.find(
+    members = await company_member_users(
         user_query,
-        {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "primary_department": 1},
-    ).to_list(500)
+        db=db,
+        projection={"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "primary_department": 1},
+        limit=500,
+    )
     if not members:
         return {"members": []}
 
@@ -834,7 +837,7 @@ async def get_entries(
         )
         lead_user_doc = None
         if db is not None:
-            lead_user_doc = await db.users.find_one({"id": current_uid})
+            lead_user_doc = await company_member_user(current_uid, db=db)
         ctx = await load_context(lead_user_doc or current_user, db=db)
         lead_depts = departments_with(ctx, "daily_log", "department")
 
@@ -853,14 +856,15 @@ async def get_entries(
 
             if target_depts and db is not None:
                 dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in target_depts]
-                authors_cursor = db.users.find(
+                member_docs = await company_member_users(
                     {
                         "role": {"$in": ["team_member", UserRole.TEAM_MEMBER.value, "member"]},
                         "$or": dept_regexes,
                     },
-                    {"id": 1}
+                    db=db,
+                    projection={"id": 1},
+                    limit=1000,
                 )
-                member_docs = await authors_cursor.to_list(1000)
                 authorized_author_ids = [str(m["id"]) for m in member_docs if m.get("id")]
                 authorized_author_ids.append(str(current_uid))
 
@@ -1268,7 +1272,7 @@ async def update_entry(
 
     author_user_doc = None
     if existing_entry.get("user_id"):
-        author_user_doc = await db.users.find_one({"id": existing_entry["user_id"]})
+        author_user_doc = await company_member_user(existing_entry["user_id"], db=db)
 
     if not _can_mutate_daily_log(existing_entry, current_user, author_user_doc=author_user_doc):
         raise HTTPException(
@@ -1426,7 +1430,7 @@ async def delete_entry(
 
     author_user_doc = None
     if existing_entry.get("user_id"):
-        author_user_doc = await db.users.find_one({"id": existing_entry["user_id"]})
+        author_user_doc = await company_member_user(existing_entry["user_id"], db=db)
 
     if not _can_mutate_daily_log(existing_entry, current_user, author_user_doc=author_user_doc):
         raise HTTPException(
