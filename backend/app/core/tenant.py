@@ -160,6 +160,7 @@ TENANT_COLLECTIONS: Set[str] = frozenset({
     "website_project_activities",
     "content_calendar_items",
     "content_calendar_counters",
+    "content_calendar_settings",
     "posts",
     "campaigns",
     "ad_accounts",
@@ -582,6 +583,30 @@ async def for_each_active_company(fn: Callable[[Dict[str, Any]], Awaitable[None]
                 await fn(company)
             except Exception as e:
                 logger.exception(f"Error executing company job for company {cid}: {e}")
+
+
+REAMARC_COMPANY_IDS = frozenset({"company_reamarc", "tnt_comp_a"})
+
+
+def company_singleton_id(base: str) -> str:
+    """Mongo `_id` for a per-company singleton document.
+
+    Reamarc, missing tenant context, and flags-off keep `base` unchanged so live
+    documents (`serial_<ABBR>`, `root`, `field_constants`) continue to match.
+    Other companies use `{base}:{company_id}`.
+    """
+    flags_on = bool(getattr(settings, "MULTI_TENANT_ENABLED", False)) or bool(
+        getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    )
+    if not flags_on:
+        return base
+    ctx = get_tenant_context()
+    if ctx is None or not ctx.company_id:
+        return base
+    cid = str(ctx.company_id)
+    if cid in REAMARC_COMPANY_IDS:
+        return base
+    return f"{base}:{cid}"
 
 
 def company_tz(company: Optional[Dict[str, Any]] = None) -> str:

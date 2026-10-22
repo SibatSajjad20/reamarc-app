@@ -13,6 +13,8 @@ from cryptography.hazmat.primitives import serialization
 from py_vapid import Vapid, b64urldecode, b64urlencode
 from pywebpush import WebPushException, webpush
 
+from pymongo.errors import DuplicateKeyError
+
 from app.config import settings
 from app.database import get_database
 
@@ -200,6 +202,7 @@ async def _ensure_indexes(db) -> None:
     if _INDEX_READY or db is None:
         return
     try:
+        # Global unique: one browser endpoint maps to one subscription across companies.
         await db.web_push_subscriptions.create_index("endpoint", unique=True, name="idx_web_push_endpoint")
         await db.web_push_subscriptions.create_index("user_id", name="idx_web_push_user")
         _INDEX_READY = True
@@ -227,24 +230,37 @@ async def upsert_subscription(
         raise WebPushConfigError("Database is unavailable.")
     await _ensure_indexes(db)
     now = _now_iso()
-    await db.web_push_subscriptions.update_one(
-        {"endpoint": endpoint},
-        {
-            "$set": {
-                "user_id": user_id,
-                "endpoint": endpoint,
-                "p256dh": p256dh,
-                "auth": auth,
-                "user_agent": _sanitize_user_agent(user_agent),
-                "updated_at": now,
-            },
-            "$setOnInsert": {
-                "id": f"wp_{uuid.uuid4().hex[:12]}",
-                "created_at": now,
-            },
+    update = {
+        "$set": {
+            "user_id": user_id,
+            "endpoint": endpoint,
+            "p256dh": p256dh,
+            "auth": auth,
+            "user_agent": _sanitize_user_agent(user_agent),
+            "updated_at": now,
         },
-        upsert=True,
-    )
+        "$setOnInsert": {
+            "id": f"wp_{uuid.uuid4().hex[:12]}",
+            "created_at": now,
+        },
+    }
+    try:
+        await db.web_push_subscriptions.update_one(
+            {"endpoint": endpoint},
+            update,
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        # Endpoint unique is global; reassign the existing row to this user/company.
+        from app.core.tenant import get_tenant_context
+        raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
+        if raw_db is None:
+            raise
+        set_fields = dict(update["$set"])
+        ctx = get_tenant_context()
+        if ctx and ctx.company_id:
+            set_fields["company_id"] = ctx.company_id
+        await raw_db.web_push_subscriptions.update_one({"endpoint": endpoint}, {"$set": set_fields})
     owned = (
         await db.web_push_subscriptions.find({"user_id": user_id}, {"_id": 0, "endpoint": 1, "updated_at": 1})
         .sort("updated_at", -1)

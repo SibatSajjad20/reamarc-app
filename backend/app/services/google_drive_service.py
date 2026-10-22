@@ -384,8 +384,10 @@ async def _ensure_root(db) -> str:
         )
 
     # 2. Check MongoDB indexed root folder
+    from app.core.tenant import company_singleton_id
+    root_key = company_singleton_id("root")
     coll = db[_INDEX]
-    existing = await coll.find_one({"_id": "root"})
+    existing = await coll.find_one({"_id": root_key})
     existing_id = (existing or {}).get("folder_id")
     if existing_id and not (
         not is_reamarc_company(cid) and configured_folder and existing_id == configured_folder
@@ -400,7 +402,7 @@ async def _ensure_root(db) -> str:
         if not found:
             found = await asyncio.to_thread(_create_folder, company_folder_name, parent)
         await coll.update_one(
-            {"_id": "root"},
+            {"_id": root_key},
             {"$set": {"folder_id": found, "name": company_folder_name}},
             upsert=True,
         )
@@ -411,12 +413,12 @@ async def _ensure_root(db) -> str:
     if not found and _ROOT_NAME != "Content Calendar":
         found = await asyncio.to_thread(_find_folder_by_name, "Content Calendar", None)
     if found:
-        await coll.update_one({"_id": "root"}, {"$set": {"folder_id": found, "name": _ROOT_NAME}}, upsert=True)
+        await coll.update_one({"_id": root_key}, {"$set": {"folder_id": found, "name": _ROOT_NAME}}, upsert=True)
         return found
 
     # 4. Create new root folder in Drive
     folder_id = await asyncio.to_thread(_create_folder, _ROOT_NAME, None)
-    await coll.update_one({"_id": "root"}, {"$set": {"folder_id": folder_id, "name": _ROOT_NAME}}, upsert=True)
+    await coll.update_one({"_id": root_key}, {"$set": {"folder_id": folder_id, "name": _ROOT_NAME}}, upsert=True)
     return folder_id
 
 
