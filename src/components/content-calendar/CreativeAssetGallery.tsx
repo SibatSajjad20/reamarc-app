@@ -20,6 +20,7 @@ import {
   Play,
   Globe,
   ChevronDown,
+  MoreVertical,
 } from 'lucide-react';
 import type { CreativeAsset, ContentCalendarItem, AssetRole, DrivePickedFile } from '../../types/contentCalendar';
 import { Button } from '../ui/button';
@@ -30,6 +31,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
 } from '../ui/dropdown-menu';
+import { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
 import { contentCalendarService } from '../../services/contentCalendarService';
@@ -72,6 +74,122 @@ function getRoleLabel(role: AssetRole | string): string {
       return 'Primary Deliverable';
   }
 }
+
+function getKindChipLabel(asset: CreativeAsset): string {
+  const kind =
+    asset.kind === 'video' ? 'Video' : asset.kind === 'image' ? 'Image' : asset.kind === 'link' ? 'Link' : 'Document';
+  if (asset.kind === 'link') return kind;
+  const m = /\.([a-z0-9]{1,5})$/i.exec((asset.filename || '').split(/[?#]/)[0]);
+  return m ? `${kind} · ${m[1].toUpperCase()}` : kind;
+}
+
+function formatDuration(seconds: number): string {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const ss = String(s).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+const AssetKindIcon: React.FC<{ kind: CreativeAsset['kind']; className?: string }> = ({ kind, className }) => {
+  if (kind === 'video') return <Film className={className} />;
+  if (kind === 'image') return <ImageIcon className={className} />;
+  if (kind === 'link') return <Link2 className={className} />;
+  return <FileText className={className} />;
+};
+
+/** Quiet ghost icon button with an accessible label and tooltip (works for keyboard + touch). */
+const FooterAction: React.FC<{ label: string; onClick: () => void; children: React.ReactNode }> = ({
+  label,
+  onClick,
+  children,
+}) => (
+  <Tooltip>
+    <TooltipTrigger asChild>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className="w-9 h-9 rounded-lg flex items-center justify-center text-fg-muted hover:text-fg hover:bg-hover transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {children}
+      </button>
+    </TooltipTrigger>
+    <TooltipContent>{label}</TooltipContent>
+  </Tooltip>
+);
+
+/**
+ * Video stage: poster frame fills the stage; nothing is fetched from the video
+ * file until the user presses play (preload="none" is kept).
+ */
+const VideoStage: React.FC<{ asset: CreativeAsset }> = ({ asset }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [started, setStarted] = useState(false);
+  const src = getBackendFileUrl(asset.url) || asset.url;
+  const poster = isRealThumbnailUrl(asset.thumbnail_url)
+    ? getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!
+    : getVideoStillUrl(asset.url, 800) || undefined;
+  const duration = asset.duration_seconds && asset.duration_seconds > 0 ? asset.duration_seconds : null;
+
+  const start = () => {
+    setStarted(true);
+    const v = videoRef.current;
+    if (v) {
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => undefined);
+    }
+  };
+
+  return (
+    <div className="absolute inset-0">
+      {poster && !started && (
+        <img
+          src={poster}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60 select-none pointer-events-none"
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+          }}
+        />
+      )}
+      <video
+        ref={videoRef}
+        key={src}
+        src={src}
+        poster={poster}
+        controls={started}
+        playsInline
+        preload="none"
+        data-active-video="true"
+        className="relative w-full h-full object-contain"
+      >
+        Your browser does not support HTML5 video streaming.
+      </video>
+      {!started && (
+        <>
+          <button
+            type="button"
+            onClick={start}
+            aria-label={`Play ${asset.filename}`}
+            className="absolute inset-0 flex items-center justify-center cursor-pointer focus-visible:outline-none group/play"
+          >
+            <span className="w-16 h-16 rounded-full bg-white/90 shadow-lg flex items-center justify-center transition-transform group-hover/play:scale-105 group-focus-visible/play:ring-4 group-focus-visible/play:ring-accent/60">
+              <Play className="w-6 h-6 ml-1 fill-accent text-accent" />
+            </span>
+          </button>
+          {duration !== null && (
+            <span className="absolute right-3 bottom-3 px-2 py-0.5 rounded-md bg-black/70 text-white text-caption font-semibold tabular-nums pointer-events-none">
+              {formatDuration(duration)}
+            </span>
+          )}
+        </>
+      )}
+    </div>
+  );
+};
 
 export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   itemId,
@@ -538,119 +656,50 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Main Asset Viewer Stage */}
       {assets.length > 0 && activeAsset ? (
-        <div className="rounded-xl border border-border bg-canvas overflow-hidden relative group">
-          {/* Top Bar Overlay: Role & Filename & Controls */}
-          <div className="absolute top-0 left-0 right-0 z-10 px-4 py-2.5 bg-overlay border-b border-white/10 flex items-center justify-between gap-3 text-white">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2 py-0.5 rounded-md text-caption font-semibold bg-accent text-accent-fg shrink-0">
-                {getRoleLabel(activeAsset.role)}
-              </span>
-              <span className="text-xs font-medium truncate opacity-90" title={activeAsset.filename}>
-                {activeAsset.filename}
-              </span>
-              <span className="text-caption opacity-60 shrink-0">
-                ({formatBytes(activeAsset.size_bytes)})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Copy URL */}
-              <button
-                type="button"
-                onClick={() => copyAssetUrl(activeAsset.url, activeAsset.id)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-                title="Copy asset direct link"
-              >
-                {copiedId === activeAsset.id ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
-                ) : (
-                  <Copy className="w-3.5 h-3.5" />
-                )}
-              </button>
-
-              {/* Direct Open in new tab */}
-              <button
-                type="button"
-                onClick={() => void openFileAttachment(activeAsset.url, activeAsset.filename)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-                title="Open asset file in new tab"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Download */}
-              <button
-                type="button"
-                onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
-                className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-                title="Download asset"
-              >
-                <Download className="w-3.5 h-3.5" />
-              </button>
-
-              {/* Fullscreen Lightbox (for images) */}
-              {activeAsset.kind === 'image' && (
-                <button
-                  type="button"
-                  onClick={() => setIsLightboxOpen(true)}
-                  className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
-                  title="Expand to Fullscreen Lightbox"
-                >
-                  <Maximize2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {/* Delete button (if not readOnly) */}
-              {!readOnly && (
-                <button
-                  type="button"
-                  onClick={() => setAssetToDelete(activeAsset)}
-                  className="p-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/40 text-rose-300 transition cursor-pointer"
-                  title="Delete asset"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Asset Content Presentation */}
-          <div className={`min-h-[220px] ${compact ? 'max-h-[320px]' : 'max-h-[460px]'} flex items-center justify-center bg-black/95`}>
+        <div
+          className="rounded-xl border border-border bg-surface overflow-hidden shadow-xs"
+          data-testid="asset-preview-card"
+        >
+          {/* Media area: poster/frame fills the stage edge-to-edge */}
+          <div
+            className={cn(
+              'relative group overflow-hidden',
+              activeAsset.kind === 'image' || activeAsset.kind === 'video'
+                ? cn('bg-black', compact ? 'h-[260px] sm:h-[300px]' : 'h-[260px] sm:h-[380px]')
+                : 'bg-subtle',
+            )}
+          >
             {activeAsset.kind === 'image' ? (
-              <div
-                className="w-full h-full flex items-center justify-center cursor-zoom-in p-2"
+              <button
+                type="button"
+                className="absolute inset-0 w-full h-full cursor-zoom-in"
                 onClick={() => setIsLightboxOpen(true)}
+                aria-label={`View ${activeAsset.filename} full screen`}
               >
                 <img
                   src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  alt={activeAsset.filename}
-                  className={`${compact ? 'max-h-[300px]' : 'max-h-[440px]'} max-w-full object-contain select-none`}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60 select-none"
                   loading="lazy"
                 />
-              </div>
-            ) : activeAsset.kind === 'video' ? (
-              <div className={`relative w-full h-full ${compact ? 'max-h-[300px]' : 'max-h-[440px]'} flex items-center justify-center p-2`}>
-                <video
-                  key={getBackendFileUrl(activeAsset.url) || activeAsset.url}
+                <img
                   src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  poster={isRealThumbnailUrl(activeAsset.thumbnail_url) ? (getBackendFileUrl(activeAsset.thumbnail_url!) || activeAsset.thumbnail_url!) : undefined}
-                  controls
-                  playsInline
-                  preload="none"
-                  data-active-video="true"
-                  className={`${compact ? 'max-h-[280px]' : 'max-h-[420px]'} max-w-full rounded-lg shadow-md`}
-                >
-                  Your browser does not support HTML5 video streaming.
-                </video>
-              </div>
+                  alt={activeAsset.filename}
+                  className="relative w-full h-full object-contain select-none"
+                  loading="lazy"
+                />
+              </button>
+            ) : activeAsset.kind === 'video' ? (
+              <VideoStage key={activeAsset.id} asset={activeAsset} />
             ) : activeAsset.kind === 'link' ? (
               /* Link Presentation */
-              <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-xl bg-subtle text-accent-text border border-border">
+              <div className="w-full py-10 px-6 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="p-4 rounded-xl bg-surface text-accent-text border border-border">
                   <Globe className="w-10 h-10" />
                 </div>
                 <div className="max-w-md space-y-1.5">
-                  <h4 className="text-sm font-semibold text-white break-all">
+                  <h4 className="text-sm font-semibold text-fg break-all">
                     {activeAsset.filename}
                   </h4>
                   <a
@@ -676,21 +725,21 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     onClick={() => copyAssetUrl(activeAsset.url, activeAsset.id)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface hover:bg-hover text-fg transition border border-border cursor-pointer"
                   >
-                    {copiedId === activeAsset.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {copiedId === activeAsset.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>Copy URL</span>
                   </button>
                 </div>
               </div>
             ) : (
               /* Document Card Presentation */
-              <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-xl bg-subtle text-accent-text border border-border">
+              <div className="w-full py-10 px-6 flex flex-col items-center justify-center text-center space-y-4">
+                <div className="p-4 rounded-xl bg-surface text-accent-text border border-border">
                   <FileText className="w-10 h-10" />
                 </div>
                 <div className="max-w-sm space-y-1">
-                  <h4 className="text-sm font-semibold text-white break-all">
+                  <h4 className="text-sm font-semibold text-fg break-all">
                     {activeAsset.filename}
                   </h4>
                   <p className="text-xs text-fg-muted">
@@ -701,7 +750,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     onClick={() => void openFileAttachment(activeAsset.url, activeAsset.filename)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-surface hover:bg-hover text-fg transition border border-border cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>View Document</span>
@@ -717,38 +766,118 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 </div>
               </div>
             )}
+
+            {/* Prev / Next + "N of M" for multi-assets (always visible on touch, hover on desktop) */}
+            {assets.length > 1 && (
+              <>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedIndex((prev) => (prev > 0 ? prev - 1 : assets.length - 1))
+                  }
+                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/90 text-[#17151F] shadow-md flex items-center justify-center cursor-pointer transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
+                  title="Previous Asset"
+                  aria-label="Previous asset"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSelectedIndex((prev) => (prev < assets.length - 1 ? prev + 1 : 0))
+                  }
+                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 w-9 h-9 rounded-full bg-white/90 text-[#17151F] shadow-md flex items-center justify-center cursor-pointer transition-opacity opacity-100 md:opacity-0 md:group-hover:opacity-100 focus-visible:opacity-100"
+                  title="Next Asset"
+                  aria-label="Next asset"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+                <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-2.5 py-0.5 rounded-full bg-black/60 text-white text-caption font-semibold tracking-wide pointer-events-none">
+                  {selectedIndex + 1} of {assets.length}
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Prev / Next Arrows for Multi-assets */}
-          {assets.length > 1 && (
-            <>
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedIndex((prev) => (prev > 0 ? prev - 1 : assets.length - 1))
-                }
-                className="absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
-                title="Previous Asset"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  setSelectedIndex((prev) => (prev < assets.length - 1 ? prev + 1 : 0))
-                }
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/60 hover:bg-black/90 text-white border border-white/20 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer z-10"
-                title="Next Asset"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-
-              {/* Bottom slide index counter */}
-              <div className="absolute bottom-2 left-1/2 -translate-y-0 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/70 text-white text-caption font-semibold tracking-wide border border-white/10 pointer-events-none">
-                {selectedIndex + 1} of {assets.length}
+          {/* Footer: file identity + quiet actions */}
+          <div className="flex items-center gap-3 px-3 sm:px-4 py-3 border-t border-border">
+            <div className="w-9 h-9 shrink-0 rounded-lg bg-accent-soft text-accent-text flex items-center justify-center" aria-hidden="true">
+              <AssetKindIcon kind={activeAsset.kind} className="w-[18px] h-[18px]" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-fg truncate" title={activeAsset.filename}>
+                {activeAsset.filename}
               </div>
-            </>
-          )}
+              <div className="mt-0.5 flex items-center gap-1.5 text-caption text-fg-muted min-w-0">
+                <span className="px-2 py-px rounded-full bg-accent-soft text-accent-text font-semibold shrink-0">
+                  {getKindChipLabel(activeAsset)}
+                </span>
+                <span className="truncate">
+                  {formatBytes(activeAsset.size_bytes)}
+                  {activeAsset.width && activeAsset.height ? ` · ${activeAsset.width}×${activeAsset.height}` : ''}
+                </span>
+              </div>
+            </div>
+
+            <TooltipProvider delayDuration={300}>
+            <div className="flex items-center gap-0.5 shrink-0">
+              <FooterAction
+                label={copiedId === activeAsset.id ? 'Copied' : 'Copy asset link'}
+                onClick={() => copyAssetUrl(activeAsset.url, activeAsset.id)}
+              >
+                {copiedId === activeAsset.id ? (
+                  <Check className="w-[18px] h-[18px] text-emerald-500" />
+                ) : (
+                  <Link2 className="w-[18px] h-[18px]" />
+                )}
+              </FooterAction>
+              <FooterAction
+                label="Open in new tab"
+                onClick={() => void openFileAttachment(activeAsset.url, activeAsset.filename)}
+              >
+                <ExternalLink className="w-[18px] h-[18px]" />
+              </FooterAction>
+              <FooterAction
+                label="Download"
+                onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
+              >
+                <Download className="w-[18px] h-[18px]" />
+              </FooterAction>
+
+              {(activeAsset.kind === 'image' || !readOnly) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="w-9 h-9 rounded-lg flex items-center justify-center text-fg-muted hover:text-fg hover:bg-hover data-[state=open]:bg-hover data-[state=open]:text-fg transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                      aria-label="More asset actions"
+                      title="More"
+                    >
+                      <MoreVertical className="w-[18px] h-[18px]" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    {activeAsset.kind === 'image' && (
+                      <DropdownMenuItem onClick={() => setIsLightboxOpen(true)}>
+                        <Maximize2 className="w-3.5 h-3.5 mr-2 text-fg-muted" />
+                        <span>View full screen</span>
+                      </DropdownMenuItem>
+                    )}
+                    {!readOnly && (
+                      <DropdownMenuItem
+                        onClick={() => setAssetToDelete(activeAsset)}
+                        className="text-danger-fg focus:text-danger-fg"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-2" />
+                        <span>Delete asset</span>
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+            </TooltipProvider>
+          </div>
         </div>
       ) : null}
 
