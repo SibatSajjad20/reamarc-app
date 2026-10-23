@@ -94,6 +94,40 @@ const getApiUrl = (endpoint: string) => {
   return `${base}${cleanEndpoint}`;
 };
 
+/**
+ * Which company's scheduler this page belongs to. The backend runs in multi-tenant mode and
+ * rejects public scheduler calls that don't name a company (404 "Company specification
+ * required"), so every call must carry one. Order: ?company= / ?slug=, then the
+ * /book/<slug> or /schedule/<slug> path, then the default — Reamarc's original /book link,
+ * which the settings page still hands out.
+ */
+export const DEFAULT_SCHEDULER_COMPANY = 'reamarc';
+
+export function resolveSchedulerCompany(
+  loc: { pathname: string; search: string } = window.location
+): string {
+  const clean = (v: string | null | undefined) => (v || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
+  const params = new URLSearchParams(loc.search || '');
+  const fromQuery = clean(params.get('company')) || clean(params.get('slug'));
+  if (fromQuery) return fromQuery;
+  const m = /^\/(?:book|schedule)\/([^/?#]+)/i.exec(loc.pathname || '');
+  let fromPath = '';
+  if (m) {
+    try {
+      fromPath = clean(decodeURIComponent(m[1]));
+    } catch {
+      fromPath = clean(m[1]);
+    }
+  }
+  return fromPath || DEFAULT_SCHEDULER_COMPANY;
+}
+
+/** Adds the company to a public scheduler endpoint (a query param, so no CORS preflight). */
+export function withSchedulerCompany(endpoint: string, company: string = resolveSchedulerCompany()): string {
+  const sep = endpoint.includes('?') ? '&' : '?';
+  return `${endpoint}${sep}company=${encodeURIComponent(company)}`;
+}
+
 function ymdInTimeZone(timeZone: string, date: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: timeZone || 'Asia/Karachi',
@@ -536,6 +570,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
   // Slots State
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState(false);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [slotsRefreshKey, setSlotsRefreshKey] = useState(0);
 
@@ -668,9 +703,9 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
   useEffect(() => {
     const fetchConfig = async () => {
       try {
-        let res = await fetch(getApiUrl('/crm/public/scheduler/config'));
+        let res = await fetch(getApiUrl(withSchedulerCompany('/crm/public/scheduler/config')));
         if (!res.ok) {
-          res = await fetch('/crm/public/scheduler/config');
+          res = await fetch(withSchedulerCompany('/crm/public/scheduler/config'));
         }
         if (res.ok) {
           const data = await res.json();
@@ -694,9 +729,9 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
 
     const fetchMonthAvailability = async () => {
       try {
-        let res = await fetch(getApiUrl(`/crm/public/scheduler/month-availability?month=${monthStr}`));
+        let res = await fetch(getApiUrl(withSchedulerCompany(`/crm/public/scheduler/month-availability?month=${monthStr}`)));
         if (!res.ok) {
-          res = await fetch(`/crm/public/scheduler/month-availability?month=${monthStr}`);
+          res = await fetch(withSchedulerCompany(`/crm/public/scheduler/month-availability?month=${monthStr}`));
         }
         if (res.ok) {
           const data = await res.json();
@@ -750,14 +785,15 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     const dateStr = formatCivilYmd(selectedDate);
 
     setLoadingSlots(true);
+    setSlotsError(false);
     setSelectedSlot(null);
     setBookingError(null);
 
     const fetchSlots = async () => {
       try {
-        let res = await fetch(getApiUrl(`/crm/public/scheduler/slots?date=${dateStr}`));
+        let res = await fetch(getApiUrl(withSchedulerCompany(`/crm/public/scheduler/slots?date=${dateStr}`)));
         if (!res.ok) {
-          res = await fetch(`/crm/public/scheduler/slots?date=${dateStr}`);
+          res = await fetch(withSchedulerCompany(`/crm/public/scheduler/slots?date=${dateStr}`));
         }
         if (!res.ok) {
           throw new Error('Could not load slots');
@@ -768,8 +804,11 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
         if (returnedSlots.length > 0 && !returnedSlots.some((s) => s.available)) {
           setFullyBookedDates((prev) => (prev.includes(dateStr) ? prev : [...prev, dateStr]));
         }
-      } catch {
+      } catch (err) {
+        // A failed request is not "no slots": log it, say so, and offer a retry.
+        console.warn('[scheduler] could not load slots for', dateStr, err);
         setSlots([]);
+        setSlotsError(true);
       } finally {
         setLoadingSlots(false);
       }
@@ -862,13 +901,13 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     };
 
     try {
-      let res = await fetch(getApiUrl('/crm/public/scheduler/book'), {
+      let res = await fetch(getApiUrl(withSchedulerCompany('/crm/public/scheduler/book')), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (!res.ok && res.status === 404) {
-        res = await fetch('/crm/public/scheduler/book', {
+        res = await fetch(withSchedulerCompany('/crm/public/scheduler/book'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
@@ -1315,13 +1354,13 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                         week: 'flex w-full mt-1 justify-between',
                         day: 'h-8 w-8 text-center text-xs p-0 relative flex items-center justify-center',
                         day_button: cn(
-                          'h-8 w-8 p-0 font-medium text-fg hover:bg-hover rounded-lg select-none font-numeric flex items-center justify-center transition-colors cursor-pointer',
-                          'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent'
+                          'h-8 w-8 p-0 font-semibold text-fg hover:bg-accent-soft hover:text-accent-text rounded-lg select-none font-numeric flex items-center justify-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+                          'disabled:cursor-not-allowed disabled:font-normal disabled:text-[#A1A1AA] dark:disabled:text-[#71717A] disabled:hover:bg-transparent disabled:hover:text-[#A1A1AA] dark:disabled:hover:text-[#71717A]'
                         ),
                         selected: '!bg-accent !text-white rounded-lg font-semibold [&>button]:!text-white [&>button]:!bg-accent [&>button]:font-semibold shadow-xs',
                         today: 'border border-accent rounded-lg [&>button]:!text-accent [&>button]:font-bold data-[selected=true]:[&>button]:!text-white',
-                        disabled: 'text-fg-faint opacity-35 cursor-not-allowed no-underline [&>button]:cursor-not-allowed [&>button]:text-fg-faint',
-                        outside: 'text-fg-faint opacity-40',
+                        disabled: 'cursor-not-allowed [&>button]:cursor-not-allowed [&>button]:font-normal [&>button]:text-[#A1A1AA] dark:[&>button]:text-[#71717A]',
+                        outside: '[&>button]:!text-[#D4D4D8] dark:[&>button]:!text-[#52525B]',
                       }}
                     />
                   </div>
@@ -1345,6 +1384,19 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                         <Loader2 className="w-5 h-5 animate-spin text-accent mb-2" />
                         <span className="text-xs">Checking availability…</span>
                       </div>
+                    ) : slotsError ? (
+                      <div role="alert" className="flex flex-col items-center justify-center flex-1 p-6 border border-dashed border-border rounded-lg text-center">
+                        <CalendarIcon className="w-6 h-6 text-fg-faint mb-2" />
+                        <p className="text-xs font-medium text-fg">Couldn't load available times</p>
+                        <p className="text-xs text-fg-muted mt-0.5">Check your connection and try again.</p>
+                        <button
+                          type="button"
+                          onClick={() => setSlotsRefreshKey((k) => k + 1)}
+                          className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-fg hover:bg-hover cursor-pointer"
+                        >
+                          Try again
+                        </button>
+                      </div>
                     ) : slots.length === 0 || !slots.some((s) => s.available) ? (
                       <div className="flex flex-col items-center justify-center flex-1 p-6 border border-dashed border-border rounded-lg text-center">
                         <CalendarIcon className="w-6 h-6 text-fg-faint mb-2" />
@@ -1354,7 +1406,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     ) : (
                       <div className="flex-1 max-h-[280px] overflow-y-auto pr-1">
                         <div className="grid grid-cols-2 gap-2">
-                          {slots.map((slot) => {
+                          {/* Booked / past-notice slots are hidden, not shown greyed out. */}
+                          {slots.filter((slot) => slot.available).map((slot) => {
                             const isSelected = selectedSlot?.time === slot.time;
                             return (
                               <button
