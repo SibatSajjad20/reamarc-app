@@ -47,6 +47,7 @@ def refresh_for(user: dict, mem: dict, company: dict, jti: str) -> str:
 class RaceBase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         object.__setattr__(settings, "MONGODB_DB_NAME", TEST_DB)
+        object.__setattr__(settings, "MULTI_COMPANY_ENABLED", True)
         assert "test" in settings.MONGODB_DB_NAME.lower() and settings.MONGODB_DB_NAME != "reamarc_db"
         await connect_to_mongo()
         from app.database import db_instance

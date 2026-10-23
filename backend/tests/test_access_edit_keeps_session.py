@@ -39,6 +39,7 @@ def _docs(uid, role, dept, depts, stages="__missing__"):
 class TestAccessEditKeepsSession(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         object.__setattr__(settings, "MONGODB_DB_NAME", TEST_DB)
+        object.__setattr__(settings, "MULTI_COMPANY_ENABLED", True)
         assert "test" in TEST_DB
         await connect_to_mongo()
         from app.database import db_instance
