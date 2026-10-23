@@ -24,6 +24,20 @@ interface Props {
   activeClients?: Array<{ id: string; name: string }>;
 }
 
+
+export function changedFields(
+  original: Partial<ContentCalendarItem>,
+  next: Partial<ContentCalendarItem>
+): Partial<ContentCalendarItem> {
+  const out: Record<string, unknown> = { id: original.id };
+  const o = original as Record<string, unknown>;
+  for (const [k, v] of Object.entries(next)) {
+    if (k === 'id' || v === undefined) continue;
+    if (JSON.stringify(v) !== JSON.stringify(o[k])) out[k] = v;
+  }
+  return out as Partial<ContentCalendarItem>;
+}
+
 export function findMatchingClient(
   clientName: string | undefined | null,
   clients: Array<{ id: string; name: string }> = []
@@ -327,7 +341,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
       const autoOwner = detectStageOwner(formData.stage, formData.creative_category);
       const matchedWs = findMatchingClient(formData.client_name, activeClients);
       const finalWsId = matchedWs?.id;
-      await onSave({
+      const full: Partial<ContentCalendarItem> = {
         ...formData,
         workspace_id: finalWsId,
         content_type: formData.content_type?.trim(),
@@ -344,7 +358,10 @@ export const ContentCalendarModal: React.FC<Props> = ({
               : undefined),
         draft_preview_link: formData.draft_preview_link?.trim() || undefined,
         final_asset_link: formData.final_asset_link?.trim() || undefined,
-      });
+      };
+      // Editing: send only what this person changed since the form opened, so a
+      // teammate's save to other fields in the meantime is not overwritten.
+      await onSave(item ? changedFields(item, full) : full);
       onClose();
     } catch (err: any) {
       setServerError(err?.message || 'Failed to save item');

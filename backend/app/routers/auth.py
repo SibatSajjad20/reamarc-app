@@ -154,8 +154,15 @@ async def register_disabled():
     )
 
 
+# Per-IP limits must allow a whole office (one NAT IP) or every user behind the
+# Vercel /api rewrite to sign in together at 9 AM. Brute force is bounded per
+# email (login-email below), not per IP. See live-regression-oct23-followup.md §7.
+LOGIN_IP_LIMIT_PER_MINUTE = 60
+REFRESH_IP_LIMIT_PER_MINUTE = 300
+
+
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit(f"{LOGIN_IP_LIMIT_PER_MINUTE}/minute")
 async def login(request: Request, user_in: UserLogin, response: Response):
     gdb = get_global_db()
     if gdb is None:
@@ -166,7 +173,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
     email_clean = str(user_in.email).lower().strip()
     await enforce_shared_rate_limit(f"login-email:{email_clean}", 10, 3600)
-    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", 5, 60)
+    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", LOGIN_IP_LIMIT_PER_MINUTE, 60)
     user_doc = await gdb.users.find_one({"email": email_clean})
     if not user_doc:
         # Fallback to case-insensitive match if stored in mixed case
@@ -343,7 +350,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit("30/minute")
+@limiter.limit(f"{REFRESH_IP_LIMIT_PER_MINUTE}/minute")
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
     if not token:
@@ -498,16 +505,32 @@ async def refresh_token(request: Request, response: Response):
     with tenant_scope(cid):
         if action == "rotate":
             rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
-            if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+            if not rotated:
+                granted = await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc)
+                if not granted:
+                    logger.info("refresh reject user=%s reason=lost_rotation", user_id)
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+                if granted != session_id:
+                    session_id = granted
+                    new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
+                logger.info("refresh grace user=%s", user_id)
+            else:
+                logger.info("refresh rotate user=%s", user_id)
         elif action == "grace":
-            if not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
+            granted = await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc)
+            if not granted:
+                logger.info("refresh reject user=%s reason=grace_expired", user_id)
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+            if granted != session_id:
+                session_id = granted
+                new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
+            logger.info("refresh grace user=%s", user_id)
         elif action == "legacy":
             # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
             await remember_refresh_jti(db, user_id, session_id)
         else:
             # Stale token from another browser. Reject this token only.
+            logger.info("refresh reject user=%s reason=stale", user_id)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
     if target_membership:
         _AUTH_CACHE.pop(f"{user_id}:{target_membership['id']}", None)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Calendar,
   Table,
@@ -302,8 +302,13 @@ export const ContentCalendarView: React.FC = () => {
   useModuleLoadGate(isLoading);
 
   // Fetch Items (supports silent background sync without showing skeleton)
+  // Only the newest request may update the board: quick stage/filter switches and
+  // background reloads after a save must never be overwritten by an older, slower response.
+  const loadSeqRef = useRef(0);
   const loadData = useCallback(
     async (opts?: { silent?: boolean }) => {
+      const seq = ++loadSeqRef.current;
+      const isLatest = () => seq === loadSeqRef.current;
       const filterKey = JSON.stringify(filter);
       const cached = contentCalendarService.getCachedItems(filterKey);
       const isSilent = opts?.silent ?? false;
@@ -321,14 +326,16 @@ export const ContentCalendarView: React.FC = () => {
         setError(null);
         const res = await contentCalendarService.getItems(filter);
         contentCalendarService.setCachedItems(filterKey, res);
+        if (!isLatest()) return;
         setItems(res.items);
         setStagesCount(res.stages_count);
       } catch (err: any) {
+        if (!isLatest()) return;
         if (!cached) {
           setError(err?.message || 'Failed to load content calendar items');
         }
       } finally {
-        setIsLoading(false);
+        if (isLatest()) setIsLoading(false);
       }
     },
     [filter],

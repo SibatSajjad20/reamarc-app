@@ -268,21 +268,18 @@ class TestAuthTenancy(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res3.status_code, 410)
 
     async def test_06_login_rate_limit(self):
-        """Exceeding 5 login attempts per minute trips 429."""
+        """Per-email brute-force guard (10/hour) trips 429; per-IP office rush is higher."""
         ip_headers = {"X-Forwarded-For": "198.51.100.42"}
-        for i in range(5):
-            await self.client.post(
+        codes = []
+        for _ in range(12):
+            res = await self.client.post(
                 "/api/v1/auth/login",
                 json={"email": "nonexistent@test.com", "password": "wrong"},
                 headers=ip_headers,
             )
-        # 6th attempt should trip 429
-        res = await self.client.post(
-            "/api/v1/auth/login",
-            json={"email": "nonexistent@test.com", "password": "wrong"},
-            headers=ip_headers,
-        )
-        self.assertEqual(res.status_code, 429)
+            codes.append(res.status_code)
+        self.assertEqual(codes[:10], [401] * 10)
+        self.assertEqual(codes[10:], [429, 429])
 
     async def test_07_read_only_impersonation_blocks_non_get(self):
         """Impersonation token with ro=True allows GET but blocks POST/PUT/DELETE with 403."""

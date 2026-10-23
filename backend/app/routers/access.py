@@ -16,6 +16,10 @@ from pydantic import BaseModel, Field
 
 from app.config import settings
 from app.core.security import require_admin, invalidate_auth_cache, get_current_user
+
+# Access and stage edits do NOT bump membership token_version: permissions are read
+# from the membership on every request (auth cache is invalidated below), so the
+# member keeps working with the new rights instead of being signed out everywhere.
 from app.database import get_database
 from app.services.company_members import company_member_users
 from app.services.access import (
@@ -318,7 +322,6 @@ async def patch_user_access(
                 {"id": target_mem["id"]},
                 {
                     "$set": {f"access.{payload.module}": stored_val},
-                    "$inc": {"token_version": 1},
                 },
             )
             invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
@@ -379,7 +382,6 @@ async def patch_user_access(
                 {"id": target_mem["id"]},
                 {
                     "$set": {"content_stages": extra_to_store},
-                    "$inc": {"token_version": 1},
                 },
             )
             invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
@@ -485,7 +487,6 @@ async def reset_user_access(
                 {"id": target_mem["id"]},
                 {
                     "$set": {f"access.{payload.module}": None},
-                    "$inc": {"token_version": 1},
                 },
             )
             invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
@@ -505,7 +506,6 @@ async def reset_user_access(
                 {"id": target_mem["id"]},
                 {
                     "$set": {"access": null_access, "content_stages": None},
-                    "$inc": {"token_version": 1},
                 },
             )
             invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])

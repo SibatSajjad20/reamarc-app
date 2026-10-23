@@ -174,11 +174,11 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
     // Check individual file sizes
     for (const f of rawFiles) {
       const isVideo = f.type.startsWith('video/') || /\.(mp4|mov|webm|m4v)$/i.test(f.name);
-      const maxSize = isVideo ? 250 * 1024 * 1024 : 50 * 1024 * 1024;
+      const maxSize = isVideo ? 100 * 1024 * 1024 : 50 * 1024 * 1024; // must match backend MAX_VIDEO_SIZE / MAX_IMAGE_DOC_SIZE
       if (f.size > maxSize) {
         addToast(
           'File too large',
-          `"${f.name}" exceeds the maximum allowed size of ${isVideo ? '250MB' : '50MB'}.`,
+          `"${f.name}" exceeds the maximum allowed size of ${isVideo ? '100MB' : '50MB'}.`,
           'error',
         );
         return;
