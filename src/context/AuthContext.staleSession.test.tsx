@@ -78,11 +78,17 @@ describe('stale session bootstrap', () => {
     );
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(15_000);
+      // Slow-server change: a hung refresh is not a sign-out. The spinner is capped
+      // at BOOTSTRAP_MAX_WAIT_MS (35 s), then the login screen shows.
+      await vi.advanceTimersByTimeAsync(40_000);
     });
 
     expect(screen.getByTestId('loading').textContent).toBe('false');
     expect(screen.getByTestId('user').textContent).toBe('null');
+    // Let the background retries finish so the shared apiClient has no hung refresh left.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(400_000);
+    });
   });
 
   it('clears a seeded workspace id after me+refresh 401', async () => {

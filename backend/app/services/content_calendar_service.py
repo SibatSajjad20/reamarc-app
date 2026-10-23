@@ -73,6 +73,7 @@ from app.core.uploads import (
 
 
 from app.services.company_members import company_member_user, company_member_users
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -123,9 +124,12 @@ async def ensure_indexes(db) -> None:
 
             if not getattr(settings, "MULTI_TENANT_ENABLED", False):
                 await backfill_share_tokens(db)
-            _indexes_ready = True
         except Exception as exc:
             logger.warning("Content calendar index setup skipped: %s", exc)
+        finally:
+            # Run at most once per process, even after a failure (e.g. duplicate keys),
+            # so list requests never keep re-running index builds.
+            _indexes_ready = True
 
 
 async def backfill_share_tokens(db) -> int:

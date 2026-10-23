@@ -5,6 +5,11 @@ import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 import { clearAllAppCaches } from '../utils/cacheBus';
 
+/** Back-off between /auth/me retries while the server wakes up (about 67 s plus request time). */
+/** Longest the startup spinner may show while the server is slow. */
+export const BOOTSTRAP_MAX_WAIT_MS = 35_000;
+export const BOOTSTRAP_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
+
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
@@ -87,23 +92,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const bootstrapRetryingRef = useRef(false);
+
   const fetchCurrentUser = useCallback(async () => {
     setIsLoading(true);
+    // Only a real 401/403 signs the user out. A slow or sleeping server
+    // (timeout, network error, 5xx) is retried while the spinner stays up.
+    const delays = BOOTSTRAP_RETRY_DELAYS_MS;
+    bootstrapRetryingRef.current = true;
     try {
-      const currentUser = await Promise.race([
-        authService.getMe(),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => reject(new Error('auth-bootstrap-timeout')), 10_000);
-        }),
-      ]);
-      const normalized = currentUser?.impersonating
-        ? { ...currentUser, impersonating: false, read_only: false }
-        : currentUser;
-      setUser((prev) => keepAvatarUrl(prev, normalized));
-    } catch {
-      setUser(null);
-      clearStaleAuthStorage();
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          const currentUser = await authService.getMe();
+          const normalized = currentUser?.impersonating
+            ? { ...currentUser, impersonating: false, read_only: false }
+            : currentUser;
+          setUser((prev) => keepAvatarUrl(prev, normalized));
+          return;
+        } catch (err) {
+          const status = (err as { status?: number } | null)?.status;
+          if (status === 401 || status === 403 || attempt >= delays.length) {
+            setUser(null);
+            if (status === 401 || status === 403) clearStaleAuthStorage();
+            return;
+          }
+          await new Promise((r) => window.setTimeout(r, delays[attempt]));
+        }
+      }
     } finally {
+      bootstrapRetryingRef.current = false;
       setIsLoading(false);
     }
   }, [clearStaleAuthStorage]);
@@ -119,9 +136,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     const safety = window.setTimeout(() => {
+      if (bootstrapRetryingRef.current) return;
       setIsLoading((still) => (still ? false : still));
     }, 12_000);
-    return () => window.clearTimeout(safety);
+    // Hard cap: never spin longer than this. Cookies are kept and retries continue,
+    // so the app comes back by itself if the server answers later.
+    const cap = window.setTimeout(() => {
+      setIsLoading((still) => (still ? false : still));
+    }, BOOTSTRAP_MAX_WAIT_MS);
+    return () => {
+      window.clearTimeout(safety);
+      window.clearTimeout(cap);
+    };
   }, []);
 
   useEffect(() => {

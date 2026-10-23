@@ -382,7 +382,9 @@ async def health_check():
     mongo_ok = False
     if db is not None:
         try:
-            await db.command("ping")
+            # TenantDB has no .command (attribute access returns a collection), so ping the raw DB.
+            raw = db.raw() if hasattr(db, "raw") else db
+            await raw.command("ping")
             mongo_ok = True
         except Exception:
             mongo_ok = False

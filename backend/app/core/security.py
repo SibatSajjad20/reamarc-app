@@ -29,7 +29,7 @@ def invalidate_auth_cache(user_id: Optional[str] = None, membership_id: Optional
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 JWT_ALGORITHM = "HS256"
-_MAX_REFRESH_JTIS = 8
+_MAX_REFRESH_JTIS = 20
 _MAX_RETIRED_REFRESH_JTIS = 32
 # Parallel refreshes in one browser present the same token. Treat that replay as
 # a race for this long, then reject it without signing out any other session.
@@ -217,7 +217,7 @@ async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) 
             "$set": {"refresh_jtis.$": new_jti},
             "$push": {
                 "refresh_retired": {
-                    "$each": [{"jti": old_jti, "at": now}],
+                    "$each": [{"jti": old_jti, "at": now, "replaced_by": new_jti}],
                     "$slice": -_MAX_RETIRED_REFRESH_JTIS,
                 }
             },
@@ -234,7 +234,7 @@ async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) 
                 "$set": {"refresh_jtis.$": new_jti},
                 "$push": {
                     "refresh_retired": {
-                        "$each": [{"jti": old_jti, "at": now}],
+                        "$each": [{"jti": old_jti, "at": now, "replaced_by": new_jti}],
                         "$slice": -_MAX_RETIRED_REFRESH_JTIS,
                     }
                 },
@@ -320,35 +320,51 @@ def _parse_iso(value: str) -> Optional[datetime]:
     return parsed
 
 
+def retired_replacement(entries: Optional[List[Any]], jti: str, *, now: Optional[datetime] = None) -> Optional[str]:
+    """The sid that replaced a recently rotated jti, if it is still inside the grace window."""
+    if not jti or not entries:
+        return None
+    current = now or datetime.now(timezone.utc)
+    for entry in reversed(entries):
+        if not isinstance(entry, dict) or str(entry.get("jti") or "") != jti:
+            continue
+        stamp = _parse_iso(str(entry.get("at") or ""))
+        if stamp is None or (current - stamp).total_seconds() > REFRESH_ROTATION_GRACE_SECONDS:
+            return None
+        rep = str(entry.get("replaced_by") or "")
+        return rep or None
+    return None
+
+
 async def accept_retired_refresh(
     db: Any, user_id: str, old_jti: str, new_jti: str, fresh_doc: Optional[dict] = None
-) -> bool:
-    """Accept one replay of a just-rotated refresh token.
+) -> Optional[str]:
+    """Accept a replay of a just-rotated refresh token (parallel tabs).
 
-    The winning request already kept that browser signed in. A second copy of the
-    same token must not bump session_epoch, or every other browser of this account
-    is signed out.
+    Returns the session id the caller must issue. A replay inside the grace window
+    gets the SAME sid the winning request created, so no extra session id is ever
+    added and other browsers are never pushed out of refresh_jtis.
+    Returns None when the replay must be rejected.
     """
     if db is None or not user_id or not old_jti or not new_jti:
-        return False
-    if fresh_doc is not None and "refresh_retired" in fresh_doc:
-        refresh_retired = fresh_doc.get("refresh_retired")
-    else:
-        fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "refresh_retired": 1})
-        refresh_retired = (fresh or {}).get("refresh_retired")
-    if not retired_jti_is_recent(refresh_retired, old_jti):
-        return False
-    consumed = await db.users.update_one(
-        {
-            "id": user_id,
-            "refresh_retired": {"$elemMatch": {"jti": old_jti, "consumed": {"$ne": True}}},
-        },
-        {"$set": {"refresh_retired.$.consumed": True}},
-    )
-    if int(getattr(consumed, "modified_count", 0) or 0) != 1:
-        return False
-    await remember_refresh_jti(db, user_id, new_jti)
-    return True
+        return None
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "refresh_retired": 1, "refresh_jtis": 1})
+    if fresh is None and fresh_doc is not None:
+        fresh = fresh_doc
+    fresh = fresh or {}
+    replacement = retired_replacement(fresh.get("refresh_retired"), old_jti)
+    if replacement and replacement in (fresh.get("refresh_jtis") or []):
+        return replacement
+    # Entries written before replaced_by existed: accept once, in place of nothing new.
+    if replacement is None and retired_jti_is_recent(fresh.get("refresh_retired"), old_jti):
+        consumed = await db.users.update_one(
+            {"id": user_id, "refresh_retired": {"$elemMatch": {"jti": old_jti, "consumed": {"$ne": True}}}},
+            {"$set": {"refresh_retired.$.consumed": True}},
+        )
+        if int(getattr(consumed, "modified_count", 0) or 0) == 1:
+            await remember_refresh_jti(db, user_id, new_jti)
+            return new_jti
+    return None
 
 
 def claims_with_session(

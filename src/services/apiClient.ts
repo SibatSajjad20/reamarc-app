@@ -112,11 +112,17 @@ const getBaseUrl = (): string => {
 export const API_BASE_URL = getBaseUrl();
 
 
+/** 'unauthorized' = the server said 401/403; 'unavailable' = timeout, network error or 5xx. */
+export type RefreshOutcome = 'ok' | 'unauthorized' | 'unavailable';
+
+/** Render can take 30-60 s to wake up; never treat a slow answer as a sign-out. */
+export const AUTH_REQUEST_TIMEOUT_MS = 30_000;
+
 class ApiClient {
   private baseUrl: string;
   private onUnauthorizedCallback?: () => void;
   private activeWorkspaceId: string | null = null;
-  private refreshPromise: Promise<boolean> | null = null;
+  private refreshPromise: Promise<RefreshOutcome> | null = null;
   private inFlightGets = new Map<string, Promise<any>>();
 
   constructor(baseUrl: string = API_BASE_URL) {
@@ -151,11 +157,16 @@ class ApiClient {
   }
 
   /** Refresh the HttpOnly session once. Used by raw upload fetches that skip request(). */
-  public refreshSessionOnce(): Promise<boolean> {
+  public async refreshSessionOnce(): Promise<boolean> {
+    return (await this.tryRefreshSession()) === 'ok';
+  }
+
+  /** Same as refreshSessionOnce, but tells a real sign-out apart from a slow or unreachable server. */
+  public refreshSessionStatus(): Promise<RefreshOutcome> {
     return this.tryRefreshSession();
   }
 
-  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 8000): Promise<Response> {
+  private async fetchWithTimeout(url: string, init: RequestInit, timeoutMs = AUTH_REQUEST_TIMEOUT_MS): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     if (init.signal) {
@@ -172,31 +183,45 @@ class ApiClient {
     }
   }
 
-  private async tryRefreshSession(): Promise<boolean> {
+  /** Only one tab of this browser refreshes at a time (Web Locks when available). */
+  private withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+    const locks = typeof navigator !== 'undefined' ? (navigator as any).locks : undefined;
+    if (locks && typeof locks.request === 'function') {
+      return locks.request('reamarc-auth-refresh', fn) as Promise<T>;
+    }
+    return fn();
+  }
+
+  private async tryRefreshSession(): Promise<RefreshOutcome> {
     if (this.refreshPromise) return this.refreshPromise;
-    this.refreshPromise = (async () => {
+    this.refreshPromise = (async (): Promise<RefreshOutcome> => {
       try {
-        const headers = {
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          'X-Requested-With': 'XMLHttpRequest',
-        };
-        const res = await this.fetchWithTimeout(`${this.baseUrl}/auth/refresh`, {
-          method: 'POST',
-          credentials: 'include',
-          headers,
-          body: '{}',
+        return await this.withRefreshLock(async () => {
+          const headers = {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          };
+          const res = await this.fetchWithTimeout(`${this.baseUrl}/auth/refresh`, {
+            method: 'POST',
+            credentials: 'include',
+            headers,
+            body: '{}',
+          });
+          if (res.ok) return 'ok';
+          if (res.status !== 401 && res.status !== 403) return 'unavailable';
+          // Another tab may already have rotated this browser's cookie.
+          const me = await this.fetchWithTimeout(`${this.baseUrl}/auth/me`, {
+            method: 'GET',
+            credentials: 'include',
+            headers,
+          });
+          if (me.ok) return 'ok';
+          return me.status === 401 || me.status === 403 ? 'unauthorized' : 'unavailable';
         });
-        if (res.ok) return true;
-        // Another tab may already have rotated this browser's cookie.
-        const me = await this.fetchWithTimeout(`${this.baseUrl}/auth/me`, {
-          method: 'GET',
-          credentials: 'include',
-          headers,
-        });
-        return me.ok;
       } catch {
-        return false;
+        // Timeout or network error: the server is slow or asleep, not a sign-out.
+        return 'unavailable';
       } finally {
         this.refreshPromise = null;
       }
@@ -296,8 +321,11 @@ class ApiClient {
           !endpoint.includes('/auth/refresh')
         ) {
           const refreshed = await this.tryRefreshSession();
-          if (refreshed) {
+          if (refreshed === 'ok') {
             return this._executeRequest<T>(endpoint, { ...options, _retried: true });
+          }
+          if (refreshed === 'unavailable') {
+            throw new ApiError('Server is not responding. Retrying shortly.', 503, data);
           }
           if (this.onUnauthorizedCallback) {
             this.onUnauthorizedCallback();
@@ -374,8 +402,11 @@ class ApiClient {
           !endpoint.includes('/auth/refresh')
         ) {
           const refreshed = await this.tryRefreshSession();
-          if (refreshed) {
+          if (refreshed === 'ok') {
             return this.requestWithHeaders<T>(endpoint, { ...options, _retried: true });
+          }
+          if (refreshed === 'unavailable') {
+            throw new ApiError('Server is not responding. Retrying shortly.', 503, data);
           }
           if (this.onUnauthorizedCallback) {
             this.onUnauthorizedCallback();
@@ -464,8 +495,11 @@ class ApiClient {
     if (!response.ok) {
       if (response.status === 401) {
         const refreshed = await this.tryRefreshSession();
-        if (refreshed) {
+        if (refreshed === 'ok') {
           return this.upload<T>(endpoint, formData, options);
+        }
+        if (refreshed === 'unavailable') {
+          throw new ApiError('Server is not responding. Retrying shortly.', 503, data);
         }
         if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
       }
@@ -508,8 +542,11 @@ class ApiClient {
       if (!response.ok) {
         if (response.status === 401 && !_retried) {
           const refreshed = await this.tryRefreshSession();
-          if (refreshed) {
+          if (refreshed === 'ok') {
             return this.getBlob(endpoint, { ...options, _retried: true });
+          }
+          if (refreshed === 'unavailable') {
+            throw new ApiError('Server is not responding. Retrying shortly.', 503);
           }
           if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
         }

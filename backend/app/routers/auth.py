@@ -498,16 +498,32 @@ async def refresh_token(request: Request, response: Response):
     with tenant_scope(cid):
         if action == "rotate":
             rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
-            if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
-                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+            if not rotated:
+                granted = await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc)
+                if not granted:
+                    logger.info("refresh reject user=%s reason=lost_rotation", user_id)
+                    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+                if granted != session_id:
+                    session_id = granted
+                    new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
+                logger.info("refresh grace user=%s", user_id)
+            else:
+                logger.info("refresh rotate user=%s", user_id)
         elif action == "grace":
-            if not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
+            granted = await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc)
+            if not granted:
+                logger.info("refresh reject user=%s reason=grace_expired", user_id)
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+            if granted != session_id:
+                session_id = granted
+                new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
+            logger.info("refresh grace user=%s", user_id)
         elif action == "legacy":
             # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
             await remember_refresh_jti(db, user_id, session_id)
         else:
             # Stale token from another browser. Reject this token only.
+            logger.info("refresh reject user=%s reason=stale", user_id)
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
     if target_membership:
         _AUTH_CACHE.pop(f"{user_id}:{target_membership['id']}", None)
