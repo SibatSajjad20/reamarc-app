@@ -544,6 +544,21 @@ export const getThumbUrl = (url?: string, width: 200 | 400 | 800 = 400): string 
   return `${API_BASE_URL}/thumbs/${cleanKey}?w=${width}`;
 };
 
+const VIDEO_STILLABLE = /\.(mp4|mov|m4v|webm)$/i;
+
+/**
+ * Small cached still frame for a stored video (server: /api/v1/thumbs/... with the same
+ * access check as the file). Used when the asset has no saved thumbnail yet.
+ */
+export const getVideoStillUrl = (url?: string, width: 200 | 400 | 800 = 400): string => {
+  if (!url) return '';
+  const uploads = extractUploadsPath(url);
+  if (!uploads) return '';
+  const cleanKey = uploads.replace(/^\/?uploads\//, '');
+  if (!VIDEO_STILLABLE.test(cleanKey.split(/[?#]/)[0])) return '';
+  return `${API_BASE_URL}/thumbs/${cleanKey}?w=${width}`;
+};
+
 /** onError handler: if the preview fails, fall back once to the original image. */
 export const fallbackToOriginal = (original: string) => (e: { currentTarget: HTMLImageElement }) => {
   const img = e.currentTarget;

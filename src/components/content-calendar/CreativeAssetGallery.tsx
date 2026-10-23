@@ -36,7 +36,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
 
 interface CreativeAssetGalleryProps {
@@ -804,12 +804,19 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                       />
                     ) : asset.kind === 'video' ? (
                       <div className="relative w-full h-full bg-canvas flex items-center justify-center">
-                        {isRealThumbnailUrl(asset.thumbnail_url) ? (
+                        {isRealThumbnailUrl(asset.thumbnail_url) || getVideoStillUrl(asset.url, 200) ? (
                           <img
-                            src={getThumbUrl(asset.thumbnail_url!, 200) || getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!}
+                            src={
+                              isRealThumbnailUrl(asset.thumbnail_url)
+                                ? getThumbUrl(asset.thumbnail_url!, 200) || getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!
+                                : getVideoStillUrl(asset.url, 200)
+                            }
                             alt={asset.filename}
                             className="w-full h-full object-cover"
                             loading="lazy"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+                            }}
                           />
                         ) : (
                           <div className="w-full h-full bg-black flex items-center justify-center" />

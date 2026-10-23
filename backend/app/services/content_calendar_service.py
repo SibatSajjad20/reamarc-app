@@ -2572,7 +2572,7 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             if (
                 str(att_copy.get("kind") or "").lower() == "video"
                 or str(att_copy.get("content_type") or "").lower().startswith("video/")
-            ) and (att.get("google_drive_file_id") or att.get("thumbnail_url")):
+            ):
                 # Still frame for link previews (WhatsApp cannot preview a video file).
                 og_url = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?og=1"
                 att_copy["og_image_url"] = og_url
@@ -3214,6 +3214,21 @@ async def _public_video_still_response(db, presented, target, asset_id: str):
         except Exception as exc:
             logger.info("og still: drive thumbnail failed for %s: %s", asset_id, type(exc).__name__)
             raw = None
+    if not raw:
+        # No stored still and no Drive preview: take one frame from this asset's own video.
+        video_url = str(target.get("url") or "").strip()
+        clean_video = video_url.lstrip("/").replace("api/uploads/", "").replace("uploads/", "")
+        own_video = (
+            clean_video.startswith("content_calendar/")
+            and (f"content_calendar/{doc_id}/" in clean_video or (doc_serial and f"content_calendar/{doc_serial}/" in clean_video))
+        ) or (clean_video.startswith("gdrive/") and drive_id and drive_id in clean_video)
+        if own_video:
+            try:
+                from app.core.thumbs import video_still_bytes
+                raw = await video_still_bytes(db, clean_video)
+            except Exception as exc:
+                logger.info("og still: video frame failed for %s: %s", asset_id, type(exc).__name__)
+                raw = None
     jpeg = await asyncio.to_thread(_to_og_jpeg, raw) if raw else None
     if not jpeg:
         return _og_fallback_response()

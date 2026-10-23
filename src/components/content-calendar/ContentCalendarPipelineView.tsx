@@ -25,7 +25,7 @@ import {
 } from '../../utils/contentCalendarWorkflow';
 import { useToast } from '../../context/ToastContext';
 import { usePrompt } from '../ui/ConfirmProvider';
-import { getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { renderPlatformIcon } from './ContentCalendarTableView';
 import { Avatar } from '../ui/Avatar';
 import { ClientAvatar } from '../ui/ClientAvatar';
@@ -518,16 +518,24 @@ function StageCardList({
                   }
 
                   if (primaryMedia.kind === 'video') {
-                    const hasValidThumb = isRealThumbnailUrl(primaryMedia.thumbnail_url);
+                    const savedThumb = isRealThumbnailUrl(primaryMedia.thumbnail_url)
+                      ? (getThumbUrl(primaryMedia.thumbnail_url!, 400) || getBackendFileUrl(primaryMedia.thumbnail_url!) || primaryMedia.thumbnail_url!)
+                      : '';
+                    const stillSrc = savedThumb || getVideoStillUrl(primaryMedia.url, 400);
+                    const hasValidThumb = Boolean(stillSrc);
                     return (
                       <div className="relative mb-2 rounded-sm overflow-hidden bg-subtle border border-border h-[120px] w-full flex items-center justify-center group/vid">
                         {hasValidThumb ? (
                           <img
-                            src={getThumbUrl(primaryMedia.thumbnail_url!, 400) || getBackendFileUrl(primaryMedia.thumbnail_url!) || primaryMedia.thumbnail_url!}
+                            src={stillSrc}
                             alt={primaryMedia.filename}
+                            data-testid="video-still"
                             className="w-full h-full object-cover select-none"
                             loading="lazy"
                             decoding="async"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+                            }}
                           />
                         ) : (
                           // No still yet: show an icon. A grid <video> pulls megabytes per card.

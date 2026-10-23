@@ -20,7 +20,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -59,6 +59,10 @@ function pickPreviewAsset(attachments?: CreativeAsset[]): CreativeAsset | null {
 function resolveAssetSrc(asset: CreativeAsset | null | undefined): string {
   if (!asset) return '';
   const thumb = isRealThumbnailUrl(asset.thumbnail_url) ? asset.thumbnail_url : null;
+  if (!thumb && asset.kind === 'video') {
+    // Never put a video file in an <img>; use a server-made still frame.
+    return getVideoStillUrl(asset.url, 800);
+  }
   const candidates = [thumb, asset.url, asset.google_drive_url].filter(
     (value): value is string => Boolean(value && value.trim()),
   );
