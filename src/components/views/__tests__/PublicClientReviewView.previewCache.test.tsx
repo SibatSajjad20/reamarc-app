@@ -155,7 +155,7 @@ describe('PublicClientReviewView preview cache', () => {
     expect(screen.queryByText('Loading creative…')).toBeNull();
   });
 
-  it('prefetches later images one at a time and skips videos without a small known size', async () => {
+  it('prefetches the next 2 images one at a time and never videos', async () => {
     const item = reviewItem('post-prefetch', [
       imageAsset('asset-a', 'TEST asset image A', IMAGE_A),
       imageAsset('asset-b', 'TEST asset image B', IMAGE_B),
@@ -205,10 +205,12 @@ describe('PublicClientReviewView preview cache', () => {
     expect(mediaFetches(starts, VIDEO_LARGE)).toHaveLength(0);
 
     resolvers.get(IMAGE_C)?.(mediaResponse());
-    await waitFor(() => expect(mediaFetches(starts, VIDEO_SMALL)).toHaveLength(1));
+    // Media-bandwidth change: videos are never prefetched (they stream on play),
+    // and only the next REVIEW_PREFETCH_AHEAD (2) images are.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mediaFetches(starts, VIDEO_SMALL)).toHaveLength(0);
     expect(mediaFetches(starts, VIDEO_UNKNOWN)).toHaveLength(0);
     expect(mediaFetches(starts, VIDEO_LARGE)).toHaveLength(0);
-    resolvers.get(VIDEO_SMALL)?.(mediaResponse(16));
   });
 
   it('revokes object URLs on unmount and not when switching thumbnails', async () => {

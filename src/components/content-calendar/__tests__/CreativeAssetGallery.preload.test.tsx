@@ -30,7 +30,7 @@ function videoAsset(id: string, filename: string, url: string, order: number): C
 }
 
 describe('CreativeAssetGallery video preload', () => {
-  it('renders one video with preload metadata and no strip videos', () => {
+  it('renders one video with preload none (loads on play) and no strip videos', () => {
     render(
       <CreativeAssetGallery
         itemId="item-1"
@@ -44,13 +44,13 @@ describe('CreativeAssetGallery video preload', () => {
 
     const videos = document.querySelectorAll('video');
     expect(videos).toHaveLength(1);
-    expect(videos[0].getAttribute('preload')).toBe('metadata');
+    expect(videos[0].getAttribute('preload')).toBe('none');
     expect(videos[0].getAttribute('poster')).toContain('v1-thumb.jpg');
 
     fireEvent.click(screen.getByAltText('Clip B'));
     const after = document.querySelectorAll('video');
     expect(after).toHaveLength(1);
-    expect(after[0].getAttribute('preload')).toBe('metadata');
+    expect(after[0].getAttribute('preload')).toBe('none');
     expect(after[0].getAttribute('src') || '').toContain('b.mp4');
   });
 });

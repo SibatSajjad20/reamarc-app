@@ -77,6 +77,9 @@ class TestMediaThumbs(unittest.IsolatedAsyncioTestCase):
         shutil.rmtree(self.dir, ignore_errors=True)
         from app.database import db_instance
         await db_instance.client.drop_database(TEST_DB)
+        db_instance.client.close()
+        db_instance.client = None
+        db_instance.db = None  # don't leak a client bound to this test's closed loop
 
     def _auth(self, uid):
         u, m = self.users[uid]
