@@ -22,10 +22,14 @@ import type {
 } from '../types/contentCalendar';
 
 export const contentCalendarService = {
-  async getItems(filter?: ContentCalendarFilter): Promise<ContentCalendarListResponse> {
+  async getItems(
+    filter?: ContentCalendarFilter,
+    opts?: { fresh?: boolean },
+  ): Promise<ContentCalendarListResponse> {
     const filterKey = JSON.stringify(filter || {});
     const cached = ccItemsCache.get(filterKey);
-    if (cached && Date.now() - cached.fetchedAt < 60_000) {
+    // fresh: skip the 60s cache (decisions made elsewhere, e.g. a public review link).
+    if (!opts?.fresh && cached && Date.now() - cached.fetchedAt < 60_000) {
       return cached.data;
     }
 

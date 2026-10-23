@@ -135,7 +135,8 @@ export const ContentCalendarClientReviews: React.FC = () => {
       if (!options?.silent) {
         setIsLoading(true);
       }
-      const res = await contentCalendarService.getItems();
+      // Always fresh: a client may have just approved or requested changes from a review link.
+      const res = await contentCalendarService.getItems(undefined, { fresh: true });
       setItems(res.items || []);
       setError(null);
     } catch (err: any) {
@@ -147,6 +148,23 @@ export const ContentCalendarClientReviews: React.FC = () => {
 
   useEffect(() => {
     void loadData();
+  }, [loadData]);
+
+  // Coming back to this tab (e.g. after using the WhatsApp review link) refreshes the tabs.
+  useEffect(() => {
+    let last = Date.now();
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      if (Date.now() - last < 5_000) return;
+      last = Date.now();
+      void loadData({ silent: true });
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [loadData]);
 
   // Categorize items
@@ -258,6 +276,13 @@ export const ContentCalendarClientReviews: React.FC = () => {
     } catch (err: any) {
       setItems(previousItems);
       addToast('Could not process review', err?.message || 'Please try again', 'error');
+      // The item may already have been decided elsewhere; show its real state.
+      if (detailItem?.id === item.id) {
+        setIsDetailOpen(false);
+        setDetailItem(null);
+        setIsRevisionMode(false);
+      }
+      void loadData({ silent: true });
     } finally {
       setBusyId(null);
     }
@@ -287,7 +312,8 @@ export const ContentCalendarClientReviews: React.FC = () => {
   const openDetail = (item: ContentCalendarItem, revision = false) => {
     setDetailItem(item);
     setIsRevisionMode(revision);
-    setDialogNote(item.revision_note || '');
+    // New feedback starts empty; earlier feedback is shown above as history.
+    setDialogNote('');
     setIsDetailOpen(true);
   };
 
@@ -446,9 +472,10 @@ export const ContentCalendarClientReviews: React.FC = () => {
                       >
                         {showMedia && previewAsset?.kind === 'video' ? (
                           <div className="relative w-full h-full min-h-[200px]">
-                            {isRealThumbnailUrl(previewAsset.thumbnail_url) && !previewFailed ? (
+                            {previewSrc && !previewFailed ? (
                               <img
-                                src={resolveAssetSrc({ ...previewAsset, url: previewAsset.thumbnail_url || previewAsset.url })}
+                                data-testid="video-card-still"
+                                src={previewSrc}
                                 alt={item.content_concept || 'Campaign asset'}
                                 className="w-full h-full object-cover"
                                 onError={() =>
@@ -855,6 +882,15 @@ export const ContentCalendarClientReviews: React.FC = () => {
                         <span className="text-xs text-danger-fg font-medium">Required for revision</span>
                       )}
                     </label>
+                    {detailItem.revision_note && (
+                      <div
+                        data-testid="previous-feedback"
+                        className="rounded-md border border-border bg-subtle px-3 py-2 text-xs text-fg-muted whitespace-pre-wrap"
+                      >
+                        <span className="block font-medium text-fg mb-0.5">Previous feedback</span>
+                        {detailItem.revision_note}
+                      </div>
+                    )}
                     <Textarea
                       id="dialog-revision-feedback"
                       rows={3}
