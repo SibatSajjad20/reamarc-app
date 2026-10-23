@@ -38,6 +38,8 @@ def _docs(uid, role, dept, depts, stages="__missing__"):
 
 class TestAccessEditKeepsSession(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
+        self._old_db = settings.MONGODB_DB_NAME
+        self._old_mc = settings.MULTI_COMPANY_ENABLED
         object.__setattr__(settings, "MONGODB_DB_NAME", TEST_DB)
         object.__setattr__(settings, "MULTI_COMPANY_ENABLED", True)
         assert "test" in TEST_DB
@@ -56,6 +58,8 @@ class TestAccessEditKeepsSession(unittest.IsolatedAsyncioTestCase):
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
 
     async def asyncTearDown(self):
+        object.__setattr__(settings, "MULTI_COMPANY_ENABLED", self._old_mc)
+        object.__setattr__(settings, "MONGODB_DB_NAME", self._old_db)
         await self.client.aclose()
         from app.database import db_instance
         await db_instance.client.drop_database(TEST_DB)
