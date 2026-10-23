@@ -313,7 +313,10 @@ async def add_security_headers(request: Request, call_next):
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
         is_public_asset = "/public/review/" in request.url.path and "/assets/" in request.url.path
-        if not (is_public_asset and "cache-control" in response.headers):
+        # Video stays no-store: a cacheable video makes Chrome download the whole
+        # file on page open even with preload="metadata" (measured: 15.3 MB vs 0.04 MB).
+        is_video = response.headers.get("content-type", "").startswith("video/")
+        if not (is_public_asset and "cache-control" in response.headers and not is_video):
             response.headers["Cache-Control"] = "private, no-store"
     else:
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
