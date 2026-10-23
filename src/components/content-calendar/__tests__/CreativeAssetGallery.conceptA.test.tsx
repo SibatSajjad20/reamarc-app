@@ -96,7 +96,7 @@ describe('CreativeAssetGallery – Concept A preview', () => {
     openMore();
     expect(screen.getByRole('menuitem', { name: /View full screen/ })).toBeTruthy();
     expect(screen.queryByRole('menuitem', { name: /Delete asset/ })).toBeNull();
-    expect(screen.getByText('Image · JPG')).toBeTruthy();
+    expect(screen.getAllByText('Image · JPG').length).toBeGreaterThan(0);
     expect(screen.getByText(/1080×1350/)).toBeTruthy();
   });
 
@@ -125,6 +125,6 @@ describe('CreativeAssetGallery – Concept A preview', () => {
     expect(screen.getByText('1 of 2')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Next asset' }));
     expect(screen.getByText('2 of 2')).toBeTruthy();
-    expect(screen.getByText('Image · JPG')).toBeTruthy();
+    expect(screen.getAllByText('Image · JPG').length).toBeGreaterThan(0);
   });
 });

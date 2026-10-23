@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
   UploadCloud,
   FileText,
@@ -38,7 +38,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl, fallbackToOriginal } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
 
 interface CreativeAssetGalleryProps {
@@ -120,6 +120,146 @@ const FooterAction: React.FC<{ label: string; onClick: () => void; children: Rea
   </Tooltip>
 );
 
+/* ---------- Fast switching between assets ---------- */
+
+/** Preview URLs this tab has already loaded and decoded (instant on revisit). */
+const loadedPreviewSrcs = new Set<string>();
+/** Previews whose /thumbs version failed; go straight to the original next time. */
+const failedPreviewSrcs = new Set<string>();
+/** Keeps preloading Image objects alive until they finish. */
+const pendingPreloads = new Map<string, HTMLImageElement>();
+
+function originalSrc(asset: CreativeAsset): string {
+  return getBackendFileUrl(asset.url) || asset.url;
+}
+
+/** What the drawer preview shows: a cached 800px WebP for images, the original only as a fallback. */
+export function previewSrcFor(asset: CreativeAsset): string {
+  const thumb = getThumbUrl(asset.url, 800);
+  if (thumb && !failedPreviewSrcs.has(thumb)) return thumb;
+  return originalSrc(asset);
+}
+
+function posterSrcFor(asset: CreativeAsset): string {
+  return isRealThumbnailUrl(asset.thumbnail_url)
+    ? getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!
+    : getVideoStillUrl(asset.url, 800);
+}
+
+/** Low-priority background fetch + decode of a still image (never a video file). */
+function preloadStill(src: string): void {
+  if (!src || loadedPreviewSrcs.has(src) || pendingPreloads.has(src) || typeof Image === 'undefined') return;
+  const img = new Image();
+  img.decoding = 'async';
+  try {
+    (img as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+  } catch {
+    /* older browsers */
+  }
+  pendingPreloads.set(src, img);
+  img.onload = () => {
+    loadedPreviewSrcs.add(src);
+    pendingPreloads.delete(src);
+  };
+  img.onerror = () => {
+    pendingPreloads.delete(src);
+  };
+  img.src = src;
+}
+
+/** Test helper: forget what this tab has loaded. */
+export function __resetAssetPreviewCache(): void {
+  loadedPreviewSrcs.clear();
+  failedPreviewSrcs.clear();
+  pendingPreloads.clear();
+}
+
+const ImageStage: React.FC<{ asset: CreativeAsset; onOpen: () => void; onDisplayed: (assetId: string) => void }> = ({
+  asset,
+  onOpen,
+  onDisplayed,
+}) => {
+  const original = originalSrc(asset);
+  const [src] = useState(() => previewSrcFor(asset));
+  const [loaded, setLoaded] = useState(() => loadedPreviewSrcs.has(src));
+  const imgRef = useRef<HTMLImageElement>(null);
+  const aliveRef = useRef(true);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // Browser cache hit: the image may already be complete before React attaches onLoad.
+  useLayoutEffect(() => {
+    const el = imgRef.current;
+    if (!loaded && el && el.complete && el.naturalWidth > 0) {
+      loadedPreviewSrcs.add(src);
+      setLoaded(true);
+    }
+  }, [loaded, src]);
+
+  useEffect(() => {
+    if (loaded) onDisplayed(asset.id);
+  }, [loaded, asset.id, onDisplayed]);
+
+  const handleLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (!aliveRef.current) return; // late load from an asset that is no longer shown
+    const shown = e.currentTarget.getAttribute('src') || src;
+    loadedPreviewSrcs.add(shown);
+    if (shown !== src) loadedPreviewSrcs.add(src);
+    setLoaded(true);
+  };
+
+  const handleError = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    if (src !== original) failedPreviewSrcs.add(src);
+    fallbackToOriginal(original)(e);
+  };
+
+  return (
+    <button
+      type="button"
+      className="absolute inset-0 w-full h-full cursor-zoom-in"
+      onClick={onOpen}
+      aria-label={`View ${asset.filename} full screen`}
+      aria-busy={!loaded}
+    >
+      {loaded && (
+        <img
+          src={src}
+          alt=""
+          aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60 select-none"
+        />
+      )}
+      <img
+        ref={imgRef}
+        src={src}
+        alt={asset.filename}
+        data-testid="asset-preview-image"
+        decoding="async"
+        onLoad={handleLoad}
+        onError={handleError}
+        className={cn('relative w-full h-full object-contain select-none transition-opacity duration-150', loaded ? 'opacity-100' : 'opacity-0')}
+      />
+      {!loaded && (
+        <div
+          data-testid="asset-preview-loading"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-neutral-900 animate-pulse"
+        >
+          <Loader2 className="w-6 h-6 animate-spin text-white/70" aria-hidden="true" />
+          <span className="px-2 py-px rounded-full bg-white/10 text-white/80 text-caption font-semibold">
+            {getKindChipLabel(asset)}
+          </span>
+          <span className="sr-only">Loading preview</span>
+        </div>
+      )}
+    </button>
+  );
+};
+
 /**
  * Video stage: poster frame fills the stage; nothing is fetched from the video
  * file until the user presses play (preload="none" is kept).
@@ -128,9 +268,7 @@ const VideoStage: React.FC<{ asset: CreativeAsset }> = ({ asset }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [started, setStarted] = useState(false);
   const src = getBackendFileUrl(asset.url) || asset.url;
-  const poster = isRealThumbnailUrl(asset.thumbnail_url)
-    ? getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!
-    : getVideoStillUrl(asset.url, 800) || undefined;
+  const poster = posterSrcFor(asset) || undefined;
   const duration = asset.duration_seconds && asset.duration_seconds > 0 ? asset.duration_seconds : null;
 
   const start = () => {
@@ -263,6 +401,26 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const driveAttachRef = useRef<DriveAttachRef>(null);
 
   const activeAsset: CreativeAsset | undefined = assets[selectedIndex] || assets[0];
+
+  // After the shown asset is on screen, quietly fetch its neighbours' previews (never video files).
+  const handleActiveDisplayed = useCallback(
+    (assetId: string) => {
+      const idx = assets.findIndex((a) => a.id === assetId);
+      if (idx === -1 || assets.length < 2) return;
+      const neighbours = [assets[(idx + 1) % assets.length], assets[(idx - 1 + assets.length) % assets.length]];
+      for (const n of neighbours) {
+        if (!n || n.id === assetId) continue;
+        if (n.kind === 'image') preloadStill(previewSrcFor(n));
+        else if (n.kind === 'video') preloadStill(posterSrcFor(n));
+      }
+    },
+    [assets],
+  );
+
+  useEffect(() => {
+    // Videos never download until Play, so their neighbours can be prefetched right away.
+    if (activeAsset && activeAsset.kind !== 'image') handleActiveDisplayed(activeAsset.id);
+  }, [activeAsset, handleActiveDisplayed]);
 
   const imageCount = assets.filter((a) => a.kind === 'image').length;
   const videoCount = assets.filter((a) => a.kind === 'video').length;
@@ -670,26 +828,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             )}
           >
             {activeAsset.kind === 'image' ? (
-              <button
-                type="button"
-                className="absolute inset-0 w-full h-full cursor-zoom-in"
-                onClick={() => setIsLightboxOpen(true)}
-                aria-label={`View ${activeAsset.filename} full screen`}
-              >
-                <img
-                  src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  alt=""
-                  aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover scale-110 blur-2xl opacity-60 select-none"
-                  loading="lazy"
-                />
-                <img
-                  src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  alt={activeAsset.filename}
-                  className="relative w-full h-full object-contain select-none"
-                  loading="lazy"
-                />
-              </button>
+              <ImageStage
+                key={activeAsset.id}
+                asset={activeAsset}
+                onOpen={() => setIsLightboxOpen(true)}
+                onDisplayed={handleActiveDisplayed}
+              />
             ) : activeAsset.kind === 'video' ? (
               <VideoStage key={activeAsset.id} asset={activeAsset} />
             ) : activeAsset.kind === 'link' ? (
