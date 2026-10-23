@@ -154,8 +154,15 @@ async def register_disabled():
     )
 
 
+# Per-IP limits must allow a whole office (one NAT IP) or every user behind the
+# Vercel /api rewrite to sign in together at 9 AM. Brute force is bounded per
+# email (login-email below), not per IP. See live-regression-oct23-followup.md §7.
+LOGIN_IP_LIMIT_PER_MINUTE = 60
+REFRESH_IP_LIMIT_PER_MINUTE = 300
+
+
 @router.post("/login", response_model=TokenResponse)
-@limiter.limit("10/minute")
+@limiter.limit(f"{LOGIN_IP_LIMIT_PER_MINUTE}/minute")
 async def login(request: Request, user_in: UserLogin, response: Response):
     gdb = get_global_db()
     if gdb is None:
@@ -166,7 +173,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
     email_clean = str(user_in.email).lower().strip()
     await enforce_shared_rate_limit(f"login-email:{email_clean}", 10, 3600)
-    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", 5, 60)
+    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", LOGIN_IP_LIMIT_PER_MINUTE, 60)
     user_doc = await gdb.users.find_one({"email": email_clean})
     if not user_doc:
         # Fallback to case-insensitive match if stored in mixed case
@@ -343,7 +350,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
 
 @router.post("/refresh", response_model=TokenResponse)
-@limiter.limit("30/minute")
+@limiter.limit(f"{REFRESH_IP_LIMIT_PER_MINUTE}/minute")
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
     if not token:

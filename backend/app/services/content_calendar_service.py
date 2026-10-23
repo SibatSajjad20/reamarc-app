@@ -697,6 +697,11 @@ async def create_item(
             )
             if is_dup and not is_manual and attempt < max_retries - 1:
                 continue
+            if is_dup and is_manual:
+                # A typed serial that another item already uses: tell the user,
+                # don't 500 (followup §8).
+                from fastapi import HTTPException
+                raise HTTPException(status_code=409, detail=f"Serial {doc.get('serial')} is already used by another item. Pick another serial or leave it blank.")
             raise
 
     doc["id"] = item_id
