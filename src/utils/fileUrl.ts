@@ -527,3 +527,28 @@ export const isRealThumbnailUrl = (url?: string | null): boolean => {
   }
   return true;
 };
+
+const THUMBABLE = /\.(jpe?g|png|webp|gif|bmp|heic|heif|tiff?)$/i;
+
+/**
+ * Small cached WebP preview for grids and cards (server: /api/v1/thumbs/...).
+ * Returns '' for files that have no preview (videos, PDFs, off-origin URLs); callers
+ * then show an icon, never the original video.
+ */
+export const getThumbUrl = (url?: string, width: 200 | 400 | 800 = 400): string => {
+  if (!url) return '';
+  const uploads = extractUploadsPath(url);
+  if (!uploads) return '';
+  const cleanKey = uploads.replace(/^\/?uploads\//, '');
+  if (!THUMBABLE.test(cleanKey.split(/[?#]/)[0])) return '';
+  return `${API_BASE_URL}/thumbs/${cleanKey}?w=${width}`;
+};
+
+/** onError handler: if the preview fails, fall back once to the original image. */
+export const fallbackToOriginal = (original: string) => (e: { currentTarget: HTMLImageElement }) => {
+  const img = e.currentTarget;
+  if (original && img.dataset.fellBack !== '1') {
+    img.dataset.fellBack = '1';
+    img.src = original;
+  }
+};

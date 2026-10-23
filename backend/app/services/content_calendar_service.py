@@ -2555,8 +2555,11 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             att_copy["download_url"] = (
                 f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?download=1"
             )
-            if att_copy.get("thumbnail_url"):
-                att_copy["thumbnail_url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1"
+            if att_copy.get("thumbnail_url") or att_copy.get("kind") == "image":
+                # Small cached WebP for strips and cards; the viewer still uses `url` (original).
+                att_copy["thumbnail_url"] = (
+                    f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1&w=400"
+                )
         public_attachments.append(att_copy)
 
     client_logo_url = None
@@ -3018,6 +3021,8 @@ async def stream_public_asset(
     thumb: bool = False,
     download: bool = False,
     request: Request = None,
+    thumb_w: Optional[int] = None,
+    company_id: str = "",
 ):
     """Streams a deliverable asset for a client viewing a campaign via a valid magic link."""
     clean_tok = str(token or "").strip()
@@ -3072,6 +3077,17 @@ async def stream_public_asset(
 
     if not (is_valid_internal or is_valid_gdrive):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this asset.")
+
+    if thumb_w and not download:
+        # Grid preview: all token/expiry/path checks above have passed.
+        from app.core.thumbs import thumbnail_response
+        return await thumbnail_response(
+            db,
+            company_id=company_id or str(presented.get("company_id") or ""),
+            relative=clean_url,
+            width=thumb_w,
+            if_none_match=request.headers.get("if-none-match") if request is not None else None,
+        )
 
     # Token, expiry, and path checks above must pass before a conditional 304.
     # Download responses stay uncacheable and never short-circuit.

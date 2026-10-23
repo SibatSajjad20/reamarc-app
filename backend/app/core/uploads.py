@@ -630,6 +630,7 @@ async def open_upload_response(
     file_path: str,
     download: bool = False,
     range_header: Optional[str] = None,
+    if_none_match: Optional[str] = None,
 ) -> StreamingResponse | FileResponse:
     """Return an inline view or download response from GridFS first, then disk cache."""
     relative = normalize_upload_key(file_path)
@@ -640,7 +641,9 @@ async def open_upload_response(
         if not file_id:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.")
         filename = Path(relative).name
-        return await open_drive_response(file_id, filename, download=download, range_header=range_header)
+        return await open_drive_response(
+            file_id, filename, download=download, range_header=range_header, if_none_match=if_none_match
+        )
 
     display = _display_name(Path(relative).name)
     ext = Path(display).suffix.lower()

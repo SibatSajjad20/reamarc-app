@@ -19,9 +19,10 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, List, Tuple
 
+import hashlib
 import httpx
 from fastapi import HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
 
@@ -334,7 +335,7 @@ def _file_meta(file_id: str) -> Dict[str, Any]:
         .files()
         .get(
             fileId=file_id,
-            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,parents,driveId,videoMediaMetadata,imageMediaMetadata",
+            fields="id,name,mimeType,size,md5Checksum,modifiedTime,webViewLink,thumbnailLink,hasThumbnail,parents,driveId,videoMediaMetadata,imageMediaMetadata",
             supportsAllDrives=True,
         )
         .execute()
@@ -647,8 +648,46 @@ class _SlotStreamingResponse(StreamingResponse):
             self._on_close()
 
 
-async def open_drive_response(file_id: str, filename: str, download: bool = False, range_header: Optional[str] = None):
+def drive_etag(file_id: str, meta: Dict[str, Any]) -> str:
+    """Stable validator for a Drive file: changes whenever its bytes change."""
+    tag = meta.get("md5Checksum") or f"{meta.get('modifiedTime') or ''}-{meta.get('size') or ''}"
+    return '"d-' + hashlib.sha1(f"{file_id}|{tag}".encode()).hexdigest()[:20] + '"'
+
+
+async def fetch_drive_thumbnail_bytes(file_id: str, size: int = 800) -> Optional[bytes]:
+    """Drive's own preview image, fetched server-side. The link is never given to browsers."""
+    meta = await asyncio.to_thread(_cached_file_meta, file_id)
+    link = format_drive_thumbnail_url(meta.get("thumbnailLink"), size) if meta else None
+    if not link:
+        return None
+    token = await asyncio.to_thread(get_access_token)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+        r = await client.get(link, headers={"Authorization": f"Bearer {token}"})
+    if r.status_code != 200 or not r.content or not r.headers.get("content-type", "").startswith("image/"):
+        return None
+    return r.content
+
+
+async def open_drive_response(
+    file_id: str,
+    filename: str,
+    download: bool = False,
+    range_header: Optional[str] = None,
+    if_none_match: Optional[str] = None,
+):
     from app.core.uploads import VIEWABLE_EXTENSIONS, content_disposition_header, playable_media_type
+
+    # Browser revalidation: answer 304 from cached metadata without taking a stream slot.
+    if if_none_match and not download and not range_header:
+        try:
+            pre_meta = await asyncio.to_thread(_cached_file_meta, file_id)
+        except Exception:
+            pre_meta = None
+        if pre_meta:
+            etag = drive_etag(file_id, pre_meta)
+            tags = [t.strip() for t in if_none_match.split(",")]
+            if etag in tags or f"W/{etag}" in tags or "*" in tags:
+                return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "private, max-age=604800", "Vary": "Cookie"})
 
     try:
         await asyncio.wait_for(_DRIVE_STREAM_SEM.acquire(), timeout=_DRIVE_STREAM_ACQUIRE_TIMEOUT)
@@ -672,6 +711,8 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
         _release_slot()
         logger.warning("Google Drive file lookup failed for %s: %s", file_id, exc)
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.") from exc
+
+    etag = drive_etag(file_id, meta or {})
 
     try:
         token = await asyncio.to_thread(get_access_token)
@@ -712,7 +753,9 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
     out_headers = {
         "Content-Disposition": content_disposition_header(display, inline=inline),
         "Accept-Ranges": "bytes",
-        "Cache-Control": "private, max-age=3600",
+        "Cache-Control": "private, no-store" if download else "private, max-age=604800",
+        "ETag": etag,
+        "Vary": "Cookie",
     }
     if response.headers.get("content-range"):
         out_headers["Content-Range"] = response.headers["content-range"]

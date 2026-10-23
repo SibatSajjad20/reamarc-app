@@ -25,7 +25,7 @@ import {
 } from '../../utils/contentCalendarWorkflow';
 import { useToast } from '../../context/ToastContext';
 import { usePrompt } from '../ui/ConfirmProvider';
-import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { renderPlatformIcon } from './ContentCalendarTableView';
 import { Avatar } from '../ui/Avatar';
 import { ClientAvatar } from '../ui/ClientAvatar';
@@ -491,12 +491,20 @@ function StageCardList({
                     return (
                       <div className="relative mb-2 rounded-sm overflow-hidden bg-subtle h-[120px] w-full flex items-center justify-center border border-border">
                         <img
-                          src={getBackendFileUrl(primaryMedia.thumbnail_url || primaryMedia.url) || primaryMedia.thumbnail_url || primaryMedia.url}
+                          src={getThumbUrl(primaryMedia.thumbnail_url || primaryMedia.url, 400) || getBackendFileUrl(primaryMedia.thumbnail_url || primaryMedia.url) || primaryMedia.thumbnail_url || primaryMedia.url}
                           alt={primaryMedia.filename}
                           className="w-full h-full object-cover select-none"
                           loading="lazy"
+                          decoding="async"
                           onError={(e) => {
-                            (e.target as HTMLElement).style.opacity = '0.5';
+                            const img = e.currentTarget;
+                            const original = getBackendFileUrl(primaryMedia.thumbnail_url || primaryMedia.url);
+                            if (original && img.dataset.fellBack !== '1') {
+                              img.dataset.fellBack = '1';
+                              img.src = original;
+                              return;
+                            }
+                            img.style.opacity = '0.5';
                           }}
                         />
                         {imageCount > 1 && (
@@ -515,19 +523,15 @@ function StageCardList({
                       <div className="relative mb-2 rounded-sm overflow-hidden bg-subtle border border-border h-[120px] w-full flex items-center justify-center group/vid">
                         {hasValidThumb ? (
                           <img
-                            src={getBackendFileUrl(primaryMedia.thumbnail_url!) || primaryMedia.thumbnail_url!}
+                            src={getThumbUrl(primaryMedia.thumbnail_url!, 400) || getBackendFileUrl(primaryMedia.thumbnail_url!) || primaryMedia.thumbnail_url!}
                             alt={primaryMedia.filename}
                             className="w-full h-full object-cover select-none"
                             loading="lazy"
+                            decoding="async"
                           />
                         ) : (
-                          <video
-                            src={`${getBackendFileUrl(primaryMedia.url) || primaryMedia.url}#t=0.001`}
-                            preload="metadata"
-                            muted
-                            playsInline
-                            className="w-full h-full object-cover pointer-events-none"
-                          />
+                          // No still yet: show an icon. A grid <video> pulls megabytes per card.
+                          <Film data-testid="video-placeholder" className="w-8 h-8 text-muted" />
                         )}
                         <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none">
                           <div className="p-2 rounded-full bg-black/60 text-white group-hover/vid:bg-accent transition-colors">

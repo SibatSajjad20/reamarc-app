@@ -64,7 +64,18 @@ export function shouldCacheBlob(asset: ReviewCacheAsset, prefetch: boolean): boo
 export function isPrefetchCandidate(asset: ReviewCacheAsset, activeKey: string): boolean {
   const key = reviewAssetCacheKey(asset);
   if (!key || key === activeKey) return false;
+  // Videos stream on play; prefetching them costs megabytes the client may never watch.
+  if (mediaKind(asset) === 'video') return false;
   return shouldCacheBlob(asset, true);
+}
+
+/** How many upcoming images are prefetched (next ones after the active asset). */
+export const REVIEW_PREFETCH_AHEAD = 2;
+
+export function prefetchQueue(assets: ReviewCacheAsset[], activeKey: string): ReviewCacheAsset[] {
+  const idx = assets.findIndex((asset) => reviewAssetCacheKey(asset) === activeKey);
+  const ordered = idx >= 0 ? [...assets.slice(idx + 1), ...assets.slice(0, idx)] : assets;
+  return ordered.filter((asset) => isPrefetchCandidate(asset, activeKey)).slice(0, REVIEW_PREFETCH_AHEAD);
 }
 
 function saveDataEnabled(): boolean {
@@ -240,7 +251,7 @@ export function useReviewAssetCache(scopeKey: string) {
     if (prefetchSigRef.current === sig) return;
     prefetchSigRef.current = sig;
     const gen = ++prefetchGenRef.current;
-    const queue = assets.filter((asset) => isPrefetchCandidate(asset, activeKey));
+    const queue = prefetchQueue(assets, activeKey);
     const run = chainRef.current.then(async () => {
       for (const asset of queue) {
         if (gen !== prefetchGenRef.current) return;

@@ -306,16 +306,28 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
 
-    is_upload = request.url.path.startswith("/uploads/") or request.url.path.startswith(f"{settings.API_V1_STR}/uploads/")
+    is_upload = request.url.path.startswith(
+        ("/uploads/", f"{settings.API_V1_STR}/uploads/", "/thumbs/", f"{settings.API_V1_STR}/thumbs/")
+    )
     if not is_upload:
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-        response.headers["Cache-Control"] = "private, no-store"
+        is_public_asset = "/public/review/" in request.url.path and "/assets/" in request.url.path
+        if not (is_public_asset and "cache-control" in response.headers):
+            response.headers["Cache-Control"] = "private, no-store"
     else:
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Content-Security-Policy"] = "default-src 'self' blob: data:; media-src 'self' blob: data:; img-src 'self' blob: data:;"
-        response.headers["Cache-Control"] = "private, max-age=3600"
+        # Keep the route's own caching (thumbs: 30 days, Drive originals: 7 days, downloads: no-store).
+        if "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = "private, max-age=3600"
 
+    if is_upload or "/public/review/" in request.url.path:
+        kind = "thumb" if "/thumbs/" in request.url.path or "w=" in str(request.url.query) else "original"
+        logging.getLogger("app.media").info(
+            "media_egress kind=%s status=%s bytes=%s",
+            kind, response.status_code, response.headers.get("content-length", "stream"),
+        )
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
     if settings.IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -344,7 +356,33 @@ async def serve_upload(
     db = get_database()
     await authorize_stored_upload(db, current_user, file_path)
     range_header = request.headers.get("range")
-    return await open_upload_response(db, file_path, download=download, range_header=range_header)
+    return await open_upload_response(
+        db, file_path, download=download, range_header=range_header,
+        if_none_match=request.headers.get("if-none-match"),
+    )
+
+
+@app.get("/thumbs/{file_path:path}")
+@app.get(f"{settings.API_V1_STR}/thumbs/{{file_path:path}}")
+async def serve_upload_thumbnail(
+    file_path: str,
+    request: Request,
+    w: int = Query(400, description="Preview width: 200, 400 or 800"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Small WebP preview of an uploaded image. Same access check as the original file."""
+    from app.core.thumbs import thumbnail_response
+    from app.core.uploads import normalize_upload_key, _caller_company_id
+
+    db = get_database()
+    await authorize_stored_upload(db, current_user, file_path)
+    return await thumbnail_response(
+        db,
+        company_id=_caller_company_id(current_user) or "",
+        relative=normalize_upload_key(file_path),
+        width=w,
+        if_none_match=request.headers.get("if-none-match"),
+    )
 
 
 # Include Active V1.0 Routers

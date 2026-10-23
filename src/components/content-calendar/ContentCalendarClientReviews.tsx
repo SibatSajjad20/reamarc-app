@@ -20,7 +20,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -63,7 +63,8 @@ function resolveAssetSrc(asset: CreativeAsset | null | undefined): string {
     (value): value is string => Boolean(value && value.trim()),
   );
   for (const candidate of candidates) {
-    const backend = getBackendFileUrl(candidate);
+    // Cards show an 800px WebP preview, not the original upload.
+    const backend = getThumbUrl(candidate, 800) || getBackendFileUrl(candidate);
     if (backend) return backend;
   }
   return candidates[0] || '';
@@ -451,16 +452,8 @@ export const ContentCalendarClientReviews: React.FC = () => {
                                 }
                               />
                             ) : (
-                              <video
-                                src={`${previewSrc}#t=0.001`}
-                                className="w-full h-full object-cover"
-                                preload="metadata"
-                                muted
-                                playsInline
-                                onError={() =>
-                                  setFailedPreviewIds((prev) => ({ ...prev, [previewAsset.id]: true }))
-                                }
-                              />
+                              // No still: icon only. A card <video> downloads the file's header and more.
+                              <div data-testid="video-placeholder" className="w-full h-full min-h-[200px] bg-black flex items-center justify-center" />
                             )}
                             <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/35 transition-colors">
                               <div className="w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center">

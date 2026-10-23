@@ -36,7 +36,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
 
 interface CreativeAssetGalleryProps {
@@ -636,7 +636,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   poster={isRealThumbnailUrl(activeAsset.thumbnail_url) ? (getBackendFileUrl(activeAsset.thumbnail_url!) || activeAsset.thumbnail_url!) : undefined}
                   controls
                   playsInline
-                  preload="metadata"
+                  preload="none"
                   data-active-video="true"
                   className={`${compact ? 'max-h-[280px]' : 'max-h-[420px]'} max-w-full rounded-lg shadow-md`}
                 >
@@ -794,7 +794,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <div className="w-24 h-24 bg-subtle flex items-center justify-center overflow-hidden">
                     {asset.kind === 'image' ? (
                       <img
-                        src={getBackendFileUrl(asset.thumbnail_url || asset.url) || asset.thumbnail_url || asset.url}
+                        src={getThumbUrl(asset.thumbnail_url || asset.url, 200) || getBackendFileUrl(asset.thumbnail_url || asset.url) || asset.thumbnail_url || asset.url}
                         alt={asset.filename}
                         className="w-full h-full object-cover"
                         loading="lazy"
@@ -806,7 +806,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                       <div className="relative w-full h-full bg-canvas flex items-center justify-center">
                         {isRealThumbnailUrl(asset.thumbnail_url) ? (
                           <img
-                            src={getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!}
+                            src={getThumbUrl(asset.thumbnail_url!, 200) || getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!}
                             alt={asset.filename}
                             className="w-full h-full object-cover"
                             loading="lazy"
