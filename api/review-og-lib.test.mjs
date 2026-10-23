@@ -144,3 +144,25 @@ test("does not inject source HTML if the built shell is missing", () => {
   assert.equal(html.includes("/src/main.tsx"), false);
   assert.match(html, /og:title/);
 });
+
+test("video-only post uses the token-scoped JPEG still as og:image", () => {
+  const origin = "https://reamarc-app.vercel.app";
+  const still = "/api/v1/content-calendar/public/review/tok/assets/vid?og=1";
+  const image = pickShareImage(
+    {
+      attachments: [
+        {
+          id: "vid",
+          kind: "video",
+          content_type: "video/mp4",
+          url: "/api/v1/content-calendar/public/review/tok/assets/vid",
+          thumbnail_url: "/api/v1/content-calendar/public/review/tok/assets/vid?thumb=1&w=400",
+          og_image_url: still,
+        },
+      ],
+    },
+    origin,
+    "tok",
+  );
+  assert.equal(image, `${origin}${still}`);
+});

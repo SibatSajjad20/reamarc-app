@@ -537,6 +537,7 @@ async def get_public_campaign_asset(
     thumb: bool = Query(False, description="Stream thumbnail if available"),
     download: bool = Query(False, description="Force original-file download (attachment)"),
     w: Optional[int] = Query(None, description="Small WebP preview width (200/400/800); grids use this"),
+    og: bool = Query(False, description="JPEG still for link previews (videos)"),
 ):
     """Streams media assets for unauthenticated clients viewing through a verified magic link."""
     from app.core.tenant import get_global_db, tenant_scope
@@ -560,6 +561,7 @@ async def get_public_campaign_asset(
             request=request,
             thumb_w=w,
             company_id=cid,
+            og=og,
         )
 
 

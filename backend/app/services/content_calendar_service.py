@@ -2569,6 +2569,15 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
                 att_copy["thumbnail_url"] = (
                     f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1&w=400"
                 )
+            if (
+                str(att_copy.get("kind") or "").lower() == "video"
+                or str(att_copy.get("content_type") or "").lower().startswith("video/")
+            ) and (att.get("google_drive_file_id") or att.get("thumbnail_url")):
+                # Still frame for link previews (WhatsApp cannot preview a video file).
+                og_url = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?og=1"
+                att_copy["og_image_url"] = og_url
+                if not att_copy.get("thumbnail_url"):
+                    att_copy["thumbnail_url"] = og_url
         public_attachments.append(att_copy)
 
     client_logo_url = None
@@ -3032,6 +3041,7 @@ async def stream_public_asset(
     request: Request = None,
     thumb_w: Optional[int] = None,
     company_id: str = "",
+    og: bool = False,
 ):
     """Streams a deliverable asset for a client viewing a campaign via a valid magic link."""
     clean_tok = str(token or "").strip()
@@ -3062,6 +3072,9 @@ async def stream_public_asset(
 
     if download and str(target.get("kind") or "").lower() == "link":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+
+    if og and not download:
+        return await _public_video_still_response(db, presented, target, clean_aid)
 
     # download=1 always serves the original file (ignore thumb).
     use_thumb = bool(thumb and not download and target.get("thumbnail_url"))
@@ -3135,3 +3148,81 @@ async def stream_public_asset(
         response.headers["ETag"] = etag
     return response
 
+
+
+OG_STILL_WIDTH = 1200
+OG_STILL_MAX_BYTES = 300 * 1024
+OG_FALLBACK_PATH = "/og-review.png"
+
+
+def _og_fallback_response():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(OG_FALLBACK_PATH, status_code=302, headers={"Cache-Control": "public, max-age=300"})
+
+
+def _to_og_jpeg(raw: bytes) -> Optional[bytes]:
+    """Decode any still image and re-encode as a small JPEG (<300 KB, <=1200px wide)."""
+    try:
+        from PIL import Image
+        img = Image.open(io.BytesIO(raw))
+        img.load()
+        img = img.convert("RGB")
+        if img.width > OG_STILL_WIDTH:
+            img = img.resize((OG_STILL_WIDTH, max(1, round(img.height * OG_STILL_WIDTH / img.width))))
+        for quality in (82, 70, 58, 45):
+            buf = io.BytesIO()
+            img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+            if buf.tell() <= OG_STILL_MAX_BYTES:
+                return buf.getvalue()
+        return None
+    except Exception:
+        return None
+
+
+async def _public_video_still_response(db, presented, target, asset_id: str):
+    """Link-preview still for a video asset. Caller already checked token + expiry + asset membership.
+
+    Only this item's own asset (by its own stored Drive id / own stored still) is ever read,
+    so a token can never reach another item's or company's files.
+    """
+    raw: Optional[bytes] = None
+    doc_id = str(presented.get("id") or "")
+    doc_serial = str(presented.get("serial") or "")
+    stored_thumb = str(target.get("thumbnail_url") or "").strip()
+    if stored_thumb:
+        clean = stored_thumb.lstrip("/").replace("api/uploads/", "").replace("uploads/", "")
+        own_internal = clean.startswith("content_calendar/") and (
+            f"content_calendar/{doc_id}/" in clean or (doc_serial and f"content_calendar/{doc_serial}/" in clean)
+        )
+        thumb_drive_id = str(target.get("google_drive_thumb_file_id") or "")
+        own_drive = clean.startswith("gdrive/") and thumb_drive_id and thumb_drive_id in clean
+        try:
+            if own_internal:
+                from app.core.thumbs import _read_source
+                raw = await _read_source(db, clean)
+            elif own_drive:
+                from app.services import google_drive_service as gdrive
+                raw = await gdrive.fetch_drive_thumbnail_bytes(thumb_drive_id, OG_STILL_WIDTH)
+        except Exception as exc:
+            logger.info("og still: stored thumb unreadable for %s: %s", asset_id, type(exc).__name__)
+            raw = None
+    drive_id = str(target.get("google_drive_file_id") or "").strip()
+    if not raw and drive_id:
+        try:
+            from app.services import google_drive_service as gdrive
+            raw = await gdrive.fetch_drive_thumbnail_bytes(drive_id, OG_STILL_WIDTH)
+        except Exception as exc:
+            logger.info("og still: drive thumbnail failed for %s: %s", asset_id, type(exc).__name__)
+            raw = None
+    jpeg = await asyncio.to_thread(_to_og_jpeg, raw) if raw else None
+    if not jpeg:
+        return _og_fallback_response()
+    return Response(
+        content=jpeg,
+        media_type="image/jpeg",
+        headers={
+            "Cache-Control": "public, max-age=86400",
+            "Content-Disposition": "inline",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

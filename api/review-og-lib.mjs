@@ -97,7 +97,9 @@ export function pickShareImage(item, origin, token) {
 
     // WhatsApp only renders a still image. Never point og:image at the video file.
     if (video) {
-      const abs = absoluteUrl(origin, thumb);
+      // Prefer the 1200px JPEG still (og_image_url); WhatsApp handles it better than the small WebP.
+      const still = String(asset.og_image_url || "").trim() || thumb;
+      const abs = absoluteUrl(origin, still);
       if (abs) return abs;
       continue;
     }
