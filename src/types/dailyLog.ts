@@ -143,6 +143,7 @@ export interface DayTarget {
   break_start_time?: string | null;
   break_end_time?: string | null;
   is_night_shift?: boolean;
+  count_from_actual_check_in?: boolean;
   is_full_leave: boolean;
   is_wfh: boolean;
   status: 'green' | 'amber' | 'red' | string;

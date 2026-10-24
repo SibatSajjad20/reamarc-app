@@ -209,6 +209,8 @@ class TodayAttendanceResponse(BaseModel):
     off_day_kind: Optional[str] = None
     off_day_label: Optional[str] = None
     shift_change: Optional[Dict[str, Any]] = None
+    count_from_actual_check_in: bool = False
+    relaxed_leave_from: Optional[str] = None
 
 
 class DailyMatrixSummary(BaseModel):

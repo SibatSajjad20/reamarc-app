@@ -412,6 +412,8 @@ export interface TodayAttendanceResponse {
     location?: string;
     same_day?: boolean;
   };
+  count_from_actual_check_in?: boolean;
+  relaxed_leave_from?: string | null;
 }
 
 export interface CheckoutGate {

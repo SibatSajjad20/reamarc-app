@@ -125,6 +125,7 @@ def compute_time_at_work_hours(
     break_start_time: Optional[str] = None,
     break_end_time: Optional[str] = None,
     is_night_shift: bool = False,
+    count_from_actual_check_in: bool = False,
 ) -> float:
     """
     Hours already spent at work for the tracker banner / daily-log pill.
@@ -187,6 +188,7 @@ def compute_time_at_work_hours(
             break_start_time=break_start_time,
             break_end_time=break_end_time,
             is_night_shift=bool(is_night_shift),
+            count_from_actual_check_in=bool(count_from_actual_check_in),
         )
         return round(float(result.work_hours or 0), 2)
 

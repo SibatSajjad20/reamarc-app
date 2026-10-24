@@ -344,8 +344,10 @@ export function usePunchFlow(
       punchIn: punchInStr,
       currentTime: formatNowHhMm(new Date(nowTick)),
       isShortLeave,
+      countFromActualCheckIn: Boolean(todayData?.count_from_actual_check_in),
+      skipUndertimeAfter: todayData?.relaxed_leave_from,
     });
-  }, [shift, todayData?.checkout_gate, record?.status, (record as any)?.is_short_leave, punchIn, nowTick]);
+  }, [shift, todayData?.checkout_gate, todayData?.count_from_actual_check_in, todayData?.relaxed_leave_from, record?.status, (record as any)?.is_short_leave, punchIn, nowTick]);
 
   const checkoutGate = todayData?.checkout_gate;
   const gateType = overrideGateType || computeLiveGateType();
@@ -480,12 +482,13 @@ export function usePunchFlow(
       breakStart: shift?.break_start_time,
       breakEnd: shift?.break_end_time,
       isNightShift: Boolean(shift?.is_night_shift),
+      countFromActualCheckIn: Boolean(todayData?.count_from_actual_check_in),
     });
 
     const hrs = Math.floor(netMinutes / 60);
     const mins = netMinutes % 60;
     return `${hrs}h ${mins}m`;
-  }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes, record?.work_duration_formatted, shift, nowTick]);
+  }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes, record?.work_duration_formatted, shift, nowTick, todayData?.count_from_actual_check_in]);
 
   const renderVarianceModal = () => {
     return (

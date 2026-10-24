@@ -453,6 +453,10 @@ function PunchScreen() {
       breakStart,
       breakEnd,
       isNightShift: isNight,
+      countFromActualCheckIn: Boolean(
+        (today as { count_from_actual_check_in?: boolean })?.count_from_actual_check_in
+        || dayTarget?.count_from_actual_check_in
+      ),
     };
   }, [dayTarget, today]);
 
@@ -591,6 +595,8 @@ function PunchScreen() {
           overtimeBufferMinutes: today?.shift?.overtime_buffer_minutes ?? 5,
           undertimeBufferMinutes: today?.shift?.undertime_buffer_minutes ?? 5,
           isShortLeave: Boolean(today?.record?.is_short_leave),
+          countFromActualCheckIn: Boolean((today as { count_from_actual_check_in?: boolean })?.count_from_actual_check_in),
+          skipUndertimeAfter: (today as { relaxed_leave_from?: string | null })?.relaxed_leave_from,
         });
 
         if (liveGate === 'overtime' || liveGate === 'undertime') {

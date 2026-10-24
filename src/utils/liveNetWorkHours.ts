@@ -80,6 +80,8 @@ export interface ProvisionalNetWorkHoursInput {
   breakStart?: string | null;
   breakEnd?: string | null;
   isNightShift?: boolean;
+  /** Relaxed / cricket day: count time before shift start. */
+  countFromActualCheckIn?: boolean;
 }
 
 /** Net work minutes between check-in and check-out with break overlap deducted (paused during break window). */
@@ -104,7 +106,9 @@ export function provisionalNetWorkMinutes(input: ProvisionalNetWorkHoursInput): 
     checkOutAdjusted = checkOutMins + 1440;
   }
 
-  const effectiveCheckIn = Math.max(checkInAdjusted, shiftStartMins);
+  const effectiveCheckIn = input.countFromActualCheckIn
+    ? checkInAdjusted
+    : Math.max(checkInAdjusted, shiftStartMins);
   const gross = Math.max(0, checkOutAdjusted - effectiveCheckIn);
   if (gross <= 0) return 0;
 
@@ -161,6 +165,8 @@ export interface ComputeCheckoutGateInput {
   punchIn?: string | null;
   currentTime?: string | null;
   isShortLeave?: boolean;
+  countFromActualCheckIn?: boolean;
+  skipUndertimeAfter?: string | null;
 }
 
 export type CheckoutGateType = 'none' | 'overtime' | 'undertime';
@@ -219,6 +225,7 @@ export function computeCheckoutGateType(input: ComputeCheckoutGateInput): Checko
       breakStart: input.breakStart,
       breakEnd: input.breakEnd,
       isNightShift: isNight,
+      countFromActualCheckIn: input.countFromActualCheckIn,
     });
     const workVariance = netMinutes - expectedWorkMinutes;
     if (delta > 0) {
@@ -233,7 +240,16 @@ export function computeCheckoutGateType(input: ComputeCheckoutGateInput): Checko
   if (delta > otBuf && claimedOvertimeMinutes > otBuf) {
     return 'overtime';
   }
-  if (!input.isShortLeave && delta < -utBuf && claimedUndertimeMinutes > utBuf) {
+  const leaveFromMins = parseHhMmToMinutes(input.skipUndertimeAfter);
+  if (leaveFromMins !== null && outAdjusted >= leaveFromMins) {
+    claimedUndertimeMinutes = 0;
+  }
+  if (
+    !input.isShortLeave
+    && !(leaveFromMins !== null && outAdjusted >= leaveFromMins)
+    && delta < -utBuf
+    && claimedUndertimeMinutes > utBuf
+  ) {
     return 'undertime';
   }
   return 'none';

@@ -2825,6 +2825,12 @@ async def get_today_status(
             "same_day": bool(sc_doc.get("same_day")),
         }
 
+    await bind_relaxed_days(target_date, target_date)
+    relaxed_extra = extra_for_record(
+        {**(record_doc or {}), "user_id": user_id, "date": target_date, "is_wfh": is_wfh},
+        shift,
+    )
+
     return TodayAttendanceResponse(
         record=record_res,
         shift=shift,
@@ -2846,6 +2852,8 @@ async def get_today_status(
         off_day_kind=day_info.kind if day_info.is_off else None,
         off_day_label=day_info.label if day_info.is_off else None,
         shift_change=shift_change_payload,
+        count_from_actual_check_in=bool(relaxed_extra.get("count_from_actual_check_in")),
+        relaxed_leave_from=relaxed_extra.get("waive_undertime_after"),
     )
 
 

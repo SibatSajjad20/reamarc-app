@@ -87,6 +87,7 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
         breakStart: dayTarget.break_start_time,
         breakEnd: dayTarget.break_end_time,
         isNightShift: Boolean(dayTarget.is_night_shift),
+        countFromActualCheckIn: Boolean(dayTarget.count_from_actual_check_in),
       });
     }
     const fromApi = Number(dayTarget.time_at_work_hours);

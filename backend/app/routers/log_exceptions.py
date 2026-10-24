@@ -757,6 +757,9 @@ async def get_operating_snapshot(
         logs_submitted = sum(1 for u in expected_people if days_logged_by_user.get(u.get("id")))
 
     today_iso = pkt_today()
+    from app.services.attendance_service import bind_relaxed_days
+    from app.services.relaxed_day import extra_for_record
+    await bind_relaxed_days(min(window), max(window))
     worked_by_user: dict = {uid: 0.0 for uid in logger_ids}
     checkin_by_user: dict = {uid: False for uid in logger_ids}
     checkout_by_user: dict = {uid: False for uid in logger_ids}
@@ -782,6 +785,7 @@ async def get_operating_snapshot(
         if day == today_iso and cin and not cout:
             active_shift_by_user[uid] = True
             tgt = targets.get((uid, day)) or {}
+            is_wfh_live = bool(tgt.get("is_wfh") or rec.get("is_wfh"))
             live_h = compute_time_at_work_hours(
                 date_str=day,
                 check_in=cin,
@@ -789,7 +793,7 @@ async def get_operating_snapshot(
                 work_hours=hrs,
                 has_checkin=True,
                 has_checkout=False,
-                is_wfh=bool(tgt.get("is_wfh") or rec.get("is_wfh")),
+                is_wfh=is_wfh_live,
                 expected_hours=float(tgt.get("expected_hours") or 0),
                 shift_start=tgt.get("shift_start"),
                 shift_end=tgt.get("shift_end"),
@@ -797,6 +801,11 @@ async def get_operating_snapshot(
                 break_start_time=tgt.get("break_start_time"),
                 break_end_time=tgt.get("break_end_time"),
                 is_night_shift=bool(tgt.get("is_night_shift")),
+                count_from_actual_check_in=bool(
+                    extra_for_record({"user_id": uid, "date": day, "is_wfh": is_wfh_live}).get(
+                        "count_from_actual_check_in"
+                    )
+                ),
             )
             hrs = max(hrs, live_h)
 
@@ -1038,6 +1047,10 @@ async def get_employee_compliance_detail(
     parsed_days = [parse_iso_date(d) for d in date_list if parse_iso_date(d)]
     off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
 
+    from app.services.attendance_service import bind_relaxed_days
+    from app.services.relaxed_day import extra_for_record
+    if date_list:
+        await bind_relaxed_days(date_list[0], date_list[-1])
     targets = await batch_expected_targets([member], date_list)
     att_records = await db.attendance_records.find(
         {"user_id": user_id, "date": {"$in": date_list}},
@@ -1112,6 +1125,7 @@ async def get_employee_compliance_detail(
         is_live_shift = False
         if d_str == today_pkt and has_checkin and not has_checkout:
             is_live_shift = True
+            is_wfh_live = bool(target.get("is_wfh") or att.get("is_wfh"))
             live_h = compute_time_at_work_hours(
                 date_str=d_str,
                 check_in=cin,
@@ -1119,7 +1133,7 @@ async def get_employee_compliance_detail(
                 work_hours=w_hrs,
                 has_checkin=True,
                 has_checkout=False,
-                is_wfh=bool(target.get("is_wfh") or att.get("is_wfh")),
+                is_wfh=is_wfh_live,
                 expected_hours=float(target.get("expected_hours") or 0),
                 shift_start=target.get("shift_start"),
                 shift_end=target.get("shift_end"),
@@ -1127,6 +1141,11 @@ async def get_employee_compliance_detail(
                 break_start_time=target.get("break_start_time"),
                 break_end_time=target.get("break_end_time"),
                 is_night_shift=bool(target.get("is_night_shift")),
+                count_from_actual_check_in=bool(
+                    extra_for_record({"user_id": user_id, "date": d_str, "is_wfh": is_wfh_live}).get(
+                        "count_from_actual_check_in"
+                    )
+                ),
             )
             w_hrs = max(w_hrs, live_h)
 

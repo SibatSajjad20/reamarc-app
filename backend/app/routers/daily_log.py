@@ -578,6 +578,11 @@ async def get_day_target(
     remaining = round(max(0.0, worked - logged), 2) if compare_ready else 0.0
     check_in = punch.get("check_in")
     check_out = punch.get("check_out")
+    from app.services.attendance_service import bind_relaxed_days
+    from app.services.relaxed_day import extra_for_record
+    await bind_relaxed_days(date_str, date_str)
+    relaxed_extra = extra_for_record({"user_id": uid, "date": date_str, "is_wfh": is_wfh})
+    count_early = bool(relaxed_extra.get("count_from_actual_check_in"))
     time_at_work = compute_time_at_work_hours(
         date_str=date_str,
         check_in=check_in,
@@ -593,6 +598,7 @@ async def get_day_target(
         break_start_time=target.get("break_start_time"),
         break_end_time=target.get("break_end_time"),
         is_night_shift=bool(target.get("is_night_shift")),
+        count_from_actual_check_in=count_early,
     )
     pending_action = None
     pending_message = None
@@ -678,6 +684,7 @@ async def get_day_target(
         "break_start_time": target.get("break_start_time"),
         "break_end_time": target.get("break_end_time"),
         "is_night_shift": bool(target.get("is_night_shift")),
+        "count_from_actual_check_in": count_early,
         "is_full_leave": on_leave,
         "is_wfh": is_wfh,
         "status": status,
