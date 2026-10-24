@@ -482,15 +482,20 @@ async def list_members_activity(
         logged_today = today_str in logged_dates
 
         missing = []
+        days_due = 0
+        days_on_leave = 0
         for d in workdays:
             if d in logged_dates:
+                days_due += 1
                 continue
             att = att_by_key.get((uid, d)) or {}
             target = targets.get((uid, d)) or {}
             if person_day_is_leave(target, att):
+                days_on_leave += 1
                 continue
             if not person_day_is_due(d, today_str, target, att):
                 continue
+            days_due += 1
             missing.append(d)
 
         last_logged = last_logged_by_user.get(uid)
@@ -514,6 +519,9 @@ async def list_members_activity(
             "logged_today": logged_today,
             "days_missed": len(missing),
             "missing_dates": missing,
+            # Days a log was actually owed (logged or missing). 0 means there is nothing to score.
+            "days_due": days_due,
+            "days_on_leave": days_on_leave,
         })
 
     return result
@@ -525,6 +533,7 @@ async def list_members_activity(
 async def remind_member_log(
     user_id: Optional[str] = None,
     reminder_in: Optional[ReminderRequest] = Body(default=None),
+    current_user: dict = Depends(require_hr_or_admin),
 ):
     """Send an automated or custom email reminder to a member who missed their daily log."""
     db = get_database()
@@ -608,6 +617,7 @@ async def remind_member_log(
 
     formatted_missing = ", ".join(missing_dates) if missing_dates else today_str
 
+    email_sent = False
     if req.channel in ("email", "all"):
         try:
             await EmailService.send_log_reminder(
@@ -616,22 +626,32 @@ async def remind_member_log(
                 missing_dates=missing_dates,
                 custom_message=req.custom_message,
             )
+            email_sent = True
         except Exception as e:
             logger.error(f"[Admin] Email sending failed for {member['email']}: {e}")
 
     now_iso = now.isoformat()
     reminder_body = req.custom_message or f"Reminder to submit daily log for {formatted_missing}"
-    from app.services.push_service import dispatch_to_users
-    await dispatch_to_users(
-        user_ids=[user_id],
-        title="Daily Log Submission Reminder",
-        body=reminder_body,
-        kind="admin_reminder",
-        sender_id=str(current_user.get("id") or ""),
-        sender_name=current_user.get("full_name") or current_user.get("name") or "Administrator",
-        sender_role=current_user.get("role"),
-        data={"missing_dates": missing_dates},
-    )
+    # In-app / push is best effort: once the email is out, a push hiccup must not turn into a 500.
+    in_app_sent = False
+    try:
+        from app.services.push_service import dispatch_to_users
+        await dispatch_to_users(
+            user_ids=[user_id],
+            title="Daily Log Submission Reminder",
+            body=reminder_body,
+            kind="admin_reminder",
+            sender_id=str(current_user.get("id") or ""),
+            sender_name=current_user.get("full_name") or current_user.get("name") or "Administrator",
+            sender_role=current_user.get("role"),
+            data={"missing_dates": missing_dates},
+        )
+        in_app_sent = True
+    except Exception as e:
+        logger.exception("[Admin] In-app reminder failed for %s: %s", user_id, type(e).__name__)
+
+    if req.channel == "email" and not email_sent and not in_app_sent:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Couldn't send the reminder email. Try again.")
 
     return {
         "success": True,
@@ -642,6 +662,8 @@ async def remind_member_log(
         "recipient_name": fname,
         "missing_dates": missing_dates,
         "timestamp": now_iso,
+        "email_sent": email_sent,
+        "in_app_sent": in_app_sent,
     }
 
 

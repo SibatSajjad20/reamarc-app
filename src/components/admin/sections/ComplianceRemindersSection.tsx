@@ -1,3 +1,4 @@
+import { complianceScore } from '../../../utils/logComplianceScore';
 import { useAuth } from '../../../context/AuthContext';
 import { brandNameOf } from '../../../utils/branding';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -593,27 +594,16 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                       ? act.days_missed
                       : (act.missing_dates?.length ?? (status === 'missing' ? 1 : 0));
 
-                  let compliancePct = 100;
-                  if (range === 'today') {
-                    if (status === 'missing') compliancePct = 0;
-                    else if (status === 'submitted') compliancePct = 100;
-                    else if (hours?.worked && hours.worked > 0 && hours.loggedHours !== undefined) {
-                      compliancePct = Math.min(100, Math.round((hours.loggedHours / hours.worked) * 100));
-                    } else {
-                      compliancePct = 100;
-                    }
-                  } else {
-                    if (hours?.worked && hours.worked > 0 && hours.loggedHours !== undefined) {
-                      compliancePct = Math.min(100, Math.round((hours.loggedHours / hours.worked) * 100));
-                    } else if (act.days_missed !== undefined) {
-                      const totalDays = range === 'week' ? 6 : 7;
-                      compliancePct = Math.max(0, Math.round(((totalDays - act.days_missed) / totalDays) * 100));
-                    } else if (status === 'missing') {
-                      compliancePct = 0;
-                    } else {
-                      compliancePct = 100;
-                    }
-                  }
+                  const score = complianceScore({
+                    range,
+                    status,
+                    worked: hours?.worked,
+                    loggedHours: hours?.loggedHours,
+                    daysMissed: act.days_missed,
+                    daysDue: act.days_due,
+                    daysOnLeave: act.days_on_leave,
+                  });
+                  const compliancePct = score.pct;
 
                   const initials = act.full_name
                     ? act.full_name
@@ -679,6 +669,14 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
 
                       {/* Compliance % as Progress (48px) + value */}
                       <TD>
+                        {compliancePct === null ? (
+                          <span
+                            className="text-small text-fg-muted"
+                            title="Nothing to score: no days needed a log in this period"
+                          >
+                            — <span className="text-caption">{score.reason}</span>
+                          </span>
+                        ) : (
                         <div className="flex items-center gap-2">
                           <div className="w-12">
                             <Progress
@@ -696,6 +694,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                             {compliancePct}%
                           </span>
                         </div>
+                        )}
                       </TD>
 
                       {/* Actions */}

@@ -206,8 +206,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const handleSendReminder = async (userId: string) => {
     setIsSendingReminder((prev) => ({ ...prev, [userId]: true }));
     try {
-      await adminService.sendMemberReminder(userId);
-      addToast('Reminder Sent', 'Daily log compliance alert dispatched.', 'success');
+      const res = await adminService.sendMemberReminder(userId);
+      if (res?.email_sent === false) {
+        addToast('Reminder sent in the app', "The email didn't go out, but the in-app reminder did.", 'warning');
+      } else {
+        addToast('Reminder sent', 'Daily log reminder email sent.', 'success');
+      }
     } catch (err: any) {
       addToast('Reminder Failed', err.message || 'Could not send reminder.', 'error');
     } finally {

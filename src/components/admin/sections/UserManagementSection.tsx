@@ -48,6 +48,7 @@ import {
 } from '../../../utils/badgeStyles';
 import { formatPhoneDisplay } from '../../../utils/phone';
 import { brandNameOf } from '../../../utils/branding';
+import { ClientAvatar } from '../../ui/ClientAvatar';
 import { CANONICAL_DEPARTMENTS, uniqueCanonicalDepts } from '../../../utils/departments';
 
 export const SYSTEM_DEPARTMENTS = [...CANONICAL_DEPARTMENTS];
@@ -519,18 +520,16 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                         ) : (
                           <div className="flex -space-x-1.5 items-center">
                             {clientWs.map((ws) => (
-                              <span
+                              <ClientAvatar
                                 key={ws.id}
-                                className="w-6 h-6 rounded-md text-[10px] font-semibold flex items-center justify-center border border-surface text-white shadow-xs"
-                                style={{
-                                  backgroundColor: ws.brandColor?.startsWith('#')
-                                    ? ws.brandColor
-                                    : '#6847E0',
-                                }}
-                                title={ws.name}
-                              >
-                                {ws.initials || ws.name.slice(0, 2).toUpperCase()}
-                              </span>
+                                name={ws.name}
+                                clientId={ws.id}
+                                logoUrl={ws.logo_url}
+                                brandColor={ws.brandColor}
+                                initials={ws.initials}
+                                size={24}
+                                className="ring-2 ring-surface"
+                              />
                             ))}
                           </div>
                         )}
@@ -594,18 +593,16 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                         ) : (
                           <div className="flex -space-x-1.5 items-center">
                             {clientWs.map((ws) => (
-                              <span
+                              <ClientAvatar
                                 key={ws.id}
-                                className="w-6 h-6 rounded-md text-[10px] font-semibold flex items-center justify-center border border-surface text-white shadow-xs"
-                                style={{
-                                  backgroundColor: ws.brandColor?.startsWith('#')
-                                    ? ws.brandColor
-                                    : '#6847E0',
-                                }}
-                                title={ws.name}
-                              >
-                                {ws.initials || ws.name.slice(0, 2).toUpperCase()}
-                              </span>
+                                name={ws.name}
+                                clientId={ws.id}
+                                logoUrl={ws.logo_url}
+                                brandColor={ws.brandColor}
+                                initials={ws.initials}
+                                size={24}
+                                className="ring-2 ring-surface"
+                              />
                             ))}
                           </div>
                         )}

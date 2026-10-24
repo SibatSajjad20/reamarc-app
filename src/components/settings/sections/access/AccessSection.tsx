@@ -549,14 +549,14 @@ export const AccessSection: React.FC = () => {
                                         checked
                                       )
                                     }
-                                    className="data-[state=checked]:bg-[#6847E0]"
+                                    className="data-[state=checked]:bg-accent"
                                     aria-label={`${col.label} for ${row.name}`}
                                   />
 
                                   {/* Changed from default Dot indicator */}
                                   {status.changed && (
                                     <span
-                                      className="w-1.5 h-1.5 rounded-full bg-[#6847E0] shrink-0"
+                                      className="w-1.5 h-1.5 rounded-full bg-accent shrink-0"
                                       title={`Changed from default (${status.default ? 'ON' : 'OFF'})`}
                                     />
                                   )}
@@ -711,7 +711,7 @@ export const AccessSection: React.FC = () => {
         <div className="py-2.5 px-4 bg-subtle/30 border-t border-border flex flex-wrap items-center justify-between gap-3 text-xs text-fg-muted select-none">
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-[#6847E0]" />
+              <span className="w-2 h-2 rounded-full bg-accent" />
               <span>Dot = changed from default</span>
             </span>
             <span>·</span>

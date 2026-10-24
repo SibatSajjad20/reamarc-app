@@ -280,7 +280,6 @@ async def create_company(
     now_iso = now.isoformat()
     admin_id = f"usr_{uuid.uuid4().hex[:12]}"
     mem_id = f"mem_{uuid.uuid4().hex[:12]}"
-    ws_id = f"ws_{uuid.uuid4().hex[:12]}"
     setup_link = None
 
     async def _rollback() -> None:
@@ -341,19 +340,7 @@ async def create_company(
             "updated_at": now_iso,
         })
 
-        initials = "".join([w[0].upper() for w in body.name.split() if w][:2]) or "CO"
-        await gdb.workspaces.insert_one({
-            "_id": ws_id,
-            "id": ws_id,
-            "name": f"{body.name.strip()} Workspace",
-            "brandColor": body.accent_color or "#6847E0",
-            "initials": initials,
-            "company_id": company_id,
-            "is_default": True,
-            "creation_id": creation_id,
-            "created_at": now_iso,
-            "updated_at": now_iso,
-        })
+        # No placeholder client workspace: clients are added by the company Admin when they exist.
 
         await record_owner_audit_event(
             global_db=gdb,

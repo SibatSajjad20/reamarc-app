@@ -11,6 +11,16 @@ vi.mock('../../../services/workspaceService', () => ({
   },
 }));
 
+// The crop popup itself is covered elsewhere; here "Save logo" hands back a positioned square.
+vi.mock('../../settings/AvatarCropModal', () => ({
+  AvatarCropModal: ({ isOpen, onCropComplete, confirmLabel }: any) =>
+    isOpen ? (
+      <button type="button" onClick={() => onCropComplete(new Blob([new Uint8Array([1, 2, 3])], { type: 'image/webp' }))}>
+        {confirmLabel}
+      </button>
+    ) : null,
+}));
+
 const CLOUDINARY = 'https://res.cloudinary.com/demo/image/upload/v1/reamarc/clients/ws1/logo/logo-abc.png';
 
 function mockSquarePad() {
@@ -32,7 +42,7 @@ describe('ClientLogoField', () => {
     } as Workspace;
     vi.mocked(workspaceService.uploadLogo).mockResolvedValue(updated);
 
-    const { container, getByAltText } = render(
+    const { container, getByAltText, findByText } = render(
       <ClientLogoField
         workspaceId="ws-1"
         name="Acme"
@@ -45,7 +55,11 @@ describe('ClientLogoField', () => {
 
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File([new Uint8Array([1, 2, 3])], 'logo.png', { type: 'image/png' });
+    (URL as any).createObjectURL = vi.fn(() => 'blob:mock');
+    (URL as any).revokeObjectURL = vi.fn();
     fireEvent.change(input, { target: { files: [file] } });
+    expect(workspaceService.uploadLogo).not.toHaveBeenCalled();
+    fireEvent.click(await findByText('Save logo'));
 
     await waitFor(() => {
       const img = getByAltText('Acme logo') as HTMLImageElement;

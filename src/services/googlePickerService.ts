@@ -114,7 +114,30 @@ function loadGisScript(): Promise<void> {
   return gisLoadingPromise;
 }
 
-async function requestDriveFileAccessToken(clientId: string): Promise<string> {
+/** In-memory only (never stored): lets a second Drive click skip the account popup while the token is fresh. */
+let cachedDriveToken: { clientId: string; token: string; expiresAt: number } | null = null;
+
+export class DriveSignInCancelled extends Error {
+  code = 'cancelled' as const;
+  constructor(message = 'Google Drive sign-in was cancelled.') {
+    super(message);
+    this.name = 'DriveSignInCancelled';
+  }
+}
+
+export function isDriveCancel(err: unknown): boolean {
+  return Boolean(err && typeof err === 'object' && (err as any).code === 'cancelled');
+}
+
+/** Test hook. */
+export function __resetDriveTokenCache(): void {
+  cachedDriveToken = null;
+}
+
+export async function requestDriveFileAccessToken(clientId: string, now: () => number = Date.now): Promise<string> {
+  if (cachedDriveToken && cachedDriveToken.clientId === clientId && cachedDriveToken.expiresAt - 60_000 > now()) {
+    return cachedDriveToken.token;
+  }
   await loadGisScript();
   const oauth2 = window.google?.accounts?.oauth2;
   if (!oauth2?.initTokenClient) {
@@ -122,15 +145,29 @@ async function requestDriveFileAccessToken(clientId: string): Promise<string> {
   }
 
   return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
     const tokenClient = oauth2.initTokenClient({
       client_id: clientId,
       scope: DRIVE_FILE_SCOPE,
-      callback: (resp: { access_token?: string; error?: string; error_description?: string }) => {
+      callback: (resp: { access_token?: string; expires_in?: number | string; error?: string; error_description?: string }) => {
         if (resp?.error || !resp?.access_token) {
-          reject(new Error(resp?.error_description || resp?.error || 'Google Drive sign-in was cancelled.'));
+          finish(() => reject(new DriveSignInCancelled(resp?.error_description || resp?.error || undefined)));
           return;
         }
-        resolve(resp.access_token);
+        const ttl = Number(resp.expires_in) > 0 ? Number(resp.expires_in) * 1000 : 3_000_000;
+        cachedDriveToken = { clientId, token: resp.access_token, expiresAt: now() + ttl };
+        finish(() => resolve(resp.access_token as string));
+      },
+      // Without this, closing the Google account popup never settles and the Drive button stays locked.
+      error_callback: (err: { type?: string; message?: string }) => {
+        finish(() => reject(new DriveSignInCancelled(err?.type === 'popup_failed_to_open'
+          ? 'Your browser blocked the Google sign-in popup. Allow popups and try again.'
+          : undefined)));
       },
     });
     tokenClient.requestAccessToken({ prompt: '' });

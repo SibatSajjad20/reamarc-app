@@ -247,6 +247,8 @@ class MemberActivityResponse(BaseModel):
     logged_today: bool = False
     days_missed: int = 0
     missing_dates: List[str] = []
+    days_due: Optional[int] = None
+    days_on_leave: Optional[int] = None
 
 
 class UserLogActivityResponse(BaseModel):
@@ -271,3 +273,5 @@ class ReminderResponse(BaseModel):
     recipient_name: Optional[str] = None
     missing_dates: List[str] = []
     timestamp: Optional[str] = None
+    email_sent: Optional[bool] = None
+    in_app_sent: Optional[bool] = None

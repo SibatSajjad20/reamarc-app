@@ -24,7 +24,7 @@ import type { SettingsSectionSlug } from './types/settings';
 import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { BrandingProvider } from './context/BrandingProvider';
+import { BrandingProvider, readLastBrand } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -48,7 +48,7 @@ import { isOwnerLegacyPath, ownerPathToCompaniesPath } from './utils/companiesRo
 
 function AppInner() {
   const { addToast } = useToast();
-  const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading } = useAuth();
+  const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading, pendingBrand } = useAuth();
   const moduleClicksBlocked = useModuleLoadBlocked();
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -674,7 +674,14 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    return <LoadingScreen fullScreen message="Checking your session…" title={brandNameOf(user?.company)} />;
+    const bootBrand = pendingBrand || user?.company || readLastBrand();
+    return (
+      <LoadingScreen
+        fullScreen
+        message={pendingBrand ? `Switching to ${brandNameOf(pendingBrand)}…` : 'Checking your session…'}
+        title={brandNameOf(bootBrand)}
+      />
+    );
   }
 
   if (!user) {

@@ -1,3 +1,4 @@
+import { SourceIcon } from './SourceIcon';
 import React, { useEffect, useState } from 'react';
 import {
   Calendar,
@@ -413,7 +414,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               )}
             </div>
             <p className="text-small text-fg-muted truncate mt-0.5">
-              {lead.company || 'No company specified'} · <span className="capitalize">{lead.source}</span>
+              {lead.company || 'No company specified'} · <span className="inline-flex items-center gap-1 align-middle"><SourceIcon source={lead.source} /><span className="capitalize">{lead.source}</span></span>
             </p>
           </div>
 

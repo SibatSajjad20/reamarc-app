@@ -1,5 +1,5 @@
 import React, { useState, useId, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { openGoogleDrivePicker } from '../../services/googlePickerService';
+import { openGoogleDrivePicker, isDriveCancel } from '../../services/googlePickerService';
 import type { DrivePickerConfig, DrivePickedFile } from '../../types/contentCalendar';
 import { useToast } from '../../context/ToastContext';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './dialog';
@@ -158,7 +158,10 @@ export const DriveAttach = forwardRef<DriveAttachRef, DriveAttachProps>(function
       );
       handleClose();
     } catch (err: any) {
-      if (err?.status === 403 || err?.message?.includes('403') || err?.message?.toLowerCase().includes('forbidden')) {
+      if (isDriveCancel(err)) {
+        // Closed the Google popup: nothing to report, the button is ready again.
+        if (err?.message?.includes('blocked')) addToast('Popup blocked', err.message, 'warning');
+      } else if (err?.status === 403 || err?.message?.includes('403') || err?.message?.toLowerCase().includes('forbidden')) {
         addToast('Permission Denied', "You can't add files to this item", 'error');
       } else {
         addToast('Drive Error', err?.message || 'Could not complete Google Drive attachment.', 'error');

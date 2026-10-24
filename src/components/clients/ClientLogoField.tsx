@@ -2,11 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { Button } from '../ui/button';
 import { ClientAvatar } from '../ui/ClientAvatar';
+import { AvatarCropModal } from '../settings/AvatarCropModal';
 import { workspaceService } from '../../services/workspaceService';
 import type { Workspace } from '../../types';
 
 const ACCEPT = 'image/png,image/jpeg,image/webp';
 const MAX_BYTES = 2 * 1024 * 1024;
+/** The original can be bigger: it is resized to at most 1024 px before upload. */
+const MAX_SOURCE_BYTES = 10 * 1024 * 1024;
 
 export async function padImageFileToSquareDataUrl(file: File): Promise<string> {
   const bitmap = await createImageBitmap(file);
@@ -43,6 +46,8 @@ export const ClientLogoField: React.FC<Props> = ({
   const [error, setError] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [preview, setPreview] = useState<string | null>(localPreviewUrl || null);
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [cropName, setCropName] = useState('logo');
 
   useEffect(() => {
     if (localPreviewUrl) setPreview(localPreviewUrl);
@@ -52,16 +57,35 @@ export const ClientLogoField: React.FC<Props> = ({
   const shownUrl = preview || logoUrl || null;
   const hasLogo = Boolean(shownUrl);
 
-  const handlePick = async (file: File) => {
+  // Step 1: validate, then let the user zoom / position the logo (same popup as the profile photo).
+  const handlePick = (file: File) => {
     if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
       setError("SVG isn't accepted. Upload a PNG, JPG or WebP.");
       return;
     }
-    if (file.size > MAX_BYTES) {
-      setError('Logo must be 2 MB or smaller.');
+    if (file.size > MAX_SOURCE_BYTES) {
+      setError('Logo must be 10 MB or smaller.');
       return;
     }
     setError(null);
+    setCropName((file.name || 'logo').replace(/\.[^.]+$/, '') || 'logo');
+    setCropSrc(URL.createObjectURL(file));
+  };
+
+  const closeCrop = () => {
+    if (cropSrc) URL.revokeObjectURL(cropSrc);
+    setCropSrc(null);
+  };
+
+  // Step 2: upload the positioned square (WebP keeps transparency and stays small).
+  const uploadPositioned = async (blob: Blob) => {
+    const type = blob.type || 'image/webp';
+    const ext = type.includes('png') ? 'png' : type.includes('jpeg') ? 'jpg' : 'webp';
+    const file = new File([blob], `${cropName}.${ext}`, { type });
+    if (file.size > MAX_BYTES) {
+      setError('That logo is still over 2 MB after positioning. Try a smaller image.');
+      return;
+    }
     const padded = await padImageFileToSquareDataUrl(file);
     setPreview(padded);
     onPendingFile(file, padded);
@@ -78,6 +102,7 @@ export const ClientLogoField: React.FC<Props> = ({
         setUploading(false);
       }
     }
+    closeCrop();
   };
 
   const handleRemove = async () => {
@@ -106,7 +131,7 @@ export const ClientLogoField: React.FC<Props> = ({
     <div className="space-y-3">
       <div>
         <p className="text-sm font-medium text-fg">Client logo</p>
-        <p className="text-xs text-fg-muted mt-0.5">PNG, JPG or WebP. Max 2 MB. We pad to a square — nothing is cropped.</p>
+        <p className="text-xs text-fg-muted mt-0.5">PNG, JPG or WebP. Zoom and position it in the next step; zoom out to fit a wide logo.</p>
       </div>
       <div className="flex flex-wrap items-center gap-4">
         <ClientAvatar name={name || 'Client'} logoUrl={shownUrl} brandColor={brandColor} initials={initials} size={96} />
@@ -114,7 +139,7 @@ export const ClientLogoField: React.FC<Props> = ({
           <input ref={inputRef} type="file" accept={ACCEPT} className="hidden" onChange={(e) => {
             const file = e.target.files?.[0];
             e.target.value = '';
-            if (file) void handlePick(file);
+            if (file) handlePick(file);
           }} />
           <Button type="button" variant="secondary" size="sm" disabled={uploading} icon={uploading ? Loader2 : UploadCloud} onClick={() => inputRef.current?.click()}>
             {uploading ? 'Uploading…' : hasLogo ? 'Replace logo' : 'Upload logo'}
@@ -134,6 +159,21 @@ export const ClientLogoField: React.FC<Props> = ({
           <ClientAvatar name={name || 'Client'} logoUrl={shownUrl} brandColor={brandColor} initials={initials} size={14} decorative />
         </div>
       </div>
+      <AvatarCropModal
+        isOpen={Boolean(cropSrc)}
+        imageSrc={cropSrc}
+        isUploading={uploading}
+        cropShape="rect"
+        allowFit
+        outputType="image/webp"
+        title="Position client logo"
+        description="Drag to align. Zoom out to fit a wide logo; transparent padding is kept."
+        confirmLabel="Save logo"
+        onClose={() => {
+          if (!uploading) closeCrop();
+        }}
+        onCropComplete={uploadPositioned}
+      />
     </div>
   );
 };

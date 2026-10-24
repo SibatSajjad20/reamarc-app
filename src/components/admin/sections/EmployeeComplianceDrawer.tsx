@@ -133,7 +133,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
         {member && (
           <>
             {/* Header */}
-            <SheetHeader className="p-6 border-b border-border bg-canvas/40 space-y-4">
+            <SheetHeader className="p-6 pr-14 border-b border-border bg-canvas/40 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <Avatar

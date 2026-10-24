@@ -5,12 +5,11 @@ import {
   Clock,
   RotateCcw,
   XCircle,
-  Globe,
 } from 'lucide-react';
 import type { CrmLead, CrmPipelineStage } from '../../types/crm';
 import { CrmStatusBadge, CrmStatusDot } from './CrmStatusBadge';
 import { formatLeadOpenValue } from '../../utils/money';
-import { MetaIcon, GoogleIcon, FacebookIcon, InstagramIcon } from '../ui/brand-icons';
+import { SourceIcon } from './SourceIcon';
 import { Button } from '../ui/button';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
@@ -55,50 +54,6 @@ function formatStageMoney(stageLeads: CrmLead[]): string | null {
   return `PKR ${total.toLocaleString()}`;
 }
 
-function SourceIcon({ source }: { source?: string | null }) {
-  if (!source) return null;
-  const s = source.toLowerCase();
-  if (s.includes('instagram')) {
-    return (
-      <span className="inline-flex items-center" title={source}>
-        <InstagramIcon size={14} variant="brand" />
-      </span>
-    );
-  }
-  if (s.includes('facebook') || s.includes('fb')) {
-    return (
-      <span className="inline-flex items-center" title={source}>
-        <FacebookIcon size={14} variant="brand" />
-      </span>
-    );
-  }
-  if (s.includes('meta')) {
-    return (
-      <span className="inline-flex items-center" title={source}>
-        <MetaIcon size={14} variant="brand" />
-      </span>
-    );
-  }
-  if (s.includes('google')) {
-    return (
-      <span className="inline-flex items-center" title={source}>
-        <GoogleIcon size={14} variant="brand" />
-      </span>
-    );
-  }
-  if (s.includes('website') || s.includes('web')) {
-    return (
-      <span className="text-fg-muted inline-flex items-center" title={source}>
-        <Globe className="w-3.5 h-3.5" />
-      </span>
-    );
-  }
-  return (
-    <span className="text-xs text-fg-muted uppercase font-medium" title={source}>
-      {source.slice(0, 3)}
-    </span>
-  );
-}
 
 export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   leads,

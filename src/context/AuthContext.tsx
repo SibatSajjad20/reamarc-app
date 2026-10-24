@@ -10,10 +10,44 @@ import { clearAllAppCaches } from '../utils/cacheBus';
 export const BOOTSTRAP_MAX_WAIT_MS = 35_000;
 export const BOOTSTRAP_RETRY_DELAYS_MS = [2_000, 5_000, 10_000, 20_000, 30_000];
 
+/** Branding shown while a company switch is in flight (taken from user.companies, so it is instant). */
+export interface PendingBrand {
+  id: string;
+  name?: string | null;
+  display_name?: string | null;
+  brand_name?: string | null;
+  logo_url?: string | null;
+  accent_color?: string | null;
+}
+
+/** One id per tab: BroadcastChannel also delivers to other channel objects in the SAME tab. */
+export const TAB_ID = `tab_${Math.random().toString(36).slice(2)}_${Date.now().toString(36)}`;
+export const COMPANY_SWITCH_CHANNEL = 'reamarc_company_switch';
+
+/** True only for a switch announced by a different tab. */
+export function isForeignSwitchMessage(data: any, tabId: string = TAB_ID): boolean {
+  return data?.type === 'company_switched' && data?.from !== tabId;
+}
+
+function preloadImage(url: string | null | undefined, timeoutMs = 1500): Promise<void> {
+  if (!url || typeof Image === 'undefined') return Promise.resolve();
+  return new Promise((resolve) => {
+    const img = new Image();
+    const done = () => resolve();
+    const t = setTimeout(done, timeoutMs);
+    img.onload = img.onerror = () => {
+      clearTimeout(t);
+      done();
+    };
+    img.src = url;
+  });
+}
+
 interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  pendingBrand: PendingBrand | null;
   role: UserRole;
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
@@ -44,6 +78,9 @@ export function keepAvatarUrl<T extends { avatar_url?: string | null }>(
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [pendingBrand, setPendingBrand] = useState<PendingBrand | null>(null);
+  const userRef = useRef<AuthUser | null>(null);
+  userRef.current = user;
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(() => {
     return localStorage.getItem('reamarc_active_workspace_id') || 'ws-main';
   });
@@ -211,6 +248,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         localStorage.removeItem('reamarc_impersonation_token');
       sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
+        localStorage.removeItem('reamarc_last_brand');
         window.history.replaceState(null, '', '/');
       }
     }
@@ -230,6 +268,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const switchCompany = useCallback(async (companyId: string) => {
+    const target = userRef.current?.companies?.find((c) => c.id === companyId);
+    setPendingBrand(target ? { ...target, id: companyId } : { id: companyId });
     setIsLoading(true);
     try {
       const res = await authService.switchCompany(companyId);
@@ -260,27 +300,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Notify other tabs to reload
       try {
-        const channel = new BroadcastChannel('reamarc_company_switch');
-        channel.postMessage({ type: 'company_switched', companyId });
+        const channel = new BroadcastChannel(COMPANY_SWITCH_CHANNEL);
+        channel.postMessage({ type: 'company_switched', companyId, from: TAB_ID });
         channel.close();
       } catch {}
 
-      // Re-apply accent color if present
-      try {
-        const accent =
-          res.user?.company?.accent_color ||
-          res.user?.companies?.find((c) => c.id === companyId)?.accent_color;
-        if (accent) {
-          document.documentElement.style.setProperty('--accent', accent);
-        }
-      } catch {}
-
+      let finalUser: AuthUser | null = res.user;
       try {
         const fresh = await authService.getMe();
         setUser(fresh);
+        finalUser = fresh;
       } catch {}
+      // Hold the overlay until the new logo is in the browser cache, so the sidebar never flashes a fallback.
+      await preloadImage(finalUser?.company?.logo_url);
     } finally {
       setIsLoading(false);
+      setPendingBrand(null);
     }
   }, []);
 
@@ -289,9 +324,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (typeof window === 'undefined') return;
     let channel: BroadcastChannel | null = null;
     try {
-      channel = new BroadcastChannel('reamarc_company_switch');
+      channel = new BroadcastChannel(COMPANY_SWITCH_CHANNEL);
       channel.onmessage = (event) => {
-        if (event.data?.type === 'company_switched') {
+        // Ignore our own announcement; reloading here caused the default-logo flash after a switch.
+        if (isForeignSwitchMessage(event.data)) {
           clearAllAppCaches();
           window.location.reload();
         }
@@ -326,6 +362,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: Boolean(user),
         isLoading,
+        pendingBrand,
         role: user?.role || 'team_member',
         activeWorkspaceId,
         setActiveWorkspaceId,

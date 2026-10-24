@@ -425,25 +425,6 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
               />
             </div>
 
-            {/* Bottom KPI strip (Mock 18) */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 border-t border-border bg-subtle/30 divide-x divide-border">
-              <div className="p-4">
-                <p className="text-small text-fg-muted font-medium">Logs reviewed</p>
-                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">236</p>
-              </div>
-              <div className="p-4">
-                <p className="text-small text-fg-muted font-medium">Exceptions resolved</p>
-                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">18</p>
-              </div>
-              <div className="p-4">
-                <p className="text-small text-fg-muted font-medium">Average resolution</p>
-                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">5h 40m</p>
-              </div>
-              <div className="p-4">
-                <p className="text-small text-fg-muted font-medium">Escalated to HR</p>
-                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">{counts.escalated}</p>
-              </div>
-            </div>
           </div>
         </div>
       ) : (

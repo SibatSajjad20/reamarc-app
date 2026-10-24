@@ -79,6 +79,8 @@ export interface MemberActivity {
   last_logged_date?: string | null;
   logged_today: boolean;
   days_missed: number;
+  days_due?: number | null;
+  days_on_leave?: number | null;
   missing_dates: string[];
 }
 
@@ -87,6 +89,8 @@ export interface ReminderResponse {
   message: string;
   user_id: string;
   channel: string;
+  email_sent?: boolean | null;
+  in_app_sent?: boolean | null;
 }
 
 export interface SendReminderPayload {
