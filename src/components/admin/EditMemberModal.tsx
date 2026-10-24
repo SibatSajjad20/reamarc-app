@@ -78,6 +78,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  const [deactivationDate, setDeactivationDate] = useState('');
   const [copied, setCopied] = useState(false);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
@@ -109,6 +110,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setPassword('');
       setShowPassword(false);
       setIsActive(member.is_active !== undefined ? member.is_active : true);
+      setDeactivationDate(member.deactivation_date || '');
       setSelectedWorkspaceId(member.workspace_ids?.[0] || '');
       setCopied(false);
       setFieldErrors({});
@@ -237,6 +239,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           joining_date: role === 'client' ? null : joiningDate.trim() || null,
           employment_type: role === 'client' ? 'contract' : employmentType,
           is_active: isActive,
+          ...(!isActive && deactivationDate && deactivationDate !== (member.deactivation_date || '')
+            ? { deactivation_date: deactivationDate }
+            : {}),
           workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
           full_name: fullName.trim(),
           phone: normalizedPhone,
@@ -621,6 +626,18 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                     label={isActive ? 'Active' : 'Deactivated'}
                   />
                 </div>
+              </div>
+            )}
+
+            {!loginManagedElsewhere && !isActive && role !== 'client' && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Inactive from
+                </label>
+                <CustomDatePicker value={deactivationDate} onChange={setDeactivationDate} />
+                <p className="text-caption text-fg-muted mt-1">
+                  Their last working day is the day before. Days from this date show as Inactive and are not counted.
+                </p>
               </div>
             )}
           </div>

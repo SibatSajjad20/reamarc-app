@@ -129,7 +129,10 @@ class TestUxBatch(unittest.IsolatedAsyncioTestCase):
         r = await self.client.get("/api/v1/admin/members/activity", headers=self._auth())
         self.assertEqual(r.status_code, 200, r.text)
         rows = {row["user_id"]: row for row in r.json()}
-        self.assertNotIn("leaver", rows, "deactivated membership must drop out of compliance")
+        # Deactivated on 10-22: still listed for the days before, flagged inactive, owes nothing after.
+        self.assertIs(rows["leaver"]["is_active"], False)
+        self.assertEqual(rows["leaver"]["deactivation_date"], "2026-10-22")
+        self.assertTrue(all(d < "2026-10-22" for d in rows["leaver"]["missing_dates"]))
         self.assertEqual(rows["idle"]["days_due"], 0)       # nothing due -> UI shows "No shifts", not 100%
         self.assertEqual(rows["worker"]["days_due"], 3)
         # deactivation keeps history

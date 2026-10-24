@@ -412,8 +412,13 @@ async def list_members_activity(
         query["department"] = exact_ci(department)
 
     if getattr(settings, "MULTI_COMPANY_ENABLED", False):
-        from app.services.access import tracked_users
+        from app.services.access import tracked_users, was_tracked
         users = await tracked_users(db, "daily_log")
+        # Deactivated people stay in compliance for days before their deactivation date.
+        seen = {u.get("id") for u in users}
+        for u in await company_member_users(query, db=db, include_inactive=True, limit=500):
+            if u.get("id") not in seen and u.get("is_active") is False and was_tracked(u, "daily_log"):
+                users.append(u)
         if department:
             users = [
                 u for u in users
@@ -435,6 +440,14 @@ async def list_members_activity(
 
     from app.services.workdays import recent_company_workdays
     workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
+
+    from app.services.company_members import deactivation_cutoff, member_active_during
+    if workdays:
+        # A deactivated member with no recorded date has no known active window: leave them out.
+        users = [u for u in users
+                 if deactivation_cutoff(u) != "" and member_active_during(u, min(workdays))]
+    else:
+        users = [u for u in users if u.get("is_active") is not False]
 
     user_ids = [u.get("id") or str(u.get("_id")) for u in users]
     att_by_key: dict = {}
@@ -491,7 +504,10 @@ async def list_members_activity(
         missing = []
         days_due = 0
         days_on_leave = 0
+        cutoff = deactivation_cutoff(u)
         for d in workdays:
+            if cutoff is not None and d >= cutoff:
+                continue  # inactive from this day: nothing owed
             if d in logged_dates:
                 days_due += 1
                 continue
@@ -529,6 +545,8 @@ async def list_members_activity(
             # Days a log was actually owed (logged or missing). 0 means there is nothing to score.
             "days_due": days_due,
             "days_on_leave": days_on_leave,
+            "is_active": cutoff is None,
+            "deactivation_date": cutoff or None,
         })
 
     return result
@@ -964,17 +982,34 @@ async def update_member(
         update_fields["primary_department"] = packed["primary_department"]
         update_fields["departments"] = packed["departments"]
         update_fields["department"] = packed["department"]
+    new_deact_date: Optional[str] = None
+    if member_in.deactivation_date is not None:
+        new_deact_date = member_in.deactivation_date.strip() or None
+        if new_deact_date:
+            try:
+                datetime.strptime(new_deact_date, "%Y-%m-%d")
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Deactivation date must be YYYY-MM-DD.")
+    _mem_for_state = target_mem if (multi_enabled and target_mem) else None
+    already_inactive = existing_user.get("is_active") is False or (
+        _mem_for_state is not None and _mem_for_state.get("status") == "inactive"
+    )
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
         if member_in.is_active is False:
             from app.services.attendance_golive import pkt_today_str
-            update_fields["deactivated_at"] = datetime.now(timezone.utc).isoformat()
-            update_fields["deactivation_date"] = (member_in.deactivation_date or "").strip() or pkt_today_str()
+            if already_inactive:
+                # Saving other details must not reset the date; only an explicit new date changes it.
+                if new_deact_date:
+                    update_fields["deactivation_date"] = new_deact_date
+            else:
+                update_fields["deactivated_at"] = datetime.now(timezone.utc).isoformat()
+                update_fields["deactivation_date"] = new_deact_date or pkt_today_str()
         else:
             update_fields["deactivated_at"] = None
             update_fields["deactivation_date"] = None
-    elif member_in.deactivation_date is not None:
-        update_fields["deactivation_date"] = member_in.deactivation_date.strip() or None
+    elif new_deact_date and already_inactive:
+        update_fields["deactivation_date"] = new_deact_date
     if member_in.crm_enabled is not None:
         update_fields["crm_enabled"] = bool(member_in.crm_enabled)
     if member_in.crm_paused is not None:
@@ -1109,6 +1144,8 @@ async def update_member(
                 mem_set["status"] = "active"
                 mem_set["deactivated_at"] = None
                 mem_set["deactivation_date"] = None
+        elif "deactivation_date" in update_fields and target_mem.get("status") == "inactive":
+            mem_set["deactivation_date"] = update_fields["deactivation_date"]
 
         preview = dict(target_mem)
         preview.update(mem_set)

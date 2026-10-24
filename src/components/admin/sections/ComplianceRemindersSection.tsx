@@ -281,7 +281,9 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
 
   const missingTodayCount = useMemo(
     () =>
-      monitoredMembers.filter((m) => personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id)).length,
+      monitoredMembers.filter(
+        (m) => m.is_active !== false && personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id),
+      ).length,
     [monitoredMembers, personStatus, openRequestIds],
   );
 
@@ -321,7 +323,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   const handleBatchReminder = async () => {
     if (isSelectedDateExpired) return;
     const targets = monitoredMembers.filter(
-      (m) => personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id),
+      (m) => m.is_active !== false && personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id),
     );
     if (targets.length === 0) return;
     try {
@@ -583,7 +585,8 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                   const hours = hoursByUser[act.user_id];
                   const hasOpen = hours?.hasOpen || openRequestIds.has(act.user_id);
                   const status = personStatus(act.user_id);
-                  const canRemind = status === 'missing' && !hasOpen;
+                  // Deactivated people are listed for history only: never remind them.
+                  const canRemind = act.is_active !== false && status === 'missing' && !hasOpen;
 
                   const daysMissing =
                     range === 'today'
@@ -631,8 +634,19 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                             {initials}
                           </div>
                           <div className="min-w-0">
-                            <div className="font-medium text-fg truncate">
-                              {act.full_name}
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="font-medium text-fg truncate">
+                                {act.full_name}
+                              </div>
+                              {act.is_active === false && (
+                                <span
+                                  className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-fg-muted"
+                                  title={act.deactivation_date ? `Inactive since ${act.deactivation_date}` : 'Inactive'}
+                                  data-testid="compliance-inactive-badge"
+                                >
+                                  Inactive
+                                </span>
+                              )}
                             </div>
                             <div className="text-caption text-fg-muted truncate">
                               {act.email}

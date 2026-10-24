@@ -35,6 +35,8 @@ interface PersonalTimesheetTableProps {
   readOnly?: boolean;
   onOpenRegularizationModal?: (record?: AttendanceRecord) => void;
   allowHistoryMonths?: boolean;
+  /** Deactivation date (YYYY-MM-DD): days on/after it show as Inactive, not missing. */
+  inactiveFrom?: string | null;
 }
 
 const MONTH_NAMES = [
@@ -62,6 +64,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
   employeeName,
   employeeId,
   joiningDate,
+  inactiveFrom,
   canInquireMissedPunch = false,
   readOnly = false,
   onOpenRegularizationModal,
@@ -238,6 +241,8 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
         return <span className="text-fg-muted font-numeric text-small">—</span>;
       case 'not_punched':
         return <StatusPill status="awaiting_checkin" label="Not checked in" />;
+      case 'inactive':
+        return <StatusPill variant="neutral" label="Inactive" />;
       default:
         return <StatusPill variant="neutral" label={status || '—'} />;
     }
@@ -428,6 +433,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                   status = isLate ? 'late' : 'present';
                 } else if (!punchIn && status === 'absent' && !isOffDay) {
                   status = 'not_punched';
+                }
+                if (inactiveFrom && date >= inactiveFrom && !punchIn) {
+                  status = 'inactive';
                 }
 
                 // Overtime & Undertime strings

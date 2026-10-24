@@ -3081,7 +3081,10 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
     if role == "client":
         raise HTTPException(status_code=400, detail="Client accounts do not have attendance timesheets")
 
-    return await get_my_timesheet(user_doc, year, month)
+    from app.services.company_members import deactivation_cutoff
+    resp = await get_my_timesheet(user_doc, year, month)
+    resp.deactivation_date = deactivation_cutoff(user_doc) or None
+    return resp
 
 
 # ──────────────────────────────────────────────────────────

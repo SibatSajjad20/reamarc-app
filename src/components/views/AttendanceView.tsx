@@ -294,10 +294,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   const loadDirectoryMembers = useCallback(async () => {
     try {
-      const members = await adminService.getMembers({ is_active: true });
-      const internal = (members || []).filter(
-        (m) => m.role !== 'client' && m.role !== 'admin' && m.is_active !== false
-      );
+      // Deactivated people stay pickable so their past timesheets can be opened (listed last).
+      const members = await adminService.getMembers();
+      const internal = (members || [])
+        .filter((m) => m.role !== 'client' && m.role !== 'admin')
+        .sort((a, b) => Number(a.is_active === false) - Number(b.is_active === false));
       setDirectoryMembers(internal);
       setSelectedEmployeeId((prev) => {
         if (prev && internal.some((m) => m.id === prev)) return prev;
@@ -1065,10 +1066,16 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                               variant={selected ? 'primary' : 'secondary'}
                               size="sm"
                               className="shrink-0"
-                              title={m.department ? `${m.full_name} · ${m.department}` : m.full_name}
+                              title={
+                                (m.department ? `${m.full_name} · ${m.department}` : m.full_name) +
+                                (m.is_active === false ? ' · Inactive' : '')
+                              }
                               loading={selected && isLoadingTimesheet}
                             >
                               {m.full_name || m.email}
+                              {m.is_active === false && (
+                                <span className="ml-1 text-[10px] uppercase tracking-wide opacity-70">Inactive</span>
+                              )}
                             </Button>
                           );
                         })
@@ -1088,6 +1095,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     readOnly
                     allowHistoryMonths
                     employeeId={selectedEmployeeId}
+                    inactiveFrom={
+                      employeeTimesheet?.deactivation_date ??
+                      directoryMembers.find((m) => m.id === selectedEmployeeId)?.deactivation_date ??
+                      null
+                    }
                     joiningDate={
                       directoryMembers.find((m) => m.id === selectedEmployeeId)?.joining_date
                     }

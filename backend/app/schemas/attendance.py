@@ -320,6 +320,8 @@ class MonthlyTimesheetResponse(BaseModel):
     month: int = 0
     records: List[AttendanceRecordResponse]
     summary: MonthlyPunctualityRow
+    # Set for deactivated people: days on/after this date are shown as Inactive.
+    deactivation_date: Optional[str] = None
 
 
 class PublicSecuritySettingsSchema(BaseModel):

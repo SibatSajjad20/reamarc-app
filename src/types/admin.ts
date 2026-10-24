@@ -65,6 +65,7 @@ export interface UpdateMemberPayload {
   probation_start_date?: string | null;
   probation_end_date?: string | null;
   is_active?: boolean;
+  deactivation_date?: string | null;
   workspace_ids?: string[];
 }
 
@@ -83,6 +84,8 @@ export interface MemberActivity {
   days_due?: number | null;
   days_on_leave?: number | null;
   missing_dates: string[];
+  is_active?: boolean;
+  deactivation_date?: string | null;
 }
 
 export interface ReminderResponse {

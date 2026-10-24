@@ -217,6 +217,8 @@ export interface PersonalTimesheetResponse {
   month: number;
   records: AttendanceRecord[];
   summary: MonthlyPunctualityRow;
+  /** Deactivated people: days on/after this date show as Inactive. */
+  deactivation_date?: string | null;
 }
 
 export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization' | 'overtime' | 'shift_change';

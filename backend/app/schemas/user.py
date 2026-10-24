@@ -249,6 +249,8 @@ class MemberActivityResponse(BaseModel):
     missing_dates: List[str] = []
     days_due: Optional[int] = None
     days_on_leave: Optional[int] = None
+    is_active: bool = True
+    deactivation_date: Optional[str] = None
 
 
 class UserLogActivityResponse(BaseModel):
