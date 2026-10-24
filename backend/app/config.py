@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     GOOGLE_DRIVE_CLIENT_ID: str = ""
     GOOGLE_DRIVE_CLIENT_SECRET: str = ""
     GOOGLE_DRIVE_REFRESH_TOKEN: str = ""
+    # Downloads go straight from Google Drive to the browser (a short "anyone with the link" grant
+    # that is removed after DRIVE_DIRECT_TTL_HOURS) so file bytes never pass through this server.
+    DRIVE_DIRECT_DOWNLOADS: bool = True
+    DRIVE_DIRECT_TTL_HOURS: int = 6
     GOOGLE_DRIVE_FOLDER_ID: str = ""
     GOOGLE_DRIVE_OAUTH_CLIENT_FILE: str = ""
     GOOGLE_DRIVE_API_KEY: str = ""

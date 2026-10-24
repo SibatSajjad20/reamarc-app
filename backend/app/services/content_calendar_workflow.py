@@ -61,6 +61,27 @@ class WorkflowError(ValueError):
     """A transition or edit the current user is not allowed to make."""
 
 
+
+CONTENT_SIDE_STAGES = ("Content", "Content Internal Review", "Content Client Review", "Content Revision")
+CREATIVE_SIDE_STAGES = (
+    "Creative Production", "Creative Internal Review", "Creative Client Review", "Creative Revision",
+    "Ready to Post", "Posted",
+)
+
+
+def client_revision_target(stage) -> "str | None":
+    """Where a client's "request changes" sends a card, from ANY stage (Faizan, Oct 2026).
+
+    Copy-side stages go to Content Revision; creative-side stages (including Ready to Post and
+    Posted) go to Creative Revision. Rejected cards can't be reopened by the client.
+    """
+    st = normalize_stage(stage)
+    if st in CONTENT_SIDE_STAGES:
+        return "Content Revision"
+    if st in CREATIVE_SIDE_STAGES:
+        return "Creative Revision"
+    return None
+
 def resolve_stage(value: Optional[str]) -> Optional[str]:
     """Return a canonical stage, or None when the value is not a known stage."""
     text = str(value or "").strip()
@@ -530,29 +551,22 @@ def resolve_transition(
         text = str(note or "").strip()
         if not text:
             raise WorkflowError("A revision note is required.")
-        if stage == "Content Client Review":
-            if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
-                raise WorkflowError("Only the client can request a content revision.")
-            target = "Content Revision"
-            return {
-                "stage": target,
-                "revision_note": text,
-                "submitted_from": None,
-                "design_owner": stage_owner(target, category),
-                "approval_status": "Changes Requested",
-            }
-        if stage == "Creative Client Review":
-            if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
-                raise WorkflowError("Only the client can request a creative revision.")
-            target = "Creative Revision"
-            return {
-                "stage": target,
-                "revision_note": text,
-                "submitted_from": None,
-                "design_owner": stage_owner(target, category),
-                "approval_status": "Changes Requested",
-            }
-        raise WorkflowError("This stage is not waiting on the client.")
+        if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
+            raise WorkflowError("Only the client can request changes here.")
+        target = client_revision_target(stage)
+        if not target:
+            raise WorkflowError("This campaign was rejected; changes can't be requested.")
+        res = {
+            "stage": target,
+            "revision_note": text,
+            "submitted_from": None,
+            "design_owner": stage_owner(target, category),
+            "approval_status": "Changes Requested",
+        }
+        if stage in ("Ready to Post", "Posted"):
+            res["assignee_id"] = None
+            res["assignee_name"] = None
+        return res
 
     if action_key in ("post", "reject", "return_to_creative"):
         if stage != "Ready to Post":

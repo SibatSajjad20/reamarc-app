@@ -182,6 +182,16 @@ export const contentCalendarService = {
     return res;
   },
 
+  /** Optional custom thumbnail for a video (a picked frame or an uploaded picture). */
+  async setAssetPoster(itemId: string, assetId: string, image: Blob): Promise<ContentCalendarItem> {
+    const formData = new FormData();
+    formData.append('file', image, 'poster.jpg');
+    const res = await apiClient.upload<ContentCalendarItem>(`/content-calendar/${itemId}/assets/${assetId}/poster`, formData);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
+  },
+
   async reorderAssets(itemId: string, assetIds: string[]): Promise<ContentCalendarItem> {
     const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${itemId}/assets/reorder`, { asset_ids: assetIds });
     ccItemsCache.clear();

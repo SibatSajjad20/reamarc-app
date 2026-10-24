@@ -1941,6 +1941,104 @@ async def reorder_assets(
 
 
 
+
+POSTER_MAX_BYTES = 8 * 1024 * 1024
+
+
+def _normalize_poster_image(raw: bytes) -> bytes:
+    """Any uploaded image (or a frame captured in the browser) -> a JPEG of at most 1600px."""
+    from io import BytesIO
+    from PIL import Image
+
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty image.")
+    if len(raw) > POSTER_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="Thumbnail image must be under 8 MB.")
+    try:
+        img = Image.open(BytesIO(raw))
+        img.load()
+    except Exception:
+        raise HTTPException(status_code=400, detail="That file is not an image we can read.")
+    img = img.convert("RGB")
+    img.thumbnail((1600, 1600))
+    out = BytesIO()
+    img.save(out, format="JPEG", quality=85, optimize=True)
+    return out.getvalue()
+
+
+async def set_asset_poster(
+    db,
+    item_id: str,
+    asset_id: str,
+    image_bytes: bytes,
+    viewer: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Sets the thumbnail (poster) of a video asset. Optional: videos keep their automatic still otherwise.
+
+    Each new poster gets a new file name (poster_version), so browser/CDN caches and link
+    previews pick it up straight away.
+    """
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    coll = db[COLLECTION_NAME]
+    doc = await coll.find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Content calendar item not found")
+    presented = _present_doc(dict(doc))
+    if not can_manage_assets(viewer, presented):
+        raise HTTPException(status_code=403, detail="You do not have permission to change this item's assets.")
+
+    target = next((a for a in presented.get("attachments") or [] if str(a.get("id")) == str(asset_id)), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    if target.get("kind") != "video":
+        raise HTTPException(status_code=400, detail="Only videos have a custom thumbnail.")
+
+    jpeg = _normalize_poster_image(image_bytes)
+    version = int(target.get("poster_version") or 0) + 1
+
+    from app.core.uploads import save_upload_bytes
+    from app.services import google_drive_service as gdrive
+
+    name = f"{asset_id}_poster_v{version}.jpg"
+    drive_thumb_id = None
+    if gdrive.configured():
+        folder = await gdrive.ensure_item_folder(db, presented)
+        uploaded = await gdrive.upload_bytes(folder, name, jpeg, "image/jpeg")
+        drive_thumb_id = uploaded.get("id")
+        url = gdrive.public_path(drive_thumb_id, name)
+    else:
+        user_id = (viewer or {}).get("id") or str((viewer or {}).get("_id", "")) or None
+        url = await save_upload_bytes(
+            db,
+            relative_key=f"content_calendar/{presented['id']}/{name}",
+            content=jpeg,
+            original_name=name,
+            content_type="image/jpeg",
+            extra_metadata={
+                "workspace_id": presented.get("workspace_id"),
+                "uploaded_by": user_id,
+                "item_id": presented["id"],
+            },
+        )
+
+    now = _now_iso()
+    await coll.update_one(
+        {"id": presented["id"], "attachments.id": target.get("id")},
+        {
+            "$set": {
+                "attachments.$.thumbnail_url": url,
+                "attachments.$.google_drive_thumb_file_id": drive_thumb_id,
+                "attachments.$.poster_version": version,
+                "attachments.$.poster_set_at": now,
+                "attachments.$.thumbnail_failed_at": None,
+                "updated_at": now,
+            }
+        },
+    )
+    updated = await coll.find_one({"id": presented["id"]})
+    return _present_doc(dict(updated))
+
 SETTINGS_COLLECTION = "content_calendar_settings"
 
 
@@ -2459,27 +2557,24 @@ async def bulk_import_items(
 
 def check_review_link_expiration(doc: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
     """
-    Review links have no time-based expiration timer.
-    They strictly expire ONLY when the campaign has been approved or changes have been requested.
+    Review links stay open at every stage so the client can always see the card and ask for changes.
+    The only closed state is Rejected. Approve is still limited to the client review stages
+    (see review_link_permissions), and downloads to check_review_link_download_allowed.
     Returns (is_expired, message_detail).
     """
-    stage = normalize_stage(doc.get("stage"))
-    approval_status = str(doc.get("approval_status") or "").strip()
-
-    # Active review stages are open and never expired
-    if stage in ("Content Client Review", "Creative Client Review"):
-        return False, None
-
-    # Expired condition 1: Approved
-    if approval_status in ("Approved", "Approved for Campaign", "Creative Approved", "Content Approved") or stage in ("Creative Production", "Ready to Post", "Posted"):
-        return True, "Campaign review link has expired because this campaign has already been approved."
-
-    # Expired condition 2: Changes Requested
-    if approval_status == "Changes Requested" or stage in ("Content Revision", "Creative Revision"):
-        return True, "Campaign review link has expired because changes have already been requested."
-
-    # Draft / internal stages are accessible for preview if not approved and not changes requested
+    if normalize_stage(doc.get("stage")) == "Rejected":
+        return True, "This campaign was rejected, so its review link is closed."
     return False, None
+
+
+def review_link_permissions(doc: Dict[str, Any]) -> Dict[str, bool]:
+    from app.services.content_calendar_workflow import client_revision_target
+
+    stage = normalize_stage(doc.get("stage"))
+    return {
+        "can_approve": stage in ("Content Client Review", "Creative Client Review"),
+        "can_request_changes": client_revision_target(stage) is not None,
+    }
 
 
 _REVIEW_DOWNLOAD_BLOCK_STAGES = {
@@ -2545,12 +2640,11 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
     # Approved items stay readable for downloads (read_only / download_only).
     is_expired, expire_msg = check_review_link_expiration(presented)
     download_allowed = check_review_link_download_allowed(presented)
-    download_only = False
     if is_expired:
-        if download_allowed:
-            download_only = True
-        else:
-            raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+    # "download_only": nothing to approve here, but the files can be downloaded (approved / posted work).
+    # The client can still request changes (can_request_changes).
+    download_only = bool(download_allowed and not review_link_permissions(presented)["can_approve"])
 
     # Rewrite attachment URLs to secure public review streaming endpoints so external guests can view media
     public_attachments = []
@@ -2559,6 +2653,9 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             continue
         att_copy = dict(att)
         att_id = att_copy.get("id")
+        # A picked thumbnail changes the version, so caches and link previews refresh.
+        pv = att_copy.get("poster_version")
+        v_q = f"&v={int(pv)}" if pv else ""
         if att_copy.get("kind") != "link" and att_id:
             att_copy["url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}"
             att_copy["download_url"] = (
@@ -2567,14 +2664,14 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             if att_copy.get("thumbnail_url") or att_copy.get("kind") == "image":
                 # Small cached WebP for strips and cards; the viewer still uses `url` (original).
                 att_copy["thumbnail_url"] = (
-                    f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1&w=400"
+                    f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1&w=400{v_q}"
                 )
             if (
                 str(att_copy.get("kind") or "").lower() == "video"
                 or str(att_copy.get("content_type") or "").lower().startswith("video/")
             ):
                 # Still frame for link previews (WhatsApp cannot preview a video file).
-                og_url = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?og=1"
+                og_url = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?og=1{v_q}"
                 att_copy["og_image_url"] = og_url
                 if not att_copy.get("thumbnail_url"):
                     att_copy["thumbnail_url"] = og_url
@@ -2614,6 +2711,7 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         "read_only": download_only,
         "download_only": download_only,
         "download_allowed": download_allowed,
+        **review_link_permissions(presented),
     }
 
 
@@ -2641,15 +2739,14 @@ async def action_public_review_item(
     now = _now_iso()
     who = str(reviewer_name or "").strip() or "Client"
 
-    # Review links only expire once approved or changes requested
     is_expired, expire_msg = check_review_link_expiration(presented)
     if is_expired:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
-
-    if stage not in ("Content Client Review", "Creative Client Review"):
+    perms = review_link_permissions(presented)
+    if action_key in ("approve", "approved") and not perms["can_approve"]:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"This campaign is currently in '{stage}' and is not awaiting client review decisions.",
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This campaign is in '{stage}'. Approval opens when it is sent to you for review; you can still request changes.",
         )
 
     update_fields: Dict[str, Any] = {"updated_at": now}
@@ -2678,17 +2775,24 @@ async def action_public_review_item(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Please provide a revision note explaining the changes requested.",
             )
+        from app.services.content_calendar_workflow import client_revision_target
+
+        target = client_revision_target(stage)
+        if not target:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Changes can't be requested on this campaign.")
         full_note = f"[{who}]: {rev_note}"
+        if normalize_stage(stage) == target:
+            # Already being revised: add these notes to the ones the team is working on.
+            prev = str(presented.get("revision_note") or "").strip()
+            full_note = f"{prev}\n{full_note}" if prev else full_note
         update_fields["revision_note"] = full_note
         update_fields["approval_status"] = "Changes Requested"
-        if stage == "Creative Client Review":
-            update_fields["stage"] = "Creative Revision"
-            update_fields["submitted_from"] = None
-            msg = f"Revision requested by {who}. Sent back to Creative Revision."
-        else:
-            update_fields["stage"] = "Content Revision"
-            update_fields["submitted_from"] = None
-            msg = f"Revision requested by {who}. Sent back to Content Revision."
+        update_fields["stage"] = target
+        update_fields["submitted_from"] = None
+        if normalize_stage(stage) in ("Ready to Post", "Posted"):
+            update_fields["assignee_id"] = None
+            update_fields["assignee_name"] = None
+        msg = f"Revision requested by {who}. Sent back to {target}."
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported action '{action}'.")
 
@@ -3008,7 +3112,10 @@ def _public_asset_etag(asset_id: str, target: Dict[str, Any], presented: Dict[st
         size = str(target.get("size"))
     else:
         size = str(target.get("file_size") or "")
-    raw = "|".join([str(asset_id), drive_id, modified, size, "thumb" if thumb else "full"])
+    parts = [str(asset_id), drive_id, modified, size, "thumb" if thumb else "full"]
+    if thumb and target.get("poster_version"):
+        parts.append(f"p{int(target['poster_version'])}")  # a picked thumbnail must not 304 to the old one
+    raw = "|".join(parts)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return f'W/"{digest}"'
 
@@ -3110,6 +3217,19 @@ async def stream_public_asset(
             width=thumb_w,
             if_none_match=request.headers.get("if-none-match") if request is not None else None,
         )
+
+    if download and is_valid_gdrive and not use_thumb:
+        # Send the browser straight to Google so the file bytes skip this server (Render bandwidth).
+        from app.services.google_drive_service import file_id_from_path
+        from app.services.drive_direct import direct_download_url
+
+        direct = await direct_download_url(
+            file_id_from_path(clean_url) or gdrive_id,
+            company_id=company_id or str(presented.get("company_id") or ""),
+        )
+        if direct:
+            from fastapi.responses import RedirectResponse
+            return RedirectResponse(direct, status_code=302, headers={"Cache-Control": "private, no-store"})
 
     # Token, expiry, and path checks above must pass before a conditional 304.
     # Download responses stay uncacheable and never short-circuit.

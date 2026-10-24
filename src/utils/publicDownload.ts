@@ -7,6 +7,8 @@ export type PublicDownloadAsset = {
   contentType?: string;
   sizeBytes?: number;
   kind?: string;
+  /** Stored in Google Drive: the download comes straight from Google, not through our server. */
+  isDrive?: boolean;
 };
 
 type NavigatorLike = Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'> & {
@@ -123,4 +125,36 @@ export async function downloadAllPublicAssets(
       await sleep(gapMs);
     }
   }
+}
+
+/**
+ * Files stored in Google Drive download straight from Google (the server answers with a redirect),
+ * so they cost no Render bandwidth. Files stored on the app itself still stream through Render,
+ * so "Download all" skips big ones; they can still be downloaded one by one.
+ */
+export const LOCAL_BULK_MAX_FILE_BYTES = 25 * 1024 * 1024;
+export const LOCAL_BULK_MAX_TOTAL_BYTES = 100 * 1024 * 1024;
+
+export function planBulkDownload<T extends { isDrive?: boolean; sizeBytes?: number }>(
+  assets: T[],
+  maxFile = LOCAL_BULK_MAX_FILE_BYTES,
+  maxTotal = LOCAL_BULK_MAX_TOTAL_BYTES,
+): { queue: T[]; skipped: T[] } {
+  const queue: T[] = [];
+  const skipped: T[] = [];
+  let localTotal = 0;
+  for (const a of assets) {
+    if (a.isDrive) {
+      queue.push(a);
+      continue;
+    }
+    const size = Number(a.sizeBytes || 0);
+    if (size > maxFile || localTotal + size > maxTotal) {
+      skipped.push(a);
+      continue;
+    }
+    localTotal += size;
+    queue.push(a);
+  }
+  return { queue, skipped };
 }

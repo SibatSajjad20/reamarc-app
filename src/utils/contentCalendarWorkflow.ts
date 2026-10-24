@@ -258,10 +258,9 @@ export function isTeamLeadOrAdmin(user?: CalendarActor | null): boolean {
 export function canAccessClientReviewLink(stage?: string | null, user?: CalendarActor | null): boolean {
   if (!stage) return false;
   if (roleOf(user) === 'client') return false;
-  // Review link option is ONLY available when content is in client review stages:
-  // - Content Client Review
-  // - Creative Client Review
-  return stage === 'Content Client Review' || stage === 'Creative Client Review';
+  // The review link works at every stage: the client can always look and request changes
+  // (which moves the card to revision). Approve only appears in the two client review stages.
+  return stage !== 'Rejected';
 }
 
 export function canCreateCampaign(user?: CalendarActor | null): boolean {

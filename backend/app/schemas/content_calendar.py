@@ -254,6 +254,7 @@ class CreativeAsset(BaseModel):
     google_drive_file_id: Optional[str] = Field(default=None, description="Drive file id when stored in Google Drive")
     google_drive_url: Optional[str] = Field(default=None, description="Drive web link for this file")
     google_drive_thumb_file_id: Optional[str] = Field(default=None, description="Drive file id for the video thumbnail")
+    poster_version: Optional[int] = Field(default=None, description="Bumps each time someone picks a new thumbnail")
 
 
 class AssetReorderRequest(BaseModel):

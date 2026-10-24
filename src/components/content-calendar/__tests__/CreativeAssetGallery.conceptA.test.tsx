@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { CreativeAsset } from '../../../types/contentCalendar';
 import { CreativeAssetGallery } from '../CreativeAssetGallery';
 
@@ -64,7 +64,7 @@ describe('CreativeAssetGallery – Concept A preview', () => {
     expect(within(card).getByText('sardars mall reel v1.mp4')).toBeTruthy();
   });
 
-  it('copy / open / download call the same handlers with the same args as before', () => {
+  it('copy / open / download call the same handlers with the same args as before', async () => {
     const a = asset({});
     render(<CreativeAssetGallery itemId="it" readOnly attachments={[a]} />);
     fireEvent.click(screen.getByRole('button', { name: 'Copy asset link' }));
@@ -72,7 +72,8 @@ describe('CreativeAssetGallery – Concept A preview', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open in new tab' }));
     expect(openFileAttachment).toHaveBeenCalledWith(a.url, a.filename);
     fireEvent.click(screen.getByRole('button', { name: 'Download' }));
-    expect(downloadFileAttachment).toHaveBeenCalledWith(a.url, a.filename);
+    // Non-Drive file: the direct-download helper falls back to the same download as before.
+    await waitFor(() => expect(downloadFileAttachment).toHaveBeenCalledWith(a.url, a.filename));
   });
 
   it('delete lives in the More menu and still asks for confirmation before deleting', () => {

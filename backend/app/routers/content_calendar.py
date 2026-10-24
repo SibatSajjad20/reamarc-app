@@ -442,6 +442,23 @@ async def delete_content_asset(
     )
 
 
+@router.post("/{item_id}/assets/{asset_id}/poster", response_model=ContentCalendarItemResponse)
+@limiter.limit("30/minute")
+async def set_content_asset_poster(
+    request: Request,
+    item_id: str,
+    asset_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Sets a video's thumbnail from an image (an uploaded picture or a frame picked in the browser)."""
+    db = get_database()
+    raw = await file.read(content_calendar_service.POSTER_MAX_BYTES + 1)
+    return await content_calendar_service.set_asset_poster(
+        db, item_id=item_id, asset_id=asset_id, image_bytes=raw, viewer=current_user
+    )
+
+
 @router.patch("/{item_id}/assets/reorder", response_model=ContentCalendarItemResponse)
 @limiter.limit("60/minute")
 async def reorder_content_assets(

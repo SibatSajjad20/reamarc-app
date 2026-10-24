@@ -85,23 +85,36 @@ class ReviewDownloadTests(unittest.TestCase):
             ],
         }
 
-    def test_approved_moved_to_creative_revision_is_410_page_and_download(self):
+    def test_approved_moved_to_creative_revision_page_200_download_410(self):
         token = "tok-rev"
         doc = self._doc(token, "Creative Revision", "Approved")
         client = self._client_for(doc)
         page = client.get(f"/api/v1/content-calendar/public/review/{token}")
-        self.assertEqual(page.status_code, 410, page.text)
+        # Review link stays open at every stage (Oct 2026): page loads, changes can be requested, no approve.
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertFalse(page.json().get("can_approve"))
+        self.assertTrue(page.json().get("can_request_changes"))
+        self.assertFalse(page.json().get("download_allowed"))
         dl = client.get(f"/api/v1/content-calendar/public/review/{token}/assets/att-1?download=1")
         self.assertEqual(dl.status_code, 410, dl.text)
 
-    def test_creative_production_is_410(self):
+    def test_creative_production_page_200_download_410(self):
         token = "tok-prod"
         doc = self._doc(token, "Creative Production", "Content Approved")
         client = self._client_for(doc)
         page = client.get(f"/api/v1/content-calendar/public/review/{token}")
-        self.assertEqual(page.status_code, 410, page.text)
+        # Review link stays open at every stage (Oct 2026): page loads, changes can be requested, no approve.
+        self.assertEqual(page.status_code, 200, page.text)
+        self.assertFalse(page.json().get("can_approve"))
+        self.assertTrue(page.json().get("can_request_changes"))
+        self.assertFalse(page.json().get("download_allowed"))
         dl = client.get(f"/api/v1/content-calendar/public/review/{token}/assets/att-1?download=1")
         self.assertEqual(dl.status_code, 410, dl.text)
+
+    def test_rejected_is_410(self):
+        token = "tok-rej"
+        client = self._client_for(self._doc(token, "Rejected", "Rejected"))
+        self.assertEqual(client.get(f"/api/v1/content-calendar/public/review/{token}").status_code, 410)
 
     def test_creative_review_stage_is_200_download_allowed(self):
         token = "tok-crev"

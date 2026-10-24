@@ -144,10 +144,10 @@ class TestClientPortalParity(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row["stage"], "Creative Revision")
         self.assertEqual(row["approval_status"], "Changes Requested")
         self.assertIn("fix 3", row["revision_note"])
-        # A second decision from the old link is refused (link closed once changes are requested).
+        # The link stays open, but approving is refused outside the client review stages.
         again = await self.client.post("/api/v1/content-calendar/public/review/tok-csb5-portal-123/action",
                                        json={"action": "approve", "reviewer_name": "Client"})
-        self.assertEqual(again.status_code, 410)
+        self.assertEqual(again.status_code, 409)
 
 
 if __name__ == "__main__":

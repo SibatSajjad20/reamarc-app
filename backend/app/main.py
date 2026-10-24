@@ -140,6 +140,7 @@ async def lifespan(app: FastAPI):
     run_schedulers = os.getenv("RUN_SCHEDULERS", "1") != "0"
     reminder_task = sla_task = lead_queue_task = meta_poll_task = None
     meeting_reminder_task = website_scheduler_task = sync_task = None
+    drive_share_task = None
 
     if run_schedulers:
         # Start 6-hour background sync task for performance marketing
@@ -188,6 +189,9 @@ async def lifespan(app: FastAPI):
 
         sync_task = asyncio.create_task(periodic_marketing_sync())
 
+        from app.services.drive_direct import start_drive_share_sweeper
+        drive_share_task = asyncio.create_task(start_drive_share_sweeper())
+
     yield
 
     cleanup_task.cancel()
@@ -199,6 +203,7 @@ async def lifespan(app: FastAPI):
         meeting_reminder_task,
         website_scheduler_task,
         sync_task,
+        drive_share_task,
     ):
         if task is not None:
             task.cancel()

@@ -140,7 +140,7 @@ class PublicReviewAssetCacheTests(unittest.TestCase):
         self.assertEqual(opener.await_count, 0)
 
         expired = self._client_for(
-            self._doc(token="tok-expired", stage="Creative Revision", approval="Changes Requested")
+            self._doc(token="tok-expired", stage="Rejected", approval="Rejected")
         )
         with patch("app.core.uploads.open_upload_response", new=opener):
             gone = expired.get(self._asset_url("tok-expired"), headers={"If-None-Match": "*"})

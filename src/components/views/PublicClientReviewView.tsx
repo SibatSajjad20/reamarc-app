@@ -31,6 +31,7 @@ import {
   downloadPublicAsset,
   formatDownloadSize,
   isMobileDevice,
+  planBulkDownload,
   type PublicDownloadAsset,
 } from '../../utils/publicDownload';
 
@@ -275,7 +276,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   );
 
   const downloadOnly = Boolean(item?.read_only || item?.download_only);
-  const canDecide = isPendingReview && !downloadOnly;
+  // Server decides; older servers did not send the flags, so fall back to the old rule.
+  const canApprove =
+    item?.can_approve !== undefined ? Boolean(item.can_approve) : isPendingReview && !downloadOnly;
+  const canDecide =
+    item?.can_request_changes !== undefined ? Boolean(item.can_request_changes) : isPendingReview && !downloadOnly;
   const downloadsEnabled = Boolean(item?.download_allowed);
 
   const activePreviewAsset = item?.attachments?.[activeAssetIndex];
@@ -390,6 +395,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       contentType: asset.content_type,
       sizeBytes: asset.size_bytes,
       kind: asset.kind,
+      isDrive: Boolean(asset.google_drive_file_id),
     }));
   const activeAsset = assets[activeAssetIndex];
   const activeDownload = activeAsset
@@ -477,13 +483,18 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     ) {
       return;
     }
+    const { queue: bulkQueue, skipped: bulkSkipped } = planBulkDownload(downloadableAssets);
+    if (bulkQueue.length === 0) {
+      toast.error('These files are too large to download together. Download them one at a time.');
+      return;
+    }
     inFlightDownloadAllRef.current = true;
     setIsDownloadingAll(true);
-    setDownloadAllProgress({ current: 1, total: downloadableAssets.length });
+    setDownloadAllProgress({ current: 1, total: bulkQueue.length });
 
     try {
       await downloadAllPublicAssets(
-        downloadableAssets,
+        bulkQueue,
         400,
         undefined,
         (current, total) => {
@@ -493,7 +504,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
         },
       );
 
-      toast.success('Download started');
+      if (bulkSkipped.length) {
+        toast.success(`Download started. ${bulkSkipped.length} large file${bulkSkipped.length > 1 ? 's' : ''} skipped: download ${bulkSkipped.length > 1 ? 'them' : 'it'} one at a time.`);
+      } else {
+        toast.success('Download started');
+      }
       if (isMountedRef.current) {
         setDownloadAllSuccess(true);
         setDownloadAllProgress(null);
@@ -989,7 +1004,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
                   {/* Split Action Buttons (Sentence Case per §13.17) */}
                   <div className="space-y-2 pt-2">
-                    <Button
+                    {!canApprove && (
+                      <p className="text-[13px] text-fg-muted">
+                        This isn't waiting on your approval yet. If you want something changed, tell us below and the card goes back to our team for revision.
+                      </p>
+                    )}
+                    {canApprove && (<Button
                       variant="primary"
                       size="md"
                       block
@@ -1002,7 +1022,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       {item.stage === 'Content Client Review'
                         ? 'Approve content copy'
                         : 'Approve creative'}
-                    </Button>
+                    </Button>)}
 
                     <Button
                       variant="outline"
@@ -1121,6 +1141,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
           >
             Request changes
           </Button>
+{canApprove && (
           <Button
             variant="primary"
             size="md"
@@ -1133,6 +1154,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
           >
             {item.stage === 'Content Client Review' ? 'Approve copy' : 'Approve creative'}
           </Button>
+          )}
         </div>
       )}
     </div>

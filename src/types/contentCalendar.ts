@@ -93,6 +93,9 @@ export interface ContentCalendarItem {
   read_only?: boolean;
   download_only?: boolean;
   download_allowed?: boolean;
+  /** Public review link: approve only in client review stages; request changes at any stage. */
+  can_approve?: boolean;
+  can_request_changes?: boolean;
   created_at: string;
   updated_at: string;
 }

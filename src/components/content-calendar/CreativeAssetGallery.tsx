@@ -38,8 +38,10 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl, fallbackToOriginal } from '../../utils/fileUrl';
+import { openFileAttachment, getBackendFileUrl, getThumbUrl, getVideoStillUrl, isRealThumbnailUrl, fallbackToOriginal } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
+import { downloadAssetDirect, downloadAllAssets } from '../../utils/directDownload';
+import VideoPosterPicker from './VideoPosterPicker';
 
 interface CreativeAssetGalleryProps {
   itemId: string;
@@ -339,6 +341,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   compact = false,
 }) => {
   const { addToast } = useToast();
+  const [posterAsset, setPosterAsset] = useState<CreativeAsset | null>(null);
   const [localAssets, setLocalAssets] = useState<CreativeAsset[]>(() =>
     [...attachments].sort((a, b) => a.order - b.order)
   );
@@ -426,6 +429,30 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const videoCount = assets.filter((a) => a.kind === 'video').length;
   const linkCount = assets.filter((a) => a.kind === 'link').length;
   const docCount = assets.filter((a) => a.kind === 'document').length;
+  const downloadableCount = assets.filter((a) => a.kind !== 'link' && a.url).length;
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  const handleDownloadAll = async () => {
+    if (bulkProgress) return;
+    setBulkProgress({ done: 0, total: downloadableCount });
+    try {
+      const { downloaded, skipped } = await downloadAllAssets(assets, {
+        onProgress: (done, total) => setBulkProgress({ done, total }),
+      });
+      if (skipped.length) {
+        addToast(
+          'Some files skipped',
+          `Downloaded ${downloaded}. ${skipped.length} large file${skipped.length > 1 ? 's' : ''} not in Google Drive ${skipped.length > 1 ? 'were' : 'was'} skipped: download ${skipped.length > 1 ? 'them' : 'it'} one at a time.`,
+          'info',
+        );
+      } else if (downloaded) {
+        addToast('Download started', `${downloaded} file${downloaded > 1 ? 's' : ''}`, 'success');
+      }
+    } catch {
+      addToast('Download failed', 'Try again.', 'error');
+    } finally {
+      setBulkProgress(null);
+    }
+  };
 
   // Lightbox keyboard navigation
   useEffect(() => {
@@ -488,6 +515,10 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       if (updatedItem.attachments && updatedItem.attachments.length > 0) {
         setSelectedIndex(updatedItem.attachments.length - 1);
       }
+      // One new video: offer to pick its thumbnail. Skippable; can be set later from the asset menu.
+      const before = new Set(assets.map((a) => a.id));
+      const newVideos = (updatedItem.attachments || []).filter((a) => a.kind === 'video' && !before.has(a.id));
+      if (newVideos.length === 1) setPosterAsset(newVideos[0]);
     } catch (err: any) {
       addToast('Upload failed', err.message || 'Could not upload files. Try again.', 'error');
     } finally {
@@ -527,6 +558,13 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const handleOpenGoogleDrivePicker = async () => {
     if (isUploading || isOpeningPicker) return;
     await driveAttachRef.current?.openPicker();
+  };
+
+  const handleSavePoster = async (image: Blob) => {
+    if (!posterAsset) return;
+    const updated = await contentCalendarService.setAssetPoster(itemId, posterAsset.id, image);
+    addToast('Thumbnail updated', 'Cards and link previews now use it.', 'success');
+    onAssetsUpdated?.(updated);
   };
 
   const handleDeleteConfirmed = async () => {
@@ -901,7 +939,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   </button>
                   <button
                     type="button"
-                    onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
+                    onClick={() => void downloadAssetDirect(activeAsset)}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-accent-fg hover:opacity-90 transition cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
@@ -983,7 +1021,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               </FooterAction>
               <FooterAction
                 label="Download"
-                onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
+                onClick={() => void downloadAssetDirect(activeAsset)}
               >
                 <Download className="w-[18px] h-[18px]" />
               </FooterAction>
@@ -1005,6 +1043,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                       <DropdownMenuItem onClick={() => setIsLightboxOpen(true)}>
                         <Maximize2 className="w-3.5 h-3.5 mr-2 text-fg-muted" />
                         <span>View full screen</span>
+                      </DropdownMenuItem>
+                    )}
+                    {!readOnly && activeAsset.kind === 'video' && (
+                      <DropdownMenuItem onClick={() => setPosterAsset(activeAsset)}>
+                        <ImageIcon className="w-3.5 h-3.5 mr-2 text-fg-muted" />
+                        <span>Set thumbnail</span>
                       </DropdownMenuItem>
                     )}
                     {!readOnly && (
@@ -1032,11 +1076,25 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             <span>
               Carousel & Deliverable Slides ({assets.length})
             </span>
-            {!readOnly && (
-              <span className="text-caption text-fg-muted">
-                Use arrows to reorder slide sequence
-              </span>
-            )}
+            <span className="flex items-center gap-3">
+              {!readOnly && (
+                <span className="text-caption text-fg-muted">
+                  Use arrows to reorder slide sequence
+                </span>
+              )}
+              {downloadableCount > 1 && (
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadAll()}
+                  disabled={bulkProgress !== null}
+                  className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-fg hover:bg-hover disabled:opacity-60 cursor-pointer"
+                  aria-label="Download all files"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  {bulkProgress ? `Downloading ${bulkProgress.done}/${bulkProgress.total}` : `Download all (${downloadableCount})`}
+                </button>
+              )}
+            </span>
           </div>
 
           <div className="flex items-center gap-2 overflow-x-auto pb-1.5 pt-0.5 no-scrollbar">
@@ -1230,7 +1288,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
+                onClick={() => void downloadAssetDirect(activeAsset)}
                 className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition cursor-pointer"
                 title="Download image"
               >
@@ -1432,6 +1490,13 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
         getConfig={() => contentCalendarService.getDrivePickerConfig(itemId)}
         onPicked={handlePickedFromDrive}
         disabled={readOnly}
+      />
+      <VideoPosterPicker
+        open={posterAsset !== null}
+        videoSrc={posterAsset ? getBackendFileUrl(posterAsset.url) || posterAsset.url : ''}
+        filename={posterAsset?.filename}
+        onClose={() => setPosterAsset(null)}
+        onSave={handleSavePoster}
       />
     </div>
   );
