@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { validateFinanceProofFile } from '../utils/financeProof';
 import type {
   AgeingSummaryReport,
   ClientStatementReport,
@@ -232,6 +233,10 @@ export const financeService = {
 
   // File Upload
   async uploadProofFile(file: File): Promise<{ file_id: string; url: string; filename: string }> {
+    const proofError = validateFinanceProofFile(file);
+    if (proofError) {
+      throw new Error(proofError);
+    }
     const formData = new FormData();
     formData.append('file', file);
 

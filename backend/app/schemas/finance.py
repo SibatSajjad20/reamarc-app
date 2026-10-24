@@ -129,8 +129,7 @@ class InvoiceLineItem(BaseModel):
 
     @model_validator(mode="after")
     def compute_amount(self) -> InvoiceLineItem:
-        if self.amount == 0 and self.rate > 0 and self.quantity > 0:
-            self.amount = int(round(self.quantity * self.rate))
+        self.amount = int(round(self.quantity * self.rate))
         return self
 
 

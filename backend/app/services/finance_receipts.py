@@ -165,8 +165,12 @@ async def post_receipt(
         new_balance = max(0, total - (new_paid + new_wht))
         new_status = "paid" if new_balance == 0 else "partially_paid"
 
-        await db["invoices"].update_one(
-            {"company_id": company_id, "id": inv["id"]},
+        result = await db["invoices"].update_one(
+            {
+                "company_id": company_id,
+                "id": inv["id"],
+                "balance_due": {"$gte": alloc.amount + alloc.wht},
+            },
             {
                 "$set": {
                     "amount_paid": new_paid,
@@ -177,6 +181,14 @@ async def post_receipt(
                 }
             },
         )
+        if result.matched_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    f"Invoice {inv.get('number')} was updated by another payment. "
+                    "Refresh and try again."
+                ),
+            )
 
     # 7. Record Audit
     await db["finance_audit"].insert_one({

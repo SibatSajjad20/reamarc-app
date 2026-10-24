@@ -7,13 +7,16 @@ import {
   Send,
   Save,
   Eye,
-  CheckCircle2,
   AlertCircle,
   Building,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { workspaceService } from '../../services/workspaceService';
 import { formatMinorMoney, majorToMinor, minorToMajor, amountInWords } from '../../utils/money';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { CustomSelect } from '../ui/CustomSelect';
+import { CURRENCY_OPTIONS, TERMS_OPTIONS } from './financeUi';
 import type {
   Invoice,
   InvoiceCreatePayload,
@@ -254,6 +257,18 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
       setError('At least one line item is required');
       return;
     }
+    if (lines.some((line) => !line.description.trim())) {
+      setError('Every line item needs a description');
+      return;
+    }
+    if (lines.some((line) => line.quantity <= 0 || line.rateMajor < 0)) {
+      setError('Line quantity must be greater than zero and rate cannot be negative');
+      return;
+    }
+    if (andIssue && !workspaceId && !clientName.trim()) {
+      setError('Select a client before issuing');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -314,34 +329,29 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50 min-h-screen">
-      {/* Top Header Bar */}
-      <header className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-20">
+    <div className="flex flex-col h-full bg-canvas min-h-0 font-sans">
+      <header className="bg-surface border-b border-border px-0 py-3 flex flex-wrap justify-between items-center gap-4 sticky top-0 z-20">
         <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition"
-            title="Back to invoices"
-          >
-            <ArrowLeft className="w-5 h-5" />
-          </button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onBack} aria-label="Back to invoices">
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
           <div>
-            <h1 className="text-xl font-bold text-slate-900">
-              {invoiceId ? `Edit Invoice (${initialInvoice?.number || 'Draft'})` : 'Create Invoice'}
+            <h1 className="text-h2 font-semibold text-fg">
+              {invoiceId ? `Edit ${initialInvoice?.number || 'draft'}` : 'New invoice'}
             </h1>
-            <p className="text-xs text-slate-500">
-              Draft, customize lines, preview in real-time, and issue
+            <p className="text-caption text-fg-muted">
+              Draft lines, preview, then save or issue
             </p>
           </div>
         </div>
 
         {/* Tab switch on smaller screens */}
-        <div className="lg:hidden flex items-center bg-slate-100 p-1 rounded-lg">
+        <div className="lg:hidden flex items-center bg-subtle p-1 rounded-lg">
           <button
             type="button"
             onClick={() => setActiveTab('form')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md transition ${
-              activeTab === 'form' ? 'bg-white shadow text-slate-900' : 'text-slate-600'
+              activeTab === 'form' ? 'bg-surface shadow text-fg' : 'text-fg-2'
             }`}
           >
             Edit Form
@@ -350,7 +360,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             type="button"
             onClick={() => setActiveTab('preview')}
             className={`px-3 py-1.5 text-xs font-semibold rounded-md flex items-center gap-1.5 transition ${
-              activeTab === 'preview' ? 'bg-white shadow text-slate-900' : 'text-slate-600'
+              activeTab === 'preview' ? 'bg-surface shadow text-fg' : 'text-fg-2'
             }`}
           >
             <Eye className="w-3.5 h-3.5" />
@@ -359,25 +369,13 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => handleSave(false)}
-            disabled={loading}
-            className="px-4 py-2 border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-lg transition flex items-center gap-2"
-          >
-            <Save className="w-4 h-4" />
-            Save Draft
-          </button>
-          <button
-            type="button"
-            onClick={() => handleSave(true)}
-            disabled={loading}
-            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-lg shadow-sm transition flex items-center gap-2"
-          >
-            <Send className="w-4 h-4" />
-            {loading ? 'Processing…' : 'Issue Invoice'}
-          </button>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" icon={Save} onClick={() => handleSave(false)} loading={loading}>
+            Save draft
+          </Button>
+          <Button type="button" variant="primary" size="sm" icon={Send} onClick={() => handleSave(true)} loading={loading}>
+            Issue invoice
+          </Button>
         </div>
       </header>
 
@@ -393,46 +391,47 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         {/* Left Form: Column span 7 on large */}
         <div className={`lg:col-span-6 space-y-6 ${activeTab === 'preview' ? 'hidden lg:block' : 'block'}`}>
           {/* Section 1: Client Details */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-              <Building className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">Client Details</h2>
+          <div className="bg-surface rounded-lg border border-border p-6 space-y-5">
+            <div className="flex items-center gap-2 pb-3 border-b border-border">
+              <Building className="w-4 h-4 text-accent-text" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-fg-2">Client Details</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Select Existing Client (Workspace)
                 </label>
-                <select
+                <CustomSelect
                   value={workspaceId}
-                  onChange={(e) => handleSelectWorkspace(e.target.value)}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">— Or type custom client below —</option>
-                  {workspaces.map((ws) => (
-                    <option key={ws.id} value={ws.id}>
-                      {ws.name} ({ws.project_cycle || 'Client'})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Client Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={clientName}
-                  onChange={(e) => setClientName(e.target.value)}
-                  placeholder="e.g. Nova Luxury Living"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  onChange={handleSelectWorkspace}
+                  searchable
+                  placeholder="Select a client or type a name below"
+                  options={[
+                    { value: '', label: 'Custom client (type name below)' },
+                    ...workspaces.map((ws) => ({
+                      value: ws.id,
+                      label: ws.name,
+                      description: ws.project_cycle || 'Client',
+                    })),
+                  ]}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
+                  Client Name <span className="text-rose-500">*</span>
+                </label>
+                <Input
+                  value={clientName}
+                  onChange={(e) => setClientName(e.target.value)}
+                  placeholder="e.g. Nova Luxury Living"
+                  error={error && !clientName.trim() ? 'Required' : undefined}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Billing Contact Name
                 </label>
                 <input
@@ -440,12 +439,12 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={billingName}
                   onChange={(e) => setBillingName(e.target.value)}
                   placeholder="e.g. Ali Raza"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Billing Email
                 </label>
                 <input
@@ -453,12 +452,12 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={billingEmail}
                   onChange={(e) => setBillingEmail(e.target.value)}
                   placeholder="ali@nova.pk"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Billing Phone
                 </label>
                 <input
@@ -466,12 +465,12 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={billingPhone}
                   onChange={(e) => setBillingPhone(e.target.value)}
                   placeholder="+92 300 1234567"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Billing Address
                 </label>
                 <textarea
@@ -479,60 +478,50 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={billingAddress}
                   onChange={(e) => setBillingAddress(e.target.value)}
                   placeholder="Office 402, Business Bay, Sector F, DHA Phase 1..."
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
                 />
               </div>
             </div>
           </div>
 
           {/* Section 2: Invoice Terms & Currency */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
-            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-              <FileText className="w-4 h-4 text-indigo-600" />
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">Invoice Settings</h2>
+          <div className="bg-surface rounded-lg border border-border p-6 space-y-5">
+            <div className="flex items-center gap-2 pb-3 border-b border-border">
+              <FileText className="w-4 h-4 text-accent-text" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-fg-2">Invoice Settings</h2>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Currency</label>
-                <select
+                <label className="block text-xs font-semibold text-fg-2 mb-1">Currency</label>
+                <CustomSelect
                   value={currency}
-                  onChange={(e) => setCurrency(e.target.value as Currency)}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
-                >
-                  <option value="PKR">PKR (₨)</option>
-                  <option value="USD">USD ($)</option>
-                  <option value="GBP">GBP (£)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Issue Date</label>
-                <input
-                  type="date"
-                  value={issueDate}
-                  onChange={(e) => setIssueDate(e.target.value)}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  onChange={(value) => setCurrency(value as Currency)}
+                  options={CURRENCY_OPTIONS}
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Terms</label>
-                <select
-                  value={termsPreset}
-                  onChange={(e) => setTermsPreset(e.target.value)}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="Due on receipt">Due on receipt</option>
-                  <option value="Net 7">Net 7 (7 days)</option>
-                  <option value="Net 15">Net 15 (15 days)</option>
-                  <option value="Net 30">Net 30 (30 days)</option>
-                  <option value="Custom">Custom Date</option>
-                </select>
+                <label className="block text-xs font-semibold text-fg-2 mb-1">Issue Date</label>
+                <input
+                  type="date"
+                  value={issueDate}
+                  onChange={(e) => setIssueDate(e.target.value)}
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Due Date</label>
+                <label className="block text-xs font-semibold text-fg-2 mb-1">Payment Terms</label>
+                <CustomSelect
+                  value={termsPreset}
+                  onChange={setTermsPreset}
+                  options={TERMS_OPTIONS}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-fg-2 mb-1">Due Date</label>
                 <input
                   type="date"
                   value={dueDate}
@@ -540,12 +529,12 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                     setDueDate(e.target.value);
                     setTermsPreset('Custom');
                   }}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-medium"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring font-medium"
                 />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Client PO / Reference Number
                 </label>
                 <input
@@ -553,41 +542,36 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={reference}
                   onChange={(e) => setReference(e.target.value)}
                   placeholder="PO-2026-8812"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 focus:outline-none focus:ring-2 focus-visible:focus-ring"
                 />
               </div>
             </div>
           </div>
 
           {/* Section 3: Item Details / Services */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-700">Services & Line Items</h2>
+          <div className="bg-surface rounded-lg border border-border p-6 space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-border">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-fg-2">Services & Line Items</h2>
               <div className="flex items-center gap-2">
                 {/* Catalog Dropdown Picker */}
-                <select
-                  onChange={(e) => {
-                    const s = services.find((sv) => sv.id === e.target.value);
+                <CustomSelect
+                  value=""
+                  placeholder={`Pick from catalog (${services.length})`}
+                  onChange={(serviceId) => {
+                    const s = services.find((sv) => sv.id === serviceId);
                     if (s) handleAddServiceLine(s);
-                    e.target.value = '';
                   }}
-                  className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg px-3 py-1.5 font-semibold focus:outline-none hover:bg-indigo-100 transition cursor-pointer"
-                  defaultValue=""
-                >
-                  <option value="" disabled>
-                    + Pick from catalog ({services.length} services)
-                  </option>
-                  {services.map((srv) => (
-                    <option key={srv.id} value={srv.id}>
-                      {srv.name}
-                    </option>
-                  ))}
-                </select>
+                  options={services.map((srv) => ({
+                    value: srv.id,
+                    label: srv.name,
+                    description: formatMinorMoney(srv.default_rate, (srv.currency as Currency) || currency),
+                  }))}
+                />
 
                 <button
                   type="button"
                   onClick={() => handleAddServiceLine()}
-                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1"
+                  className="text-xs bg-subtle hover:bg-hover text-fg-2 font-semibold px-3 py-1.5 rounded-lg transition flex items-center gap-1"
                 >
                   <Plus className="w-3.5 h-3.5" /> Custom line
                 </button>
@@ -601,9 +585,9 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 return (
                   <div
                     key={line.id}
-                    className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition grid grid-cols-12 gap-3 items-center"
+                    className="p-3.5 rounded-lg border border-border bg-canvas/50 hover:bg-canvas transition grid grid-cols-12 gap-3 items-center"
                   >
-                    <div className="col-span-1 text-center font-bold text-xs text-slate-400">
+                    <div className="col-span-1 text-center font-bold text-xs text-fg-muted">
                       {idx + 1}
                     </div>
 
@@ -613,34 +597,34 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                         value={line.description}
                         onChange={(e) => handleUpdateLine(line.id, { description: e.target.value })}
                         placeholder="Service name or description"
-                        className="w-full text-xs font-medium rounded-lg border border-slate-300 px-3 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className="w-full text-xs font-medium rounded-lg border border-border-strong px-3 py-1.5 bg-surface focus:outline-none focus:ring-2 focus-visible:focus-ring"
                       />
                     </div>
 
                     <div className="col-span-2 sm:col-span-2">
                       <div className="flex items-center">
-                        <span className="text-[10px] text-slate-400 mr-1 hidden sm:inline">Qty</span>
+                        <span className="text-[10px] text-fg-muted mr-1 hidden sm:inline">Qty</span>
                         <input
                           type="number"
                           min="0.1"
                           step="any"
                           value={line.quantity}
                           onChange={(e) => handleUpdateLine(line.id, { quantity: parseFloat(e.target.value) || 0 })}
-                          className="w-full text-xs text-center rounded-lg border border-slate-300 px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          className="w-full text-xs text-center rounded-lg border border-border-strong px-2 py-1.5 bg-surface focus:outline-none focus:ring-2 focus-visible:focus-ring"
                         />
                       </div>
                     </div>
 
                     <div className="col-span-3 sm:col-span-2">
                       <div className="flex items-center">
-                        <span className="text-[10px] text-slate-400 mr-1 hidden sm:inline">Rate</span>
+                        <span className="text-[10px] text-fg-muted mr-1 hidden sm:inline">Rate</span>
                         <input
                           type="number"
                           min="0"
                           step="any"
                           value={line.rateMajor}
                           onChange={(e) => handleUpdateLine(line.id, { rateMajor: parseFloat(e.target.value) || 0 })}
-                          className="w-full text-xs text-right rounded-lg border border-slate-300 px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 font-semibold"
+                          className="w-full text-xs text-right rounded-lg border border-border-strong px-2 py-1.5 bg-surface focus:outline-none focus:ring-2 focus-visible:focus-ring font-semibold"
                         />
                       </div>
                     </div>
@@ -649,7 +633,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       <button
                         type="button"
                         onClick={() => handleRemoveLine(line.id)}
-                        className="p-1 text-slate-400 hover:text-rose-600 transition"
+                        className="p-1 text-fg-muted hover:text-rose-600 transition"
                         title="Remove line"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -661,18 +645,18 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             </div>
 
             {/* Discount, Pay To Bank & Notes */}
-            <div className="pt-4 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="pt-4 border-t border-border grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Discount</label>
+                <label className="block text-xs font-semibold text-fg-2 mb-1">Discount</label>
                 <div className="flex gap-2">
-                  <select
+                  <CustomSelect
                     value={discountType}
-                    onChange={(e) => setDiscountType(e.target.value as 'amount' | 'percent')}
-                    className="text-xs rounded-lg border border-slate-300 px-2.5 py-1.5 bg-white"
-                  >
-                    <option value="amount">Fixed ({currency})</option>
-                    <option value="percent">Percentage (%)</option>
-                  </select>
+                    onChange={(value) => setDiscountType(value as 'amount' | 'percent')}
+                    options={[
+                      { value: 'amount', label: `Fixed (${currency})` },
+                      { value: 'percent', label: 'Percentage (%)' },
+                    ]}
+                  />
                   <input
                     type="number"
                     min="0"
@@ -680,30 +664,28 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                     value={discountValueMajor}
                     onChange={(e) => setDiscountValueMajor(parseFloat(e.target.value) || 0)}
                     placeholder="0"
-                    className="w-full text-xs rounded-lg border border-slate-300 px-3 py-1.5 text-right font-medium"
+                    className="w-full text-xs rounded-lg border border-border-strong px-3 py-1.5 text-right font-medium"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Deposit / Pay-To Bank Account
                 </label>
-                <select
+                <CustomSelect
                   value={selectedBankId}
-                  onChange={(e) => setSelectedBankId(e.target.value)}
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-1.5 bg-white font-medium"
-                >
-                  {(settings?.bank_accounts || []).map((b) => (
-                    <option key={b.bank_id} value={b.bank_id}>
-                      {b.bank_name} (A/C: {b.account_number})
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedBankId}
+                  options={(settings?.bank_accounts || []).map((b) => ({
+                    value: b.bank_id,
+                    label: b.bank_name,
+                    description: b.account_number,
+                  }))}
+                />
               </div>
 
               <div className="sm:col-span-2">
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Customer Notes
                 </label>
                 <input
@@ -711,25 +693,25 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. Thank you for your business!"
-                  className="w-full text-xs rounded-lg border border-slate-300 px-3 py-1.5"
+                  className="w-full text-xs rounded-lg border border-border-strong px-3 py-1.5"
                 />
               </div>
             </div>
 
             {/* Calculations summary banner */}
-            <div className="p-4 rounded-xl bg-slate-900 text-white flex flex-wrap justify-between items-center gap-4">
+            <div className="p-4 rounded-lg bg-slate-900 text-white flex flex-wrap justify-between items-center gap-4">
               <div>
-                <p className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Total Invoice Amount</p>
+                <p className="text-[10px] text-fg-muted uppercase tracking-wider font-semibold">Total Invoice Amount</p>
                 <p className="text-xl font-bold tracking-tight text-white">
                   {formatMinorMoney(totalMinor, currency)}
                 </p>
-                <p className="text-xs text-indigo-300 italic mt-0.5">
+                <p className="text-xs text-accent-text italic mt-0.5">
                   {amountInWords(totalMinor, currency)}
                 </p>
               </div>
 
               <div className="text-right text-xs space-y-1">
-                <p className="text-slate-300">
+                <p className="text-fg-muted">
                   Subtotal: <span className="font-semibold">{formatMinorMoney(subtotalMinor, currency)}</span>
                 </p>
                 {discountAmountMinor > 0 && (
@@ -745,10 +727,10 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         {/* Right Live Preview: Column span 6 on large */}
         <div className={`lg:col-span-6 sticky top-24 ${activeTab === 'form' ? 'hidden lg:block' : 'block'}`}>
           <div className="mb-3 flex justify-between items-center">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <Eye className="w-4 h-4 text-indigo-600" /> Live PDF Preview (Matches generated document)
+            <h2 className="text-xs font-bold uppercase tracking-wider text-fg-muted flex items-center gap-1.5">
+              <Eye className="w-4 h-4 text-accent-text" /> Live PDF Preview (Matches generated document)
             </h2>
-            <span className="text-[10px] text-slate-400 font-medium">Updates in real time</span>
+            <span className="text-[10px] text-fg-muted font-medium">Updates in real time</span>
           </div>
 
           <div className="transform scale-[0.98] origin-top">

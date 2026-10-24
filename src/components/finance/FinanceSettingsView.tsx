@@ -19,6 +19,8 @@ import {
 import { financeService } from '../../services/financeService';
 import { formatMinorMoney, majorToMinor, minorToMajor } from '../../utils/money';
 import type { FinanceSettings, FinanceService, BankAccountConfig, Currency } from '../../types/finance';
+import { CustomSelect } from '../ui/CustomSelect';
+import { CURRENCY_OPTIONS, TERMS_OPTIONS } from './financeUi';
 
 export const FinanceSettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'company' | 'banks' | 'numbering' | 'services'>('company');
@@ -180,7 +182,7 @@ export const FinanceSettingsView: React.FC = () => {
 
   if (loading || !settings) {
     return (
-      <div className="py-20 text-center text-slate-400 dark:text-slate-500">
+      <div className="py-20 text-center text-fg-muted dark:text-fg-muted">
         Loading finance settings...
       </div>
     );
@@ -211,7 +213,7 @@ export const FinanceSettingsView: React.FC = () => {
       {/* Toast Notification */}
       {notification && (
         <div
-          className={`p-4 rounded-xl border flex items-center justify-between shadow-sm animate-in fade-in duration-200 ${
+          className={`p-4 rounded-lg border flex items-center justify-between animate-in fade-in duration-200 ${
             notification.type === 'success'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-800 dark:text-emerald-300'
               : 'bg-rose-50 border-rose-200 text-rose-900 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300'
@@ -227,7 +229,7 @@ export const FinanceSettingsView: React.FC = () => {
           </div>
           <button
             onClick={() => setNotification(null)}
-            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+            className="text-fg-muted hover:text-fg-2 dark:hover:text-slate-200"
           >
             <X className="w-4 h-4" />
           </button>
@@ -236,23 +238,23 @@ export const FinanceSettingsView: React.FC = () => {
 
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          <Settings className="w-6 h-6 text-primary-500" />
+        <h2 className="text-xl font-bold text-fg dark:text-white flex items-center gap-2">
+          <Settings className="w-6 h-6 text-accent-text" />
           Finance Configuration & Service Catalog
         </h2>
-        <p className="text-sm text-slate-500 dark:text-slate-400">
+        <p className="text-sm text-fg-muted dark:text-fg-muted">
           Manage company billing identity, verified bank accounts printed on invoices, document prefixes, and agency services.
         </p>
       </div>
 
       {/* Settings Navigation Tabs */}
-      <div className="flex border-b border-slate-200 dark:border-navy-700">
+      <div className="flex border-b border-border dark:border-border">
         <button
           onClick={() => setActiveTab('company')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'company'
-              ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
           }`}
         >
           <Building2 className="w-4 h-4" />
@@ -263,8 +265,8 @@ export const FinanceSettingsView: React.FC = () => {
           onClick={() => setActiveTab('banks')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'banks'
-              ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
           }`}
         >
           <CreditCard className="w-4 h-4" />
@@ -275,8 +277,8 @@ export const FinanceSettingsView: React.FC = () => {
           onClick={() => setActiveTab('numbering')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'numbering'
-              ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
           }`}
         >
           <Hash className="w-4 h-4" />
@@ -287,8 +289,8 @@ export const FinanceSettingsView: React.FC = () => {
           onClick={() => setActiveTab('services')}
           className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'services'
-              ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'
+              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
+              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
           }`}
         >
           <ListPlus className="w-4 h-4" />
@@ -298,14 +300,14 @@ export const FinanceSettingsView: React.FC = () => {
 
       {/* TAB 1: Company Identity */}
       {activeTab === 'company' && (
-        <form onSubmit={handleSaveSettings} className="bg-white dark:bg-navy-800 rounded-2xl border border-slate-200 dark:border-navy-700 p-6 shadow-sm space-y-5">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-navy-700 pb-3">
+        <form onSubmit={handleSaveSettings} className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-5">
+          <h3 className="text-base font-bold text-fg dark:text-white border-b border-border dark:border-border pb-3">
             Company Billing Information (Printed on Invoices & Receipts)
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Company Legal Name
               </label>
               <input
@@ -313,67 +315,67 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.company_name}
                 onChange={(e) => setSettings({ ...settings, company_name: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Tax ID / NTN / Govt UID
               </label>
               <input
                 type="text"
                 value={settings.tax_id}
                 onChange={(e) => setSettings({ ...settings, tax_id: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Official Business Address
               </label>
               <input
                 type="text"
                 value={settings.company_address}
                 onChange={(e) => setSettings({ ...settings, company_address: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Official Phone Number
               </label>
               <input
                 type="text"
                 value={settings.company_phone}
                 onChange={(e) => setSettings({ ...settings, company_phone: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Finance Email Address
               </label>
               <input
                 type="email"
                 value={settings.company_email}
                 onChange={(e) => setSettings({ ...settings, company_email: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Official Website
               </label>
               <input
                 type="text"
                 value={settings.company_website}
                 onChange={(e) => setSettings({ ...settings, company_website: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
           </div>
@@ -382,7 +384,7 @@ export const FinanceSettingsView: React.FC = () => {
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {saving ? 'Saving...' : 'Save Company Details'}
@@ -395,174 +397,174 @@ export const FinanceSettingsView: React.FC = () => {
       {activeTab === 'banks' && (
         <form onSubmit={handleSaveSettings} className="space-y-6">
           {/* Meezan Bank Card */}
-          <div className="bg-white dark:bg-navy-800 rounded-2xl border border-slate-200 dark:border-navy-700 p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-navy-700 pb-3">
+          <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-border dark:border-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-amber-500" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                <h3 className="text-base font-bold text-fg dark:text-white">
                   Meezan Bank Limited (Islamic Banking)
                 </h3>
               </div>
-              <span className="text-xs font-mono font-medium text-slate-400">ID: meezan</span>
+              <span className="text-xs font-mono font-medium text-fg-muted">ID: meezan</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Bank Name
                 </label>
                 <input
                   type="text"
                   value={meezanBank.bank_name}
                   onChange={(e) => updateBankAccount('meezan', 'bank_name', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Account Title
                 </label>
                 <input
                   type="text"
                   value={meezanBank.account_title}
                   onChange={(e) => updateBankAccount('meezan', 'account_title', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Account Number
                 </label>
                 <input
                   type="text"
                   value={meezanBank.account_number}
                   onChange={(e) => updateBankAccount('meezan', 'account_number', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   IBAN (International Bank Account Number)
                 </label>
                 <input
                   type="text"
                   value={meezanBank.iban}
                   onChange={(e) => updateBankAccount('meezan', 'iban', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   SWIFT / BIC Code
                 </label>
                 <input
                   type="text"
                   value={meezanBank.swift_code}
                   onChange={(e) => updateBankAccount('meezan', 'swift_code', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Branch Name & Address
                 </label>
                 <input
                   type="text"
                   value={meezanBank.branch || ''}
                   onChange={(e) => updateBankAccount('meezan', 'branch', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
             </div>
           </div>
 
           {/* Allied Bank Card */}
-          <div className="bg-white dark:bg-navy-800 rounded-2xl border border-slate-200 dark:border-navy-700 p-6 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-navy-700 pb-3">
+          <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-border dark:border-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-blue-600" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                <h3 className="text-base font-bold text-fg dark:text-white">
                   Allied Bank Limited (ABL)
                 </h3>
               </div>
-              <span className="text-xs font-mono font-medium text-slate-400">ID: abl</span>
+              <span className="text-xs font-mono font-medium text-fg-muted">ID: abl</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Bank Name
                 </label>
                 <input
                   type="text"
                   value={ablBank.bank_name}
                   onChange={(e) => updateBankAccount('abl', 'bank_name', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Account Title
                 </label>
                 <input
                   type="text"
                   value={ablBank.account_title}
                   onChange={(e) => updateBankAccount('abl', 'account_title', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Account Number
                 </label>
                 <input
                   type="text"
                   value={ablBank.account_number}
                   onChange={(e) => updateBankAccount('abl', 'account_number', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   IBAN (International Bank Account Number)
                 </label>
                 <input
                   type="text"
                   value={ablBank.iban}
                   onChange={(e) => updateBankAccount('abl', 'iban', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   SWIFT / BIC Code
                 </label>
                 <input
                   type="text"
                   value={ablBank.swift_code}
                   onChange={(e) => updateBankAccount('abl', 'swift_code', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white font-mono focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Branch Name & Address
                 </label>
                 <input
                   type="text"
                   value={ablBank.branch || ''}
                   onChange={(e) => updateBankAccount('abl', 'branch', e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
             </div>
@@ -572,7 +574,7 @@ export const FinanceSettingsView: React.FC = () => {
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {saving ? 'Saving...' : 'Save Bank Details'}
@@ -583,14 +585,14 @@ export const FinanceSettingsView: React.FC = () => {
 
       {/* TAB 3: Numbering & Terms */}
       {activeTab === 'numbering' && (
-        <form onSubmit={handleSaveSettings} className="bg-white dark:bg-navy-800 rounded-2xl border border-slate-200 dark:border-navy-700 p-6 shadow-sm space-y-5">
-          <h3 className="text-base font-bold text-slate-900 dark:text-white border-b border-slate-100 dark:border-navy-700 pb-3">
+        <form onSubmit={handleSaveSettings} className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-5">
+          <h3 className="text-base font-bold text-fg dark:text-white border-b border-border dark:border-border pb-3">
             Document Numbering, Default Terms & Templates
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Invoice Number Prefix
               </label>
               <input
@@ -598,13 +600,13 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.invoice_prefix}
                 onChange={(e) => setSettings({ ...settings, invoice_prefix: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm font-mono text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm font-mono text-fg dark:text-white uppercase focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
-              <p className="text-[11px] text-slate-400 mt-1">E.g. &apos;INV&apos; generates INV-2026-0001</p>
+              <p className="text-[11px] text-fg-muted mt-1">E.g. &apos;INV&apos; generates INV-2026-0001</p>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Receipt Number Prefix
               </label>
               <input
@@ -612,50 +614,45 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.receipt_prefix}
                 onChange={(e) => setSettings({ ...settings, receipt_prefix: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm font-mono text-slate-900 dark:text-white uppercase focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm font-mono text-fg dark:text-white uppercase focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
-              <p className="text-[11px] text-slate-400 mt-1">E.g. &apos;RCT&apos; generates RCT-2026-0001</p>
+              <p className="text-[11px] text-fg-muted mt-1">E.g. &apos;RCT&apos; generates RCT-2026-0001</p>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Default Due Date Terms
               </label>
-              <select
+              <CustomSelect
                 value={settings.default_payment_terms}
-                onChange={(e) => setSettings({ ...settings, default_payment_terms: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
-              >
-                <option value="Due on Receipt">Due on Receipt</option>
-                <option value="Net 7">Net 7 Days</option>
-                <option value="Net 15">Net 15 Days</option>
-                <option value="Net 30">Net 30 Days</option>
-              </select>
+                onChange={(value) => setSettings({ ...settings, default_payment_terms: value })}
+                options={TERMS_OPTIONS.filter((opt) => opt.value !== 'Custom')}
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Default Notes Template
               </label>
               <textarea
                 rows={3}
                 value={settings.notes_template}
                 onChange={(e) => setSettings({ ...settings, notes_template: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-xs text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                 Default Terms & Conditions
               </label>
               <textarea
                 rows={3}
                 value={settings.terms_template}
                 onChange={(e) => setSettings({ ...settings, terms_template: e.target.value })}
-                className="w-full px-3 py-2 bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-primary-500"
+                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-xs text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
               />
             </div>
           </div>
@@ -664,7 +661,7 @@ export const FinanceSettingsView: React.FC = () => {
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold shadow-sm transition disabled:opacity-50"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
               {saving ? 'Saving...' : 'Save Numbering & Terms'}
@@ -675,34 +672,34 @@ export const FinanceSettingsView: React.FC = () => {
 
       {/* TAB 4: Service Catalog */}
       {activeTab === 'services' && (
-        <div className="bg-white dark:bg-navy-800 rounded-2xl border border-slate-200 dark:border-navy-700 shadow-sm overflow-hidden">
+        <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border overflow-hidden">
           {/* Top Bar */}
-          <div className="p-5 border-b border-slate-200 dark:border-navy-700 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="p-5 border-b border-border dark:border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <ListPlus className="w-5 h-5 text-primary-600" />
+              <h3 className="text-base font-bold text-fg dark:text-white flex items-center gap-2">
+                <ListPlus className="w-5 h-5 text-accent-text" />
                 Service Catalog
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
+              <p className="text-xs text-fg-muted dark:text-fg-muted">
                 Services selectable when drafting invoices. Includes 21 pre-configured agency services and custom offerings.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
               <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
                 <input
                   type="text"
                   placeholder="Search services..."
                   value={serviceSearch}
                   onChange={(e) => setServiceSearch(e.target.value)}
-                  className="pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-navy-900 border border-slate-200 dark:border-navy-700 rounded-lg text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-primary-500 w-52"
+                  className="pl-9 pr-3 py-1.5 text-xs bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-fg dark:text-fg-2 focus:outline-none focus:ring-1 focus-visible:focus-ring w-52"
                 />
               </div>
 
               <button
                 onClick={openAddServiceModal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium shadow-sm transition"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition"
               >
                 <Plus className="w-4 h-4" />
                 Add Service
@@ -714,7 +711,7 @@ export const FinanceSettingsView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse text-sm">
               <thead>
-                <tr className="bg-slate-50 dark:bg-navy-900/50 text-slate-500 dark:text-slate-400 text-xs uppercase font-semibold border-b border-slate-200 dark:border-navy-700">
+                <tr className="bg-canvas dark:bg-canvas/50 text-fg-muted dark:text-fg-muted text-xs uppercase font-semibold border-b border-border dark:border-border">
                   <th className="py-3 px-4 w-12 text-center">#</th>
                   <th className="py-3 px-4">Service Name</th>
                   <th className="py-3 px-4">Description</th>
@@ -723,10 +720,10 @@ export const FinanceSettingsView: React.FC = () => {
                   <th className="py-3 px-4 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-navy-700">
+              <tbody className="divide-y divide-border dark:divide-border">
                 {filteredServices.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-slate-400 dark:text-slate-500">
+                    <td colSpan={6} className="py-12 text-center text-fg-muted dark:text-fg-muted">
                       No services found matching &quot;{serviceSearch}&quot;.
                     </td>
                   </tr>
@@ -734,20 +731,20 @@ export const FinanceSettingsView: React.FC = () => {
                   filteredServices.map((srv, idx) => (
                     <tr
                       key={srv.id}
-                      className="hover:bg-slate-50/80 dark:hover:bg-navy-750/50 transition-colors"
+                      className="hover:bg-canvas/80 dark:hover:bg-hover transition-colors"
                     >
-                      <td className="py-3 px-4 text-center text-xs text-slate-400 font-mono">
+                      <td className="py-3 px-4 text-center text-xs text-fg-muted font-mono">
                         {idx + 1}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
+                        <span className="font-semibold text-fg dark:text-fg-2">
                           {srv.name}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate">
+                      <td className="py-3 px-4 text-xs text-fg-muted dark:text-fg-muted max-w-xs truncate">
                         {srv.description || '—'}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                      <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-fg dark:text-fg-2 whitespace-nowrap">
                         {srv.default_rate > 0
                           ? formatMinorMoney(srv.default_rate, srv.currency || 'PKR')
                           : 'Custom rate'}
@@ -759,7 +756,7 @@ export const FinanceSettingsView: React.FC = () => {
                           className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium cursor-pointer transition ${
                             srv.is_active
                               ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60'
-                              : 'bg-slate-100 text-slate-500 dark:bg-navy-700 dark:text-slate-400'
+                              : 'bg-subtle text-fg-muted dark:bg-subtle dark:text-fg-muted'
                           }`}
                         >
                           {srv.is_active ? 'Active' : 'Disabled'}
@@ -768,7 +765,7 @@ export const FinanceSettingsView: React.FC = () => {
                       <td className="py-3 px-4 text-right whitespace-nowrap">
                         <button
                           onClick={() => openEditServiceModal(srv)}
-                          className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-navy-700 transition"
+                          className="p-1.5 text-fg-muted hover:text-fg-2 dark:hover:text-slate-200 rounded-lg hover:bg-hover dark:hover:bg-hover transition"
                           title="Edit Service"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
@@ -786,15 +783,15 @@ export const FinanceSettingsView: React.FC = () => {
       {/* Add / Edit Service Modal */}
       {isAddServiceModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-navy-800 rounded-2xl shadow-xl border border-slate-200 dark:border-navy-700 w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 dark:border-navy-700">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <ListPlus className="w-5 h-5 text-primary-600" />
+          <div className="bg-surface dark:bg-surface rounded-2xl shadow-xl border border-border dark:border-border w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
+              <h3 className="text-base font-bold text-fg dark:text-white flex items-center gap-2">
+                <ListPlus className="w-5 h-5 text-accent-text" />
                 {editingService ? 'Edit Catalog Service' : 'Add New Service to Catalog'}
               </h3>
               <button
                 onClick={() => setIsAddServiceModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="text-fg-muted hover:text-fg-2 dark:hover:text-slate-200"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -809,7 +806,7 @@ export const FinanceSettingsView: React.FC = () => {
               )}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Service Name *
                 </label>
                 <input
@@ -818,28 +815,24 @@ export const FinanceSettingsView: React.FC = () => {
                   placeholder="e.g. Website Maintenance & Support"
                   value={serviceName}
                   onChange={(e) => setServiceName(e.target.value)}
-                  className="w-full px-3 py-2 bg-white dark:bg-navy-900 border border-slate-300 dark:border-navy-600 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500 font-medium"
+                  className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-medium"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Currency
                   </label>
-                  <select
+                  <CustomSelect
                     value={serviceCurrency}
-                    onChange={(e) => setServiceCurrency(e.target.value as Currency)}
-                    className="w-full px-3 py-2 bg-white dark:bg-navy-900 border border-slate-300 dark:border-navy-600 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500 font-medium"
-                  >
-                    <option value="PKR">PKR (Rs.)</option>
-                    <option value="USD">USD ($)</option>
-                    <option value="GBP">GBP (£)</option>
-                  </select>
+                    onChange={(value) => setServiceCurrency(value as Currency)}
+                    options={CURRENCY_OPTIONS}
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Default Rate
                   </label>
                   <input
@@ -849,13 +842,13 @@ export const FinanceSettingsView: React.FC = () => {
                     placeholder="0.00"
                     value={serviceRate}
                     onChange={(e) => setServiceRate(e.target.value)}
-                    className="w-full px-3 py-2 bg-white dark:bg-navy-900 border border-slate-300 dark:border-navy-600 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500 font-mono"
+                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-mono"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Default Description / Scope
                 </label>
                 <textarea
@@ -863,7 +856,7 @@ export const FinanceSettingsView: React.FC = () => {
                   placeholder="Scope or deliverables summary..."
                   value={serviceDescription}
                   onChange={(e) => setServiceDescription(e.target.value)}
-                  className="w-full px-3 py-2 bg-white dark:bg-navy-900 border border-slate-300 dark:border-navy-600 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-1 focus:ring-primary-500"
+                  className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring"
                 />
               </div>
 
@@ -873,25 +866,25 @@ export const FinanceSettingsView: React.FC = () => {
                   id="srv_active"
                   checked={serviceIsActive}
                   onChange={(e) => setServiceIsActive(e.target.checked)}
-                  className="rounded text-primary-600 focus:ring-primary-500"
+                  className="rounded text-accent-text focus-visible:focus-ring"
                 />
-                <label htmlFor="srv_active" className="text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                <label htmlFor="srv_active" className="text-xs text-fg-2 dark:text-fg-muted cursor-pointer">
                   Service active and selectable in invoices
                 </label>
               </div>
 
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-200 dark:border-navy-700">
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-border dark:border-border">
                 <button
                   type="button"
                   onClick={() => setIsAddServiceModalOpen(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-navy-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition"
+                  className="px-4 py-2 border border-border dark:border-border rounded-lg text-xs font-medium text-fg-2 dark:text-fg-muted hover:bg-canvas dark:hover:bg-hover transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={serviceSaving}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-semibold shadow-sm transition disabled:opacity-50"
+                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
                 >
                   {serviceSaving ? 'Saving...' : editingService ? 'Update Service' : 'Add to Catalog'}
                 </button>

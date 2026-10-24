@@ -35,10 +35,8 @@ def compute_invoice_financials(
     for it in line_items:
         qty = float(it.get("quantity", 1.0))
         rate = int(it.get("rate", 0))
-        amt = it.get("amount")
-        if amt is None or amt == 0:
-            amt = int(round(qty * rate))
-            it["amount"] = amt
+        amt = int(round(qty * rate))
+        it["amount"] = amt
         subtotal += amt
 
     discount_amount = 0

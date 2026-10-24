@@ -9,9 +9,10 @@ import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 
+from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.core.tenant import get_tenant_context, tenant_scope
 from app.core.uploads import save_upload_bytes
@@ -544,7 +545,8 @@ async def get_report_endpoint(
 # =========================================================================
 
 @router.get("/public/invoice/{share_token}")
-async def get_public_invoice_endpoint(share_token: str):
+@limiter.limit("60/minute")
+async def get_public_invoice_endpoint(request: Request, share_token: str):
     db = get_database()
     inv = await get_invoice_by_share_token(db, share_token)
     if not inv:
@@ -588,7 +590,8 @@ async def get_public_invoice_endpoint(share_token: str):
 
 
 @router.get("/public/invoice/{share_token}/pdf")
-async def get_public_invoice_pdf_endpoint(share_token: str):
+@limiter.limit("30/minute")
+async def get_public_invoice_pdf_endpoint(request: Request, share_token: str):
     db = get_database()
     inv = await get_invoice_by_share_token(db, share_token)
     if not inv:
@@ -618,7 +621,9 @@ async def upload_proof_file_endpoint(
     db = get_database()
     cid = _extract_company_id(current_user)
 
-    filename = file.filename or "upload"
+    filename = (file.filename or "upload").replace("\\", "/").split("/")[-1]
+    if not filename or filename in (".", "..") or ".." in filename:
+        filename = "upload"
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     if ext not in ("pdf", "png", "jpg", "jpeg", "webp"):
         raise HTTPException(status_code=400, detail="Allowed file types: PDF, PNG, JPG, JPEG, WEBP")

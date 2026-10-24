@@ -25,6 +25,8 @@ import type {
   Currency,
 } from '../../types/finance';
 import type { Workspace } from '../../types';
+import { CustomSelect } from '../ui/CustomSelect';
+import { CURRENCY_OPTIONS } from './financeUi';
 
 export const ReceivablesView: React.FC = () => {
   const [subTab, setSubTab] = useState<'summary' | 'detail' | 'statement' | 'collections' | 'wht'>('summary');
@@ -103,17 +105,17 @@ export const ReceivablesView: React.FC = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="p-6 w-full space-y-6">
       {/* Title */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Receivables & Reports</h1>
-        <p className="text-xs text-slate-500 mt-1">
+        <h1 className="text-h1 font-semibold tracking-tight text-fg">Receivables & Reports</h1>
+        <p className="text-xs text-fg-muted mt-1">
           Monitor aging receivables buckets, generate client statements, audit collections, and export ReportLab PDFs & Excel sheets
         </p>
       </div>
 
       {/* Navigation Sub-tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 pb-3">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-border pb-3">
         <div className="flex flex-wrap items-center gap-2">
           {[
             { id: 'summary', label: 'Ageing Summary' },
@@ -127,8 +129,8 @@ export const ReceivablesView: React.FC = () => {
               onClick={() => setSubTab(tab.id as any)}
               className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition ${
                 subTab === tab.id
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'text-slate-600 hover:bg-slate-100'
+                  ? 'bg-slate-900 text-white'
+                  : 'text-fg-2 hover:bg-hover'
               }`}
             >
               {tab.label}
@@ -152,7 +154,7 @@ export const ReceivablesView: React.FC = () => {
               href={financeService.getReportDownloadUrl('ageing-summary', 'pdf', { as_of: asOfDate, currency: currencyFilter })}
               target="_blank"
               rel="noreferrer"
-              className="px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition"
+              className="px-3 py-1.5 bg-accent-soft text-accent-text hover:bg-accent-soft border border-accent-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition"
             >
               <Download className="w-3.5 h-3.5" />
               Export PDF
@@ -162,72 +164,65 @@ export const ReceivablesView: React.FC = () => {
       </div>
 
       {/* Filter Toolbar */}
-      <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-4 text-xs">
-        <div className="flex items-center gap-1.5 text-slate-500 font-medium">
+      <div className="p-4 bg-surface rounded-lg border border-border flex flex-wrap items-center gap-4 text-xs">
+        <div className="flex items-center gap-1.5 text-fg-muted font-medium">
           <Filter className="w-3.5 h-3.5" />
           <span>Filters:</span>
         </div>
 
         {(subTab === 'summary' || subTab === 'detail') && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold">As of Date:</span>
+            <span className="text-fg-2 font-semibold">As of Date:</span>
             <input
               type="date"
               value={asOfDate}
               onChange={(e) => setAsOfDate(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium"
+              className="rounded-lg border border-border-strong px-2.5 py-1 text-xs font-medium"
             />
           </div>
         )}
 
         {(subTab === 'statement' || subTab === 'collections' || subTab === 'wht') && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold">Date Range:</span>
+            <span className="text-fg-2 font-semibold">Date Range:</span>
             <input
               type="date"
               value={dateFrom}
               onChange={(e) => setDateFrom(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+              className="rounded-lg border border-border-strong px-2 py-1 text-xs"
             />
-            <span className="text-slate-400">to</span>
+            <span className="text-fg-muted">to</span>
             <input
               type="date"
               value={dateTo}
               onChange={(e) => setDateTo(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2 py-1 text-xs"
+              className="rounded-lg border border-border-strong px-2 py-1 text-xs"
             />
           </div>
         )}
 
         {subTab === 'statement' && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold">Client:</span>
-            <select
+            <span className="text-fg-2 font-semibold">Client:</span>
+            <CustomSelect
+              size="sm"
               value={selectedClientName}
-              onChange={(e) => setSelectedClientName(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium bg-white"
-            >
-              {workspaces.map((ws) => (
-                <option key={ws.id} value={ws.name}>
-                  {ws.name}
-                </option>
-              ))}
-            </select>
+              onChange={setSelectedClientName}
+              searchable
+              options={workspaces.map((ws) => ({ value: ws.name, label: ws.name }))}
+            />
           </div>
         )}
 
         {subTab !== 'collections' && subTab !== 'wht' && (
           <div className="flex items-center gap-2">
-            <span className="text-slate-600 font-semibold">Currency:</span>
-            <select
+            <span className="text-fg-2 font-semibold">Currency:</span>
+            <CustomSelect
+              size="sm"
               value={currencyFilter}
-              onChange={(e) => setCurrencyFilter(e.target.value)}
-              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium bg-white"
-            >
-              <option value="PKR">PKR (₨)</option>
-              <option value="USD">USD ($)</option>
-              <option value="GBP">GBP (£)</option>
-            </select>
+              onChange={setCurrencyFilter}
+              options={CURRENCY_OPTIONS}
+            />
           </div>
         )}
       </div>
@@ -236,16 +231,16 @@ export const ReceivablesView: React.FC = () => {
       {subTab === 'summary' && (
         <div className="space-y-6">
           {/* Ageing Summary Table */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-              <h2 className="text-sm font-bold text-slate-900">Receivables Ageing Breakdown</h2>
-              <span className="text-xs text-slate-500">Calculated as of {asOfDate}</span>
+          <div className="bg-surface rounded-lg border border-border overflow-hidden">
+            <div className="p-4 border-b border-border flex justify-between items-center">
+              <h2 className="text-sm font-bold text-fg">Receivables Ageing Breakdown</h2>
+              <span className="text-xs text-fg-muted">Calculated as of {asOfDate}</span>
             </div>
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-700 border-b border-slate-200 font-bold">
+                  <tr className="bg-canvas text-fg-2 border-b border-border font-bold">
                     <th className="py-3 px-4">Client Name</th>
                     <th className="py-3 px-4 text-center">Curr</th>
                     <th className="py-3 px-4 text-right">Current</th>
@@ -253,33 +248,33 @@ export const ReceivablesView: React.FC = () => {
                     <th className="py-3 px-4 text-right">31-60 Days</th>
                     <th className="py-3 px-4 text-right">61-90 Days</th>
                     <th className="py-3 px-4 text-right">90+ Days</th>
-                    <th className="py-3 px-4 text-right font-black">Total Due</th>
+                    <th className="py-3 px-4 text-right font-semibold">Total Due</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   {loading ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td colSpan={8} className="py-12 text-center text-fg-muted">
                         Calculating ageing report…
                       </td>
                     </tr>
                   ) : !summaryData?.rows?.length ? (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-400">
+                      <td colSpan={8} className="py-12 text-center text-fg-muted">
                         No outstanding receivables found for this period.
                       </td>
                     </tr>
                   ) : (
                     summaryData.rows.map((row, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-4 font-bold text-slate-900">{row.client_name}</td>
-                        <td className="py-3 px-4 text-center text-slate-500 font-semibold">{row.currency}</td>
-                        <td className="py-3 px-4 text-right text-slate-600">{formatMinorMoney(row.current, row.currency, false)}</td>
+                      <tr key={idx} className="hover:bg-canvas/70 transition">
+                        <td className="py-3 px-4 font-bold text-fg">{row.client_name}</td>
+                        <td className="py-3 px-4 text-center text-fg-muted font-semibold">{row.currency}</td>
+                        <td className="py-3 px-4 text-right text-fg-2">{formatMinorMoney(row.current, row.currency, false)}</td>
                         <td className="py-3 px-4 text-right text-amber-600">{formatMinorMoney(row['1_30'], row.currency, false)}</td>
                         <td className="py-3 px-4 text-right text-amber-700">{formatMinorMoney(row['31_60'], row.currency, false)}</td>
                         <td className="py-3 px-4 text-right text-rose-600">{formatMinorMoney(row['61_90'], row.currency, false)}</td>
                         <td className="py-3 px-4 text-right text-rose-700 font-bold">{formatMinorMoney(row['90_plus'], row.currency, false)}</td>
-                        <td className="py-3 px-4 text-right font-black text-indigo-700">
+                        <td className="py-3 px-4 text-right font-semibold text-accent-text">
                           {formatMinorMoney(row.total, row.currency)}
                         </td>
                       </tr>
@@ -291,15 +286,15 @@ export const ReceivablesView: React.FC = () => {
                 {summaryData?.currencies_summary && Object.keys(summaryData.currencies_summary).length > 0 && (
                   <tfoot>
                     {Object.entries(summaryData.currencies_summary).map(([curr, totals], i) => (
-                      <tr key={i} className="bg-slate-100 font-bold border-t-2 border-slate-300 text-slate-900">
-                        <td className="py-3 px-4 font-black">TOTAL {curr}</td>
+                      <tr key={i} className="bg-subtle font-bold border-t-2 border-border-strong text-fg">
+                        <td className="py-3 px-4 font-semibold">TOTAL {curr}</td>
                         <td className="py-3 px-4 text-center">{curr}</td>
                         <td className="py-3 px-4 text-right">{formatMinorMoney(totals.current, curr, false)}</td>
                         <td className="py-3 px-4 text-right">{formatMinorMoney(totals['1_30'], curr, false)}</td>
                         <td className="py-3 px-4 text-right">{formatMinorMoney(totals['31_60'], curr, false)}</td>
                         <td className="py-3 px-4 text-right">{formatMinorMoney(totals['61_90'], curr, false)}</td>
                         <td className="py-3 px-4 text-right">{formatMinorMoney(totals['90_plus'], curr, false)}</td>
-                        <td className="py-3 px-4 text-right text-indigo-800 font-black">
+                        <td className="py-3 px-4 text-right text-indigo-800 font-semibold">
                           {formatMinorMoney(totals.total, curr)}
                         </td>
                       </tr>
@@ -316,12 +311,12 @@ export const ReceivablesView: React.FC = () => {
       {subTab === 'detail' && (
         <div className="space-y-6">
           {detailData?.groups?.map((group: any, idx: number) => (
-            <div key={idx} className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
-                <h3 className="text-sm font-bold text-slate-900">
+            <div key={idx} className="bg-surface rounded-lg border border-border overflow-hidden">
+              <div className="p-4 bg-canvas border-b border-border flex justify-between items-center">
+                <h3 className="text-sm font-bold text-fg">
                   {group.client_name} ({group.currency})
                 </h3>
-                <span className="text-xs font-bold text-indigo-700">
+                <span className="text-xs font-bold text-accent-text">
                   Subtotal Due: {formatMinorMoney(group.subtotal_balance, group.currency)}
                 </span>
               </div>
@@ -329,7 +324,7 @@ export const ReceivablesView: React.FC = () => {
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
                   <thead>
-                    <tr className="bg-slate-50/50 text-slate-500 border-b border-slate-200">
+                    <tr className="bg-canvas/50 text-fg-muted border-b border-border">
                       <th className="py-2.5 px-4">Invoice #</th>
                       <th className="py-2.5 px-4">Issue Date</th>
                       <th className="py-2.5 px-4">Due Date</th>
@@ -342,21 +337,21 @@ export const ReceivablesView: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {group.invoices.map((inv: any) => (
-                      <tr key={inv.id} className="hover:bg-slate-50/40">
-                        <td className="py-2.5 px-4 font-semibold text-slate-900">{inv.number}</td>
-                        <td className="py-2.5 px-4 text-slate-500">{inv.issue_date}</td>
-                        <td className="py-2.5 px-4 text-slate-500">{inv.due_date}</td>
+                      <tr key={inv.id} className="hover:bg-canvas/40">
+                        <td className="py-2.5 px-4 font-semibold text-fg">{inv.number}</td>
+                        <td className="py-2.5 px-4 text-fg-muted">{inv.issue_date}</td>
+                        <td className="py-2.5 px-4 text-fg-muted">{inv.due_date}</td>
                         <td className="py-2.5 px-4 text-center">
                           {inv.days_overdue > 0 ? (
                             <span className="text-rose-600 font-semibold">{inv.days_overdue}d</span>
                           ) : (
-                            <span className="text-slate-400">Current</span>
+                            <span className="text-fg-muted">Current</span>
                           )}
                         </td>
                         <td className="py-2.5 px-4 text-right">{formatMinorMoney(inv.total, group.currency)}</td>
                         <td className="py-2.5 px-4 text-right text-emerald-700">{formatMinorMoney(inv.amount_paid, group.currency)}</td>
-                        <td className="py-2.5 px-4 text-right text-slate-600">{formatMinorMoney(inv.wht_settled, group.currency)}</td>
-                        <td className="py-2.5 px-4 text-right font-bold text-indigo-700">{formatMinorMoney(inv.balance_due, group.currency)}</td>
+                        <td className="py-2.5 px-4 text-right text-fg-2">{formatMinorMoney(inv.wht_settled, group.currency)}</td>
+                        <td className="py-2.5 px-4 text-right font-bold text-accent-text">{formatMinorMoney(inv.balance_due, group.currency)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -369,13 +364,13 @@ export const ReceivablesView: React.FC = () => {
 
       {/* Report 3: Client Statement */}
       {subTab === 'statement' && statementData && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-100">
+        <div className="bg-surface rounded-lg border border-border p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-border">
             <div>
-              <h2 className="text-lg font-bold text-slate-900">
+              <h2 className="text-lg font-bold text-fg">
                 Statement of Account: {statementData.client_name}
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-fg-muted mt-0.5">
                 Period: {statementData.date_from} to {statementData.date_to}
               </p>
             </div>
@@ -392,16 +387,16 @@ export const ReceivablesView: React.FC = () => {
           </div>
 
           {/* Statement Balance Header */}
-          <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="grid grid-cols-2 gap-4 p-4 rounded-lg bg-canvas border border-border">
             <div>
-              <p className="text-xs text-slate-500 font-semibold">Opening Balance ({statementData.date_from})</p>
-              <p className="text-lg font-bold text-slate-800 mt-0.5">
+              <p className="text-xs text-fg-muted font-semibold">Opening Balance ({statementData.date_from})</p>
+              <p className="text-lg font-bold text-fg mt-0.5">
                 {formatMinorMoney(statementData.opening_balance, statementData.currency)}
               </p>
             </div>
             <div className="text-right">
-              <p className="text-xs text-slate-500 font-semibold">Closing Balance Due ({statementData.date_to})</p>
-              <p className="text-xl font-black text-indigo-700 mt-0.5">
+              <p className="text-xs text-fg-muted font-semibold">Closing Balance Due ({statementData.date_to})</p>
+              <p className="text-xl font-semibold text-accent-text mt-0.5">
                 {formatMinorMoney(statementData.closing_balance, statementData.currency)}
               </p>
             </div>
@@ -411,7 +406,7 @@ export const ReceivablesView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                <tr className="bg-canvas text-fg-2 border-b border-border">
                   <th className="py-2.5 px-3">Date</th>
                   <th className="py-2.5 px-3">Transaction</th>
                   <th className="py-2.5 px-3">Reference / Number</th>
@@ -423,23 +418,23 @@ export const ReceivablesView: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {statementData.transactions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-400">
+                    <td colSpan={6} className="py-8 text-center text-fg-muted">
                       No invoices or receipts recorded in this period.
                     </td>
                   </tr>
                 ) : (
                   statementData.transactions.map((tx, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/60">
-                      <td className="py-2.5 px-3 text-slate-600 font-medium">{tx.date}</td>
-                      <td className="py-2.5 px-3 text-slate-800 font-semibold capitalize">{tx.type}</td>
-                      <td className="py-2.5 px-3 text-slate-600">{tx.description}</td>
-                      <td className="py-2.5 px-3 text-right text-slate-900 font-medium">
+                    <tr key={idx} className="hover:bg-canvas/60">
+                      <td className="py-2.5 px-3 text-fg-2 font-medium">{tx.date}</td>
+                      <td className="py-2.5 px-3 text-fg font-semibold capitalize">{tx.type}</td>
+                      <td className="py-2.5 px-3 text-fg-2">{tx.description}</td>
+                      <td className="py-2.5 px-3 text-right text-fg font-medium">
                         {tx.debit > 0 ? formatMinorMoney(tx.debit, statementData.currency) : '—'}
                       </td>
                       <td className="py-2.5 px-3 text-right text-emerald-700 font-medium">
                         {tx.credit > 0 ? formatMinorMoney(tx.credit, statementData.currency) : '—'}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-indigo-700">
+                      <td className="py-2.5 px-3 text-right font-bold text-accent-text">
                         {formatMinorMoney(tx.running_balance, statementData.currency)}
                       </td>
                     </tr>
@@ -455,27 +450,27 @@ export const ReceivablesView: React.FC = () => {
       {subTab === 'collections' && collectionsData && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Collected (PKR)</p>
-              <p className="text-xl font-bold text-slate-900 mt-1">
+            <div className="bg-surface p-5 rounded-lg border border-border">
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Total Collected (PKR)</p>
+              <p className="text-xl font-bold text-fg mt-1">
                 {formatMinorMoney(collectionsData.summary.total_collected_pkr, 'PKR')}
               </p>
             </div>
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Cash in Hand</p>
-              <p className="text-xl font-bold text-slate-800 mt-1">
+            <div className="bg-surface p-5 rounded-lg border border-border">
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Cash in Hand</p>
+              <p className="text-xl font-bold text-fg mt-1">
                 {formatMinorMoney(collectionsData.summary.cash_pkr, 'PKR')}
               </p>
             </div>
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Meezan Bank</p>
-              <p className="text-xl font-bold text-indigo-700 mt-1">
+            <div className="bg-surface p-5 rounded-lg border border-border">
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Meezan Bank</p>
+              <p className="text-xl font-bold text-accent-text mt-1">
                 {formatMinorMoney(collectionsData.summary.meezan_pkr, 'PKR')}
               </p>
             </div>
-            <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Allied Bank (ABL)</p>
-              <p className="text-xl font-bold text-indigo-700 mt-1">
+            <div className="bg-surface p-5 rounded-lg border border-border">
+              <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Allied Bank (ABL)</p>
+              <p className="text-xl font-bold text-accent-text mt-1">
                 {formatMinorMoney(collectionsData.summary.abl_pkr, 'PKR')}
               </p>
             </div>
@@ -485,17 +480,17 @@ export const ReceivablesView: React.FC = () => {
 
       {/* Report 5: WHT Tracker */}
       {subTab === 'wht' && whtData && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
-          <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+        <div className="bg-surface rounded-lg border border-border p-6 space-y-6">
+          <div className="flex justify-between items-center pb-4 border-b border-border">
             <div>
-              <h2 className="text-base font-bold text-slate-900">Withholding Tax (WHT) Tracker</h2>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <h2 className="text-base font-bold text-fg">Withholding Tax (WHT) Tracker</h2>
+              <p className="text-xs text-fg-muted mt-0.5">
                 Track income tax deductions by clients and CPR certificates
               </p>
             </div>
             <div className="text-right">
-              <span className="text-xs text-slate-500">Total WHT Deducted: </span>
-              <span className="text-sm font-bold text-slate-900">
+              <span className="text-xs text-fg-muted">Total WHT Deducted: </span>
+              <span className="text-sm font-bold text-fg">
                 {formatMinorMoney(whtData.total_wht_pkr, 'PKR')}
               </span>
             </div>
@@ -504,7 +499,7 @@ export const ReceivablesView: React.FC = () => {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                <tr className="bg-canvas text-fg-2 border-b border-border">
                   <th className="py-2.5 px-3">Date</th>
                   <th className="py-2.5 px-3">Receipt #</th>
                   <th className="py-2.5 px-3">Client</th>
@@ -515,17 +510,17 @@ export const ReceivablesView: React.FC = () => {
               <tbody className="divide-y divide-slate-100">
                 {whtData.items.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-8 text-center text-slate-400">
+                    <td colSpan={5} className="py-8 text-center text-fg-muted">
                       No WHT tax deductions recorded in this period.
                     </td>
                   </tr>
                 ) : (
                   whtData.items.map((it, idx) => (
                     <tr key={idx}>
-                      <td className="py-2.5 px-3 text-slate-600">{it.date}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">{it.receipt_number}</td>
-                      <td className="py-2.5 px-3 text-slate-800">{it.client_name}</td>
-                      <td className="py-2.5 px-3 text-right font-semibold text-slate-900">
+                      <td className="py-2.5 px-3 text-fg-2">{it.date}</td>
+                      <td className="py-2.5 px-3 font-semibold text-fg">{it.receipt_number}</td>
+                      <td className="py-2.5 px-3 text-fg">{it.client_name}</td>
+                      <td className="py-2.5 px-3 text-right font-semibold text-fg">
                         {formatMinorMoney(it.wht_amount, it.currency)}
                       </td>
                       <td className="py-2.5 px-3 text-center">

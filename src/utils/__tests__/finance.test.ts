@@ -8,6 +8,7 @@ import {
   getCurrencySymbol,
 } from '../money';
 import { userCan } from '../../hooks/usePermissions';
+import { validateFinanceProofFile, FINANCE_PROOF_MAX_BYTES } from '../financeProof';
 
 describe('Finance Money & Conversion Utilities', () => {
   it('converts major units to minor integer paisa/cents accurately', () => {
@@ -62,6 +63,24 @@ describe('Finance Money & Conversion Utilities', () => {
     expect(getCurrencySymbol('PKR')).toBe('₨');
     expect(getCurrencySymbol('USD')).toBe('$');
     expect(getCurrencySymbol('GBP')).toBe('£');
+  });
+});
+
+describe('Finance proof upload validation', () => {
+  it('rejects disallowed types and oversized files', () => {
+    const gif = new File([new Uint8Array([1, 2, 3])], 'slip.gif', { type: 'image/gif' });
+    expect(validateFinanceProofFile(gif)).toMatch(/Allowed file types/i);
+
+    const huge = new File([new Uint8Array(8)], 'slip.pdf', { type: 'application/pdf' });
+    Object.defineProperty(huge, 'size', { value: FINANCE_PROOF_MAX_BYTES + 1 });
+    expect(validateFinanceProofFile(huge)).toMatch(/15MB/i);
+  });
+
+  it('accepts a PDF or JPEG under the size cap', () => {
+    const pdf = new File([new Uint8Array([1, 2, 3])], 'slip.pdf', { type: 'application/pdf' });
+    expect(validateFinanceProofFile(pdf)).toBeNull();
+    const jpg = new File([new Uint8Array([1, 2, 3])], 'slip.JPG', { type: 'image/jpeg' });
+    expect(validateFinanceProofFile(jpg)).toBeNull();
   });
 });
 

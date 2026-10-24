@@ -247,6 +247,18 @@ async def set_opening_balance(
     user_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Set an opening balance by writing an opening_balance ledger entry."""
+    existing = await db["finance_ledger"].find_one(
+        {
+            "company_id": company_id,
+            "account_code": payload.account_code.lower().strip(),
+            "source_type": "opening_balance",
+        }
+    )
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Opening balance for {payload.account_code} is already set. Use an adjustment instead.",
+        )
     entry = await record_ledger_entry(
         db,
         company_id=company_id,

@@ -18,6 +18,10 @@ import {
 import { financeService } from '../../services/financeService';
 import { workspaceService } from '../../services/workspaceService';
 import { formatMinorMoney, majorToMinor, minorToMajor } from '../../utils/money';
+import { FINANCE_PROOF_ACCEPT } from '../../utils/financeProof';
+import { CustomSelect } from '../ui/CustomSelect';
+import { Input } from '../ui/input';
+import { CURRENCY_OPTIONS } from './financeUi';
 import type {
   Receipt,
   ReceiptCreatePayload,
@@ -226,6 +230,15 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       setError(`Allocated WHT exceeds total WHT withheld`);
       return;
     }
+    const overAllocated = allocRows.find(
+      (r) => r.selected && majorToMinor(r.amountMajor) + majorToMinor(r.whtMajor) > r.invoice.balance_due
+    );
+    if (overAllocated) {
+      setError(
+        `Allocation for ${overAllocated.invoice.number} exceeds remaining balance of ${formatMinorMoney(overAllocated.invoice.balance_due, currency)}`
+      );
+      return;
+    }
 
     setPosting(true);
     try {
@@ -287,11 +300,11 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-8">
+    <div className="p-6 w-full space-y-8">
       {/* Top Banner */}
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900">Record Payments & Receipts</h1>
-        <p className="text-xs text-slate-500 mt-1">
+        <h1 className="text-h1 font-semibold tracking-tight text-fg">Record Payments & Receipts</h1>
+        <p className="text-xs text-fg-muted mt-1">
           Allocate client payments to open invoices, record WHT tax deductions, post money movements to Cash/Bank ledger, and issue receipts
         </p>
       </div>
@@ -316,71 +329,66 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       )}
 
       {/* Record Payment Section */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
-        <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-          <CreditCard className="w-5 h-5 text-indigo-600" />
-          <h2 className="text-base font-bold text-slate-900">Record New Payment</h2>
+      <div className="bg-surface rounded-lg border border-border p-6 space-y-6">
+        <div className="flex items-center gap-2 pb-3 border-b border-border">
+          <CreditCard className="w-5 h-5 text-accent-text" />
+          <h2 className="text-base font-bold text-fg">Record New Payment</h2>
         </div>
 
         <form onSubmit={handlePostReceipt} className="space-y-6">
           {/* Row 1: Client & Date */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 mb-1">
                 Client (Workspace) <span className="text-rose-500">*</span>
               </label>
               <div className="flex gap-2">
-                <select
-                  value={selectedWorkspaceId}
-                  onChange={(e) => handleSelectWorkspace(e.target.value)}
-                  className="w-1/2 text-xs rounded-lg border border-slate-300 px-3 py-2 bg-white"
-                >
-                  <option value="">— Select client workspace —</option>
-                  {workspaces.map((ws) => (
-                    <option key={ws.id} value={ws.id}>
-                      {ws.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
+                <div className="w-1/2">
+                  <CustomSelect
+                    value={selectedWorkspaceId}
+                    onChange={handleSelectWorkspace}
+                    searchable
+                    placeholder="Select client"
+                    options={[
+                      { value: '', label: 'Type a client name' },
+                      ...workspaces.map((ws) => ({ value: ws.id, label: ws.name })),
+                    ]}
+                  />
+                </div>
+                <Input
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
                   placeholder="Or type client name..."
-                  className="w-1/2 text-xs rounded-lg border border-slate-300 px-3 py-2 font-medium"
+                  className="w-1/2"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Payment Date</label>
+              <label className="block text-xs font-semibold text-fg-2 mb-1">Payment Date</label>
               <input
                 type="date"
                 value={paymentDate}
                 onChange={(e) => setPaymentDate(e.target.value)}
-                className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 font-medium"
+                className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 font-medium"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Currency</label>
-              <select
+              <label className="block text-xs font-semibold text-fg-2 mb-1">Currency</label>
+              <CustomSelect
                 value={currency}
-                onChange={(e) => setCurrency(e.target.value as Currency)}
-                className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2 bg-white font-bold"
-              >
-                <option value="PKR">PKR (₨)</option>
-                <option value="USD">USD ($)</option>
-                <option value="GBP">GBP (£)</option>
-              </select>
+                onChange={(value) => setCurrency(value as Currency)}
+                options={CURRENCY_OPTIONS}
+              />
             </div>
           </div>
 
           {/* Row 2: Method & Bank */}
-          <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+          <div className="p-4 rounded-lg bg-canvas border border-border grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-2">Payment Method</label>
-              <div className="flex items-center gap-4 text-xs font-medium text-slate-700">
+              <label className="block text-xs font-semibold text-fg-2 mb-2">Payment Method</label>
+              <div className="flex items-center gap-4 text-xs font-medium text-fg-2">
                 <label className="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
@@ -388,7 +396,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value="bank"
                     checked={method === 'bank'}
                     onChange={() => setMethod('bank')}
-                    className="text-indigo-600 focus:ring-indigo-500"
+                    className="text-accent-text focus-visible:focus-ring"
                   />
                   <span>Bank Transfer / Cheque</span>
                 </label>
@@ -399,7 +407,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value="cash"
                     checked={method === 'cash'}
                     onChange={() => setMethod('cash')}
-                    className="text-indigo-600 focus:ring-indigo-500"
+                    className="text-accent-text focus-visible:focus-ring"
                   />
                   <span>Cash in Hand</span>
                 </label>
@@ -409,8 +417,8 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             {method === 'bank' ? (
               <>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-2">Deposit Bank</label>
-                  <div className="flex items-center gap-4 text-xs font-medium text-slate-700">
+                  <label className="block text-xs font-semibold text-fg-2 mb-2">Deposit Bank</label>
+                  <div className="flex items-center gap-4 text-xs font-medium text-fg-2">
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
                         type="radio"
@@ -435,7 +443,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  <label className="block text-xs font-semibold text-fg-2 mb-1">
                     Reference / Cheque # <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -443,12 +451,12 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value={referenceNumber}
                     onChange={(e) => setReferenceNumber(e.target.value)}
                     placeholder="FT-9912048 or Cheque 0881..."
-                    className="w-full text-xs rounded-lg border border-slate-300 px-3 py-1.5 bg-white font-medium"
+                    className="w-full text-xs rounded-lg border border-border-strong px-3 py-1.5 bg-surface font-medium"
                   />
                 </div>
               </>
             ) : (
-              <div className="sm:col-span-2 text-xs text-slate-500 italic">
+              <div className="sm:col-span-2 text-xs text-fg-muted italic">
                 Cash received goes into the Cash in Hand clearing account. Can later be deposited into Meezan or ABL via Cash Transfer.
               </div>
             )}
@@ -457,7 +465,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           {/* Row 3: Amounts, WHT, and Foreign Exchange */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 mb-1">
                 Amount Received ({currency}) <span className="text-rose-500">*</span>
               </label>
               <input
@@ -467,12 +475,12 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={amountReceivedMajor || ''}
                 onChange={(e) => setAmountReceivedMajor(parseFloat(e.target.value) || 0)}
                 placeholder="0"
-                className="w-full text-sm rounded-lg border border-slate-300 px-3 py-2 font-bold text-slate-900"
+                className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-bold text-fg"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 mb-1">
                 WHT Withheld ({currency})
               </label>
               <input
@@ -482,13 +490,13 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={whtAmountMajor || ''}
                 onChange={(e) => setWhtAmountMajor(parseFloat(e.target.value) || 0)}
                 placeholder="0"
-                className="w-full text-sm rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-700"
+                className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-medium text-fg-2"
               />
             </div>
 
             {currency !== 'PKR' && (
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Exchange Rate (PKR / {currency}) <span className="text-rose-500">*</span>
                 </label>
                 <input
@@ -497,18 +505,18 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                   step="any"
                   value={exchangeRate || ''}
                   onChange={(e) => setExchangeRate(parseFloat(e.target.value) || 0)}
-                  className="w-full text-sm rounded-lg border border-slate-300 px-3 py-2 font-semibold"
+                  className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-semibold"
                 />
               </div>
             )}
 
-            <div className="p-3 bg-indigo-50/70 rounded-lg border border-indigo-100 text-xs">
-              <span className="text-slate-500 block">Total Settles Invoice:</span>
-              <span className="text-sm font-bold text-indigo-700">
+            <div className="p-3 bg-accent-soft/70 rounded-lg border border-indigo-100 text-xs">
+              <span className="text-fg-muted block">Total Settles Invoice:</span>
+              <span className="text-sm font-bold text-accent-text">
                 {formatMinorMoney(settlesTotalMinor, currency)}
               </span>
               {currency !== 'PKR' && (
-                <span className="block text-[11px] text-slate-500 mt-0.5">
+                <span className="block text-[11px] text-fg-muted mt-0.5">
                   Account Credit: ₨ {pkrCreditedMajor.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR
                 </span>
               )}
@@ -516,18 +524,18 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           </div>
 
           {/* Row 4: Open Invoices Allocation Table */}
-          <div className="border border-slate-200 rounded-lg overflow-hidden">
-            <div className="bg-slate-100/70 px-4 py-2.5 border-b border-slate-200 flex justify-between items-center">
-              <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+          <div className="border border-border rounded-lg overflow-hidden">
+            <div className="bg-subtle/70 px-4 py-2.5 border-b border-border flex justify-between items-center">
+              <h3 className="text-xs font-bold text-fg uppercase tracking-wider">
                 Allocate to Invoices ({openInvoices.length} open for {clientName || 'selected client'})
               </h3>
-              <span className="text-xs text-slate-500">
-                Unapplied (Client Credit): <b className="text-indigo-600">{formatMinorMoney(unappliedCreditMinor, currency)}</b>
+              <span className="text-xs text-fg-muted">
+                Unapplied (Client Credit): <b className="text-accent-text">{formatMinorMoney(unappliedCreditMinor, currency)}</b>
               </span>
             </div>
 
             {openInvoices.length === 0 ? (
-              <div className="p-6 text-center text-xs text-slate-400 italic">
+              <div className="p-6 text-center text-xs text-fg-muted italic">
                 {clientName
                   ? 'No open invoices found for this client. The payment will be held as on-account client credit.'
                   : 'Select a client above to view and allocate to open invoices.'}
@@ -535,7 +543,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             ) : (
               <table className="w-full text-left text-xs">
                 <thead>
-                  <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                  <tr className="bg-canvas text-fg-2 border-b border-border">
                     <th className="py-2.5 px-3 w-10">Apply</th>
                     <th className="py-2.5 px-3">Invoice #</th>
                     <th className="py-2.5 px-3">Due Date</th>
@@ -547,7 +555,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {allocRows.map((row, idx) => (
-                    <tr key={row.invoice.id} className={row.selected ? 'bg-indigo-50/30' : ''}>
+                    <tr key={row.invoice.id} className={row.selected ? 'bg-accent-soft/30' : ''}>
                       <td className="py-2.5 px-3">
                         <input
                           type="checkbox"
@@ -561,15 +569,15 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             }
                             setAllocRows(next);
                           }}
-                          className="rounded text-indigo-600 focus:ring-indigo-500"
+                          className="rounded text-accent-text focus-visible:focus-ring"
                         />
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">{row.invoice.number}</td>
-                      <td className="py-2.5 px-3 text-slate-500">{row.invoice.due_date}</td>
-                      <td className="py-2.5 px-3 text-right text-slate-600">
+                      <td className="py-2.5 px-3 font-semibold text-fg">{row.invoice.number}</td>
+                      <td className="py-2.5 px-3 text-fg-muted">{row.invoice.due_date}</td>
+                      <td className="py-2.5 px-3 text-right text-fg-2">
                         {formatMinorMoney(row.invoice.total, row.invoice.currency)}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                      <td className="py-2.5 px-3 text-right font-bold text-fg">
                         {formatMinorMoney(row.invoice.balance_due, row.invoice.currency)}
                       </td>
                       <td className="py-2.5 px-3 text-right">
@@ -584,7 +592,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             next[idx].amountMajor = parseFloat(e.target.value) || 0;
                             setAllocRows(next);
                           }}
-                          className="w-full text-right text-xs rounded border border-slate-300 px-2 py-1 bg-white font-medium disabled:opacity-50"
+                          className="w-full text-right text-xs rounded border border-border-strong px-2 py-1 bg-surface font-medium disabled:opacity-50"
                         />
                       </td>
                       <td className="py-2.5 px-3 text-right">
@@ -599,7 +607,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             next[idx].whtMajor = parseFloat(e.target.value) || 0;
                             setAllocRows(next);
                           }}
-                          className="w-full text-right text-xs rounded border border-slate-300 px-2 py-1 bg-white font-medium disabled:opacity-50"
+                          className="w-full text-right text-xs rounded border border-border-strong px-2 py-1 bg-surface font-medium disabled:opacity-50"
                         />
                       </td>
                     </tr>
@@ -612,7 +620,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           {/* Row 5: Attachments & Memo */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="sm:col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 mb-1">
                 Receipt Memo / Notes
               </label>
               <input
@@ -620,23 +628,23 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
                 placeholder="e.g. Online Amount Received (Jahanzaib Raj) via Meezan Bank..."
-                className="w-full text-xs rounded-lg border border-slate-300 px-3 py-2"
+                className="w-full text-xs rounded-lg border border-border-strong px-3 py-2"
               />
             </div>
 
             <div className="flex flex-col gap-2">
-              <label className="block text-xs font-semibold text-slate-700">Attachments</label>
+              <label className="block text-xs font-semibold text-fg-2">Attachments</label>
               <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition text-slate-600 flex items-center justify-center gap-1.5">
+                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-border-strong rounded-lg p-2 hover:bg-canvas transition text-fg-2 flex items-center justify-center gap-1.5">
                   <Upload className="w-3.5 h-3.5" />
                   <span>{proofFileIds.length ? `${proofFileIds.length} Proof(s)` : 'Proof Slip'}</span>
-                  <input type="file" onChange={handleUploadProof} className="hidden" accept="image/*,.pdf" />
+                  <input type="file" onChange={handleUploadProof} className="hidden" accept={FINANCE_PROOF_ACCEPT} />
                 </label>
 
-                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-slate-300 rounded-lg p-2 hover:bg-slate-50 transition text-slate-600 flex items-center justify-center gap-1.5">
+                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-border-strong rounded-lg p-2 hover:bg-canvas transition text-fg-2 flex items-center justify-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5" />
                   <span>{whtCertFileId ? 'WHT Added' : 'WHT Cert'}</span>
-                  <input type="file" onChange={handleUploadWhtCert} className="hidden" accept="image/*,.pdf" />
+                  <input type="file" onChange={handleUploadWhtCert} className="hidden" accept={FINANCE_PROOF_ACCEPT} />
                 </label>
               </div>
             </div>
@@ -647,7 +655,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             <button
               type="submit"
               disabled={posting}
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
+              className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
               {posting ? 'Posting Receipt & Ledger…' : 'Post Receipt'}
@@ -657,16 +665,16 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       </div>
 
       {/* Receipts History Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-100 flex justify-between items-center">
-          <h2 className="text-sm font-bold text-slate-900">Receipts History</h2>
-          <span className="text-xs text-slate-500">{receipts.length} total receipts recorded</span>
+      <div className="bg-surface rounded-lg border border-border overflow-hidden">
+        <div className="p-4 border-b border-border flex justify-between items-center">
+          <h2 className="text-sm font-bold text-fg">Receipts History</h2>
+          <span className="text-xs text-fg-muted">{receipts.length} total receipts recorded</span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+              <tr className="bg-canvas text-fg-2 border-b border-border">
                 <th className="py-3 px-4 font-semibold">Receipt #</th>
                 <th className="py-3 px-4 font-semibold">Date</th>
                 <th className="py-3 px-4 font-semibold">Client</th>
@@ -682,34 +690,34 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-fg-muted">
                     Loading receipts…
                   </td>
                 </tr>
               ) : receipts.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-400">
+                  <td colSpan={10} className="py-12 text-center text-fg-muted">
                     No receipts recorded yet.
                   </td>
                 </tr>
               ) : (
                 receipts.map((rcpt) => (
-                  <tr key={rcpt.id} className="hover:bg-slate-50/60 transition">
-                    <td className="py-3 px-4 font-bold text-slate-900">{rcpt.number}</td>
-                    <td className="py-3 px-4 text-slate-600">{rcpt.date}</td>
-                    <td className="py-3 px-4 font-medium text-slate-800">{rcpt.client_name}</td>
-                    <td className="py-3 px-4 text-slate-600">
+                  <tr key={rcpt.id} className="hover:bg-canvas/60 transition">
+                    <td className="py-3 px-4 font-bold text-fg">{rcpt.number}</td>
+                    <td className="py-3 px-4 text-fg-2">{rcpt.date}</td>
+                    <td className="py-3 px-4 font-medium text-fg">{rcpt.client_name}</td>
+                    <td className="py-3 px-4 text-fg-2">
                       <span className="capitalize">{rcpt.method}</span>
-                      {rcpt.bank && <span className="font-semibold text-slate-800"> ({rcpt.bank.toUpperCase()})</span>}
+                      {rcpt.bank && <span className="font-semibold text-fg"> ({rcpt.bank.toUpperCase()})</span>}
                     </td>
-                    <td className="py-3 px-4 text-slate-600">{rcpt.reference_number || '—'}</td>
+                    <td className="py-3 px-4 text-fg-2">{rcpt.reference_number || '—'}</td>
                     <td className="py-3 px-4 text-right font-semibold text-emerald-700">
                       {formatMinorMoney(rcpt.amount_received, rcpt.currency)}
                     </td>
-                    <td className="py-3 px-4 text-right text-slate-600">
+                    <td className="py-3 px-4 text-right text-fg-2">
                       {formatMinorMoney(rcpt.wht_amount, rcpt.currency)}
                     </td>
-                    <td className="py-3 px-4 text-right font-bold text-slate-900">
+                    <td className="py-3 px-4 text-right font-bold text-fg">
                       {formatMinorMoney(rcpt.settles_total, rcpt.currency)}
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -718,7 +726,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                           Posted
                         </span>
                       ) : (
-                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-200 text-slate-600 line-through">
+                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-200 text-fg-2 line-through">
                           Void
                         </span>
                       )}
@@ -728,7 +736,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                         href={financeService.getReceiptPdfUrl(rcpt.id)}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-1.5 text-slate-500 hover:text-indigo-600 rounded hover:bg-slate-100 transition inline-block"
+                        className="p-1.5 text-fg-muted hover:text-accent-text rounded hover:bg-hover transition inline-block"
                         title="Download Receipt PDF"
                       >
                         <Download className="w-4 h-4" />
@@ -736,7 +744,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                       {rcpt.status === 'posted' && (
                         <button
                           onClick={() => setVoidModalRcpt(rcpt)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition inline-block"
+                          className="p-1.5 text-fg-muted hover:text-rose-600 rounded hover:bg-hover transition inline-block"
                           title="Void receipt (reverses ledger and reopens invoice)"
                         >
                           <Ban className="w-4 h-4" />
@@ -754,17 +762,17 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       {/* Void Receipt Confirmation Modal */}
       {voidModalRcpt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 space-y-4">
+          <div className="bg-surface rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
             <h3 className="text-base font-bold text-rose-600 flex items-center gap-2">
               <Ban className="w-5 h-5" /> Void Receipt {voidModalRcpt.number}
             </h3>
-            <p className="text-xs text-slate-600">
+            <p className="text-xs text-fg-2">
               Voiding a receipt immediately appends compensating reversal entries to the Cash/Bank ledger
               and re-opens the allocated invoices' balances.
             </p>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
+              <label className="block text-xs font-semibold text-fg-2 mb-1">
                 Reason for voiding <span className="text-rose-500">*</span>
               </label>
               <textarea
@@ -772,7 +780,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={voidReason}
                 onChange={(e) => setVoidReason(e.target.value)}
                 placeholder="e.g. Bounced cheque / payment disputed..."
-                className="w-full text-xs rounded-lg border border-slate-300 p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className="w-full text-xs rounded-lg border border-border-strong p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
               />
             </div>
 
@@ -783,7 +791,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                   setVoidModalRcpt(null);
                   setVoidReason('');
                 }}
-                className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold rounded-lg"
+                className="px-4 py-2 border border-border-strong text-fg-2 hover:bg-canvas text-xs font-semibold rounded-lg"
               >
                 Cancel
               </button>

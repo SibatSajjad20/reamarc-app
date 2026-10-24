@@ -6,9 +6,9 @@ import {
   Clock,
   Wallet,
   Settings,
-  ArrowLeft,
 } from 'lucide-react';
 import type { FinanceTab, Invoice } from '../../types/finance';
+import { Button } from '../ui/button';
 import { FinanceOverview } from './FinanceOverview';
 import { InvoicesView } from './InvoicesView';
 import { InvoiceEditor } from './InvoiceEditor';
@@ -29,7 +29,6 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [invoiceForPayment, setInvoiceForPayment] = useState<Invoice | null>(null);
 
-  // Tab navigation handler
   const handleNavigateTab = (tab: FinanceTab, extra?: { action?: string; invoiceId?: string }) => {
     setActiveTab(tab);
     if (tab === 'invoices' && extra?.action === 'create') {
@@ -66,54 +65,44 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
   const tabs: { id: FinanceTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'invoices', label: 'Invoices', icon: FileText },
-    { id: 'receivables', label: 'Receivables & Ageing', icon: Clock },
-    { id: 'receipts', label: 'Receipts & Payments', icon: CreditCard },
-    { id: 'accounts', label: 'Accounts & Movements', icon: Wallet },
-    { id: 'settings', label: 'Settings & Catalog', icon: Settings },
+    { id: 'receivables', label: 'Receivables', icon: Clock },
+    { id: 'receipts', label: 'Receipts', icon: CreditCard },
+    { id: 'accounts', label: 'Accounts', icon: Wallet },
+    { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-slate-50 dark:bg-navy-900 overflow-y-auto">
-      {/* Top Header & Tab Navigation Bar */}
-      <div className="bg-white dark:bg-navy-800 border-b border-slate-200 dark:border-navy-700 sticky top-0 z-30 px-6 pt-5 pb-0">
+    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-canvas text-fg overflow-y-auto font-sans">
+      <div className="bg-surface border-b border-border sticky top-0 z-30 px-6 pt-5 pb-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
           <div>
-            <h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight flex items-center gap-2.5">
-              <span className="p-1.5 rounded-lg bg-primary-600 text-white shadow-sm inline-flex items-center justify-center">
-                <FileText className="w-5 h-5" />
-              </span>
-              Reamarc Finance
-            </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Client billing, multi-currency receivables, receipts, money accounts & audit ledger.
+            <h1 className="text-h1 font-semibold text-fg tracking-tight">Finance</h1>
+            <p className="text-caption text-fg-muted mt-0.5">
+              Invoices, receivables, receipts, and cash / bank accounts
             </p>
           </div>
 
           {isEditorOpen && activeTab === 'invoices' && (
-            <button
-              onClick={handleCloseEditor}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-navy-700 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-navy-700 transition"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Back to Invoices List
-            </button>
+            <Button type="button" variant="secondary" size="sm" onClick={handleCloseEditor}>
+              Back to invoices
+            </Button>
           )}
         </div>
 
-        {/* Navigation Tabs */}
         {!isEditorOpen && (
-          <div className="flex overflow-x-auto space-x-1 sm:space-x-4 border-b border-transparent scrollbar-none">
+          <div className="flex overflow-x-auto gap-1 border-b border-transparent">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
+                  type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`inline-flex items-center gap-2 py-3 px-3 text-xs sm:text-sm font-semibold border-b-2 transition whitespace-nowrap ${
+                  className={`inline-flex items-center gap-2 py-2.5 px-3 text-ui font-medium border-b-2 transition-colors whitespace-nowrap ${
                     isActive
-                      ? 'border-primary-600 text-primary-600 dark:border-primary-400 dark:text-primary-400'
-                      : 'border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                      ? 'border-accent text-accent-text'
+                      : 'border-transparent text-fg-muted hover:text-fg'
                   }`}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
@@ -125,8 +114,7 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
         )}
       </div>
 
-      {/* Main Tab Content */}
-      <div className="flex-1 p-6 max-w-7xl w-full mx-auto">
+      <div className="flex-1 p-6 w-full min-w-0">
         {activeTab === 'overview' && (
           <FinanceOverview
             onNavigateTab={handleNavigateTab}
@@ -137,9 +125,10 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
         {activeTab === 'invoices' && (
           isEditorOpen ? (
             <InvoiceEditor
+              invoiceId={editingInvoice?.id}
               initialInvoice={editingInvoice}
-              onCancel={handleCloseEditor}
-              onSaveSuccess={() => {
+              onBack={handleCloseEditor}
+              onSaved={() => {
                 setIsEditorOpen(false);
                 setEditingInvoice(null);
               }}

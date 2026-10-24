@@ -676,5 +676,26 @@ class TestFinanceModule(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(list_rec.json()), 1)
 
 
+class TestFinanceCalculations(unittest.TestCase):
+    def test_line_amount_is_always_rate_times_quantity(self):
+        from app.services.finance_invoices import compute_invoice_financials
+
+        tampered = compute_invoice_financials(
+            [{"quantity": 1, "rate": 10000000, "amount": 100}],
+            discount_type="amount",
+            discount_value=0,
+        )
+        self.assertEqual(tampered["subtotal"], 10000000)
+        self.assertEqual(tampered["total"], 10000000)
+
+        legitimate = compute_invoice_financials(
+            [{"quantity": 2, "rate": 5000, "amount": 10000}],
+            discount_type="amount",
+            discount_value=0,
+        )
+        self.assertEqual(legitimate["subtotal"], 10000)
+        self.assertEqual(legitimate["total"], 10000)
+
+
 if __name__ == "__main__":
     unittest.main()
