@@ -402,6 +402,23 @@ def _format_time_label(hh_mm: str) -> str:
         return hh_mm
 
 
+_SLOT_STATUS_REASON = {
+    "passed": "Passed",
+    "too_soon": "Too soon",
+    "booked": "Booked",
+}
+
+
+def _slot_unavailable_detail(slot: Dict[str, Any], target_date: str, slot_time: str) -> str:
+    label = slot.get("label", slot_time)
+    st = slot.get("status")
+    if st == "passed":
+        return f"The {label} slot on {target_date} has already passed. Please choose another time."
+    if st == "too_soon":
+        return f"The {label} slot on {target_date} is too soon to book. Please choose a later time."
+    return f"The {label} slot on {target_date} has just been booked. Please choose another time."
+
+
 async def get_available_slots(target_date_str: str, client_timezone: Optional[str] = None) -> Dict[str, Any]:
     """Calculate and return available time slots for a given date string (YYYY-MM-DD)."""
     db = _db()
@@ -467,14 +484,23 @@ async def get_available_slots(target_date_str: str, client_timezone: Optional[st
 
     while curr + timedelta(minutes=duration) <= end_dt:
         time_str = curr.strftime("%H:%M")
-        is_past = curr < min_allowed_time if req_date == today_local else False
+        # Every working-hours slot is returned; unbookable ones carry a status only
+        # (never who booked them) so the public page can show them disabled.
+        if curr <= now_local:
+            slot_status = "passed"
+        elif curr < min_allowed_time:
+            slot_status = "too_soon"
+        else:
+            slot_status = "available"
 
         candidate_slots.append({
             "time": time_str,
             "label": _format_time_label(time_str),
             "iso_start": curr.isoformat(),
             "iso_end": (curr + timedelta(minutes=duration)).isoformat(),
-            "available": not is_past,
+            "available": slot_status == "available",
+            "status": slot_status,
+            **({"reason": _SLOT_STATUS_REASON[slot_status]} if slot_status != "available" else {}),
         })
         curr += timedelta(minutes=duration)
 
@@ -515,9 +541,10 @@ async def get_available_slots(target_date_str: str, client_timezone: Optional[st
 
     # Mark booked slots as unavailable
     for slot in candidate_slots:
-        if slot["time"] in booked_times:
+        if slot["time"] in booked_times and slot["status"] != "passed":
             slot["available"] = False
-            slot["reason"] = "Already booked"
+            slot["status"] = "booked"
+            slot["reason"] = _SLOT_STATUS_REASON["booked"]
 
     return {
         "date": target_date_str,
@@ -772,7 +799,7 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not matching_slot.get("available"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"The {matching_slot.get('label', slot_time)} slot on {target_date} has just been booked. Please choose another time.",
+            detail=_slot_unavailable_detail(matching_slot, target_date, slot_time),
         )
 
     duration = int(sched_settings.get("duration_minutes", 30))
@@ -928,7 +955,7 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
     except DuplicateKeyError:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"The {matching_slot.get('label', slot_time)} slot on {target_date} has just been booked. Please choose another time.",
+            detail=_slot_unavailable_detail(matching_slot, target_date, slot_time),
         )
 
     try:

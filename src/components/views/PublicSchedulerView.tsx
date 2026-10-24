@@ -71,7 +71,19 @@ interface TimeSlot {
   iso_start: string;
   iso_end: string;
   available: boolean;
+  status?: 'available' | 'passed' | 'too_soon' | 'booked';
   reason?: string;
+}
+
+const SLOT_STATUS_LABEL: Record<string, string> = {
+  passed: 'Passed',
+  too_soon: 'Too soon',
+  booked: 'Booked',
+};
+
+export function slotStatusLabel(slot: TimeSlot): string | null {
+  if (slot.available) return null;
+  return (slot.status && SLOT_STATUS_LABEL[slot.status]) || slot.reason || 'Unavailable';
 }
 
 const COUNTRY_CODES = [
@@ -1397,7 +1409,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                           Try again
                         </button>
                       </div>
-                    ) : slots.length === 0 || !slots.some((s) => s.available) ? (
+                    ) : slots.length === 0 ? (
                       <div className="flex flex-col items-center justify-center flex-1 p-6 border border-dashed border-border rounded-lg text-center">
                         <CalendarIcon className="w-6 h-6 text-fg-faint mb-2" />
                         <p className="text-xs font-medium text-fg">No available slots for this date</p>
@@ -1406,28 +1418,37 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     ) : (
                       <div className="flex-1 max-h-[280px] overflow-y-auto pr-1">
                         <div className="grid grid-cols-2 gap-2">
-                          {/* Booked / past-notice slots are hidden, not shown greyed out. */}
-                          {slots.filter((slot) => slot.available).map((slot) => {
+                          {/* Every working-hours slot is shown; passed / too-soon / booked ones are disabled. */}
+                          {slots.map((slot) => {
                             const isSelected = selectedSlot?.time === slot.time;
+                            const statusLabel = slotStatusLabel(slot);
                             return (
                               <button
                                 key={slot.time}
                                 type="button"
                                 disabled={!slot.available}
+                                aria-disabled={!slot.available}
+                                aria-label={statusLabel ? `${slot.label} – ${statusLabel}` : slot.label}
+                                data-slot-status={slot.status || (slot.available ? 'available' : 'unavailable')}
                                 onClick={() => {
+                                  if (!slot.available) return;
                                   setSelectedSlot(slot);
                                   setStep(2);
                                 }}
                                 className={cn(
-                                  'h-10 px-3 rounded-lg border text-xs font-medium transition-all flex items-center justify-between cursor-pointer select-none font-numeric group',
+                                  'h-10 px-3 gap-1.5 rounded-lg border text-xs font-medium transition-all flex items-center justify-between select-none font-numeric group',
+                                  slot.available && 'cursor-pointer',
                                   isSelected
                                     ? 'bg-accent text-white border-accent shadow-xs'
                                     : slot.available
                                     ? 'border-border text-fg hover:border-accent hover:bg-accent-soft/20 active:scale-[0.98]'
-                                    : 'border-border/30 text-fg-faint bg-subtle cursor-not-allowed opacity-40'
+                                    : 'border-dashed border-border text-fg-faint bg-subtle cursor-not-allowed'
                                 )}
                               >
-                                <span>{slot.label}</span>
+                                <span className={cn('whitespace-nowrap', statusLabel && 'line-through decoration-fg-faint')}>{slot.label}</span>
+                                {statusLabel && (
+                                  <span className="shrink-0 whitespace-nowrap rounded px-1.5 py-0.5 bg-surface text-[10px] font-semibold text-fg-muted">{statusLabel}</span>
+                                )}
                                 {slot.available && (
                                   <ArrowRight className="w-3 h-3 text-fg-muted group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
                                 )}

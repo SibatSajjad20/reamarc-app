@@ -14,10 +14,20 @@ import {
  */
 const HOLIDAY = '2026-10-29';
 const BOOKED = { date: '2026-10-28', time: '11:30' };
+// "Today at 11:57 PKT" with 1h notice: 11:00/11:30 passed, 12:00/12:30 too soon.
+const TODAYISH = '2026-10-27';
+const TODAYISH_STATUS: Record<string, string> = { '11:00': 'passed', '11:30': 'passed', '12:00': 'too_soon', '12:30': 'too_soon' };
 const calls: string[] = [];
 
 function pktToday(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Karachi' }).format(new Date());
+}
+
+function slotState(date: string, time: string) {
+  if (date === BOOKED.date && time === BOOKED.time) return { available: false, status: 'booked', reason: 'Booked' };
+  const st = date === TODAYISH ? TODAYISH_STATUS[time] : undefined;
+  if (st) return { available: false, status: st, reason: st === 'passed' ? 'Passed' : 'Too soon' };
+  return { available: true, status: 'available' };
 }
 
 function slotsFor(date: string) {
@@ -35,7 +45,7 @@ function slotsFor(date: string) {
       label: `${h12}:${mm} ${m >= 720 ? 'PM' : 'AM'}`,
       iso_start: `${date}T${time}:00+05:00`,
       iso_end: `${date}T${time}:00+05:00`,
-      available: !(date === BOOKED.date && time === BOOKED.time),
+      ...slotState(date, time),
     });
   }
   return out;
@@ -127,15 +137,32 @@ describe('company resolution', () => {
 });
 
 describe('PublicSchedulerView availability (multi-tenant backend)', () => {
-  it('shows working-hour slots for a future weekday and hides the already-booked one', async () => {
+  it('shows working-hour slots for a future weekday and shows the booked one disabled', async () => {
     const { container } = render(<PublicSchedulerView />);
     await pickDay(container, '2026-10-28');
     expect(await screen.findByText('11:00 AM')).toBeTruthy();
     expect(screen.getByText('10:30 PM')).toBeTruthy();
     expect(screen.queryByText('11:00 PM')).toBeNull();
-    expect(screen.queryByText('11:30 AM')).toBeNull(); // booked → hidden
+    const booked = screen.getByText('11:30 AM').closest('button') as HTMLButtonElement;
+    expect(booked.disabled).toBe(true); // booked → shown, disabled
+    expect(booked.textContent).toContain('Booked');
     expect(screen.queryByText('No available slots for this date')).toBeNull();
     expect(calls.filter((c) => c.includes('/scheduler/')).every((c) => c.includes('company=reamarc'))).toBe(true);
+  });
+
+  it('shows passed and too-soon slots disabled instead of hiding them', async () => {
+    const { container } = render(<PublicSchedulerView />);
+    await pickDay(container, TODAYISH);
+    for (const [label, tag] of [['11:00 AM', 'Passed'], ['11:30 AM', 'Passed'], ['12:00 PM', 'Too soon'], ['12:30 PM', 'Too soon']]) {
+      const btn = (await screen.findByText(label)).closest('button') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      expect(btn.textContent).toContain(tag);
+      fireEvent.click(btn);
+    }
+    expect(screen.queryByText(/Step 2/i)).toBeNull();
+    const open = screen.getByText('1:00 PM').closest('button') as HTMLButtonElement;
+    expect(open.disabled).toBe(false);
+    expect(container.querySelectorAll('[data-slot-status]').length).toBe(24);
   });
 
   it('shows slots for a Saturday', async () => {
