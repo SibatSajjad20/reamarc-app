@@ -141,6 +141,8 @@ async def _tick_for_active_company(db, company: Optional[dict] = None) -> None:
     from app.services.attendance_scheduler import is_workday_for_date
     from app.services.access import is_tracked
 
+    await attendance_service.bind_relaxed_days(today, today)
+
     users = await company_member_users(
         {"is_active": True, "role": {"$nin": list(SKIP_ROLES)}},
         db=db,
@@ -191,6 +193,19 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
     shift = await attendance_service.get_shift_for_user(uid, user.get("department"), today)
     start, end = shift_bounds(shift, now)
     grace = _grace_minutes(shift)
+    rec = await db.attendance_records.find_one(
+        {"user_id": uid, "date": today},
+        {"_id": 0, "is_wfh": 1, "status": 1, "user_id": 1, "date": 1},
+    )
+    from app.services.relaxed_day import policy_applies, record_is_wfh, relaxed_policy_for_date
+    is_wfh = record_is_wfh(rec, shift) or await attendance_service.is_auto_wfh_for_date(uid, today)
+    policy = relaxed_policy_for_date(today)
+    checkout_label = getattr(shift, "end_time", None) or end.strftime("%H:%M")
+    if policy_applies(policy, uid, is_wfh):
+        leave_end = datetime.combine(now.date(), _parse_hhmm(policy.leave_from), tzinfo=now.tzinfo)
+        if leave_end < end:
+            end = leave_end
+            checkout_label = policy.leave_from
 
     if not on_leave_today and is_workday_today:
         if _in_window(now, start - timedelta(minutes=10), before_minutes=5, after_minutes=6):
@@ -213,7 +228,7 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
                     await push_service.dispatch_to_users(
                         [uid],
                         "Time to check out",
-                        f"Your shift ends at {shift.end_time}. Open the app to check out.",
+                        f"Your shift ends at {checkout_label}. Open the app to check out.",
                         kind="checkout",
                     )
 

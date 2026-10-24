@@ -100,6 +100,12 @@ from app.services.overtime_gate import (
     shift_times,
 )
 from app.services import push_service
+from app.services.relaxed_day import (
+    extra_for_record,
+    policies_from_events,
+    policy_from_calendar_doc,
+    set_relaxed_by_date,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -530,6 +536,8 @@ def compute_settled_checkout(
         **kwargs,
     )
     is_sl = bool((extra or {}).get("is_short_leave", False) or kwargs.get("is_short_leave", False))
+    leave_from = (extra or {}).get("waive_undertime_after") or kwargs.get("waive_undertime_after")
+    skip_ut = bool(leave_from) and claimed.undertime_minutes == 0
     gate = classify_checkout_gate(
         check_out=cout,
         claimed_overtime_minutes=claimed.overtime_minutes,
@@ -541,6 +549,7 @@ def compute_settled_checkout(
         undertime_buffer_minutes=ut_buf,
         check_in=cin,
         is_short_leave=is_sl,
+        skip_undertime_gate=skip_ut,
     )
     delta = minutes_after_shift_end(cout, start, end, night, cin)
     settled = settle_checkout_hours(
@@ -658,6 +667,7 @@ async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -
         "is_short_leave": bool(rec.get("is_short_leave")),
         "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
     }
+    extra.update(extra_for_record(rec, shift))
     _claimed, settled, gate, _ot_buf, _ut_buf, _start, shift_end = compute_settled_checkout(
         cin,
         cout,
@@ -882,6 +892,7 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
         "is_short_leave": is_short,
         "short_leave_hours": sl_hours,
     }
+    extra.update(extra_for_record(doc, shift))
 
     keep_status = {
         AttendanceStatus.WFH.value,
@@ -936,6 +947,64 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
         doc["late_minutes"] = claimed.late_minutes
     doc.update(settled_to_record_fields(settled))
     return doc
+
+
+async def bind_relaxed_days(start_date: str, end_date: str) -> Dict[str, Any]:
+    """Load relaxed-day policies for a date range into the request context."""
+    db = get_database()
+    mapping: Dict[str, Any] = {}
+    if db is not None:
+        docs = await db.company_calendar.find(
+            {
+                "date": {"$gte": start_date, "$lte": end_date},
+                "event_type": CalendarEventType.RELAXED_DAY.value,
+            },
+            {"_id": 0},
+        ).to_list(400)
+        mapping = policies_from_events(docs)
+    set_relaxed_by_date(mapping)
+    return mapping
+
+
+async def resync_attendance_hours_for_date(date_str: str) -> int:
+    """Recompute stored hours after a relaxed-day calendar change."""
+    db = get_database()
+    if db is None or not date_str:
+        return 0
+    await bind_relaxed_days(date_str, date_str)
+    recs = await db.attendance_records.find({"date": date_str}, {"_id": 0}).to_list(2000)
+    updated = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for rec in recs:
+        cin, cout = record_punch_times(rec)
+        if not cin or not cout:
+            continue
+        uid = rec.get("user_id")
+        shift = await get_shift_for_user(uid, None, date_str)
+        apply_daily_calc_fields(rec, shift)
+        hour_fields = {
+            "working_hours_minutes": rec.get("working_hours_minutes"),
+            "work_hours": rec.get("work_hours"),
+            "work_duration_formatted": rec.get("work_duration_formatted"),
+            "overtime_minutes": rec.get("overtime_minutes"),
+            "overtime_hours": rec.get("overtime_hours"),
+            "overtime_formatted": rec.get("overtime_formatted"),
+            "undertime_minutes": rec.get("undertime_minutes"),
+            "undertime_hours": rec.get("undertime_hours"),
+            "undertime_formatted": rec.get("undertime_formatted"),
+            "pending_overtime_minutes": rec.get("pending_overtime_minutes"),
+            "claimed_overtime_minutes": rec.get("claimed_overtime_minutes"),
+            "overtime_status": rec.get("overtime_status"),
+            "updated_at": now_iso,
+        }
+        if int(rec.get("undertime_minutes") or 0) == 0:
+            hour_fields["undertime_reason"] = None
+        await db.attendance_records.update_one(
+            {"user_id": uid, "date": date_str},
+            {"$set": hour_fields},
+        )
+        updated += 1
+    return updated
 
 
 def iter_date_range(start_str: str, end_str: str) -> List[str]:
@@ -2325,7 +2394,7 @@ async def process_check_out(
     # Use assigned shift for the record's date (date override / weekday), not the template stamped at check-in.
     shift = await get_shift_for_user(user_id, department, date_str)
 
-    is_wfh = existing.get("is_wfh", False)
+    is_wfh = bool(existing.get("is_wfh", False)) or await is_auto_wfh_for_date(user_id, date_str)
     is_short_leave = existing.get("is_short_leave", False)
     short_leave_hours = existing.get("short_leave_hours", 0.0)
     closed_break_minutes = accumulate_break_minutes(existing, time_str)
@@ -2356,6 +2425,8 @@ async def process_check_out(
         "is_short_leave": is_short_leave,
         "short_leave_hours": short_leave_hours,
     }
+    await bind_relaxed_days(date_str, date_str)
+    extra.update(extra_for_record({**existing, "user_id": user_id, "date": date_str, "is_wfh": is_wfh}, shift))
     claimed, settled, gate, _ot_buf, _ut_buf, _start, shift_end = compute_settled_checkout(
         cin,
         time_str,
@@ -2689,6 +2760,9 @@ async def get_today_status(
             "is_short_leave": bool(record_doc.get("is_short_leave")) if record_doc else False,
             "short_leave_hours": float((record_doc or {}).get("short_leave_hours") or 0.0),
         }
+        today_str = record_doc.get("date") if record_doc else get_current_date_str()
+        await bind_relaxed_days(today_str, today_str)
+        extra.update(extra_for_record({**(record_doc or {}), "user_id": user.get("id"), "date": today_str, "is_wfh": is_wfh}, shift))
         claimed, settled, gate, ot_buf, ut_buf, _start, shift_end = compute_settled_checkout(
             cin,
             now_time,
@@ -2843,6 +2917,7 @@ async def get_my_timesheet(
         month_last_day = calendar.monthrange(year, month)[1]
         month_end_date = date(year, month, month_last_day)
         holidays_set, _working_sats, holiday_titles = await load_calendar_overrides(month_start_date, month_end_date)
+        await bind_relaxed_days(month_start_date.isoformat(), month_end_date.isoformat())
 
         seen_record_dates = set()
         for d in docs:
@@ -3796,6 +3871,7 @@ async def get_monthly_punctuality_summary(
             holidays_set.add(ev_date)
         if ev.get("is_workday_override", False) or ev.get("event_type") == CalendarEventType.WORKING_SATURDAY.value:
             working_saturdays_set.add(ev_date)
+    set_relaxed_by_date(policies_from_events(month_events))
 
     rows: List[MonthlyPunctualityRow] = []
 
@@ -6240,6 +6316,12 @@ async def create_calendar_event(event_in: CalendarEventCreate) -> CalendarEventR
     await db.company_calendar.insert_one(event_dict)
     created_doc = await db.company_calendar.find_one({"id": event_dict["id"]}, {"_id": 0})
 
+    if policy_from_calendar_doc(event_dict) and event_dict.get("date"):
+        try:
+            await resync_attendance_hours_for_date(event_dict["date"])
+        except Exception as e:
+            logger.warning("Failed to resync attendance for relaxed day %s: %s", event_dict.get("date"), e)
+
     # If this is a holiday, auto-convert unpunched absent attendance records on this date to holiday
     is_holiday = event_dict.get("is_off_day") is True or str(event_dict.get("event_type") or "").lower() in ("holiday", "calendar_event_type.holiday")
     if is_holiday and event_dict.get("date"):
@@ -6317,6 +6399,12 @@ async def delete_calendar_event(event_id: str) -> dict:
     result = await db.company_calendar.delete_one({"id": event_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail=f"Calendar event '{event_id}' not found")
+
+    if existing and policy_from_calendar_doc(existing) and existing.get("date"):
+        try:
+            await resync_attendance_hours_for_date(existing["date"])
+        except Exception as e:
+            logger.warning("Failed to resync attendance after deleting relaxed day %s: %s", existing.get("date"), e)
 
     if existing and existing.get("date") and (existing.get("is_off_day") or existing.get("event_type") == "holiday"):
         now_iso = datetime.now(timezone.utc).isoformat()

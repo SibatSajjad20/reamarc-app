@@ -264,6 +264,9 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
     )
     att_docs = await att_cursor.to_list(1000)
 
+    from app.services.attendance_service import bind_relaxed_days
+    await bind_relaxed_days(att_start, end)
+
     orphan_annual, orphan_sick = _orphan_usage_from_attendance(
         att_docs, docs, off_index, att_start, end,
     )
@@ -451,6 +454,7 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
             "check_in": 1,
             "check_out": 1,
             "work_hours": 1,
+            "is_wfh": 1,
         },
     ).to_list(10000)
     shift_task = db.shifts.find({}, {"_id": 0}).to_list(500)
@@ -459,6 +463,9 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
     off_index, bal_docs, req_docs, att_docs, all_shifts, all_assignments = await asyncio.gather(
         off_task, bal_task, req_task, att_task, shift_task, asgn_task
     )
+
+    from app.services.attendance_service import bind_relaxed_days
+    await bind_relaxed_days(start_str, end_str)
 
     shifts_by_id = {s["id"]: s for s in all_shifts}
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)

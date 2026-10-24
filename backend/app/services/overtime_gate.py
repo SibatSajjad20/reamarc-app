@@ -125,6 +125,7 @@ def classify_checkout_gate(
     undertime_buffer_minutes: int = DEFAULT_UT_BUFFER,
     check_in: Optional[Union[str, int]] = None,
     is_short_leave: bool = False,
+    skip_undertime_gate: bool = False,
 ) -> GateType:
     delta = minutes_after_shift_end(
         check_out, shift_start, shift_end, is_night_shift, check_in
@@ -133,8 +134,13 @@ def classify_checkout_gate(
     ut_buf = int(undertime_buffer_minutes if undertime_buffer_minutes is not None else DEFAULT_UT_BUFFER)
     if delta > ot_buf and int(claimed_overtime_minutes or 0) > ot_buf:
         return "overtime"
-    # Approved short leave authorizes early departure; do not trigger undertime reason modal at checkout
-    if not is_short_leave and delta < -ut_buf and int(claimed_undertime_minutes or 0) > ut_buf:
+    # Approved short leave or a relaxed early-leave day: no undertime reason at checkout
+    if (
+        not is_short_leave
+        and not skip_undertime_gate
+        and delta < -ut_buf
+        and int(claimed_undertime_minutes or 0) > ut_buf
+    ):
         return "undertime"
     return "none"
 

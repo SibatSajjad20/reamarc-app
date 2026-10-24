@@ -229,12 +229,15 @@ def calculate_daily_attendance(
     is_wfh: bool = False,
     is_short_leave: bool = False,
     short_leave_hours: float = 0.0,
+    count_from_actual_check_in: bool = False,
+    waive_undertime_after: Optional[Union[str, time, datetime]] = None,
 ) -> DailyCalculationResult:
     """
     Pure mathematical calculation for a single daily attendance record.
 
     Rules:
-    1. Gross clocked time starts at max(check-in, shift start). Early arrivals do not count.
+    1. Gross clocked time starts at max(check-in, shift start). Early arrivals do not count
+       unless count_from_actual_check_in is set (relaxed / early-leave days).
        Time after shift end is overtime; leaving before shift end is undertime.
        Late arrival is a late strike, not undertime.
     2. Unpaid break is deducted only for overlap with the shift's break window
@@ -327,8 +330,12 @@ def calculate_daily_attendance(
         else:
             check_out_adjusted = check_out_mins
 
-    # Gross worked minutes: early clock-in is clipped to shift start; late stay counts.
-    effective_check_in = max(check_in_adjusted, shift_start_mins)
+    # Gross worked minutes: early clock-in is clipped to shift start unless the day
+    # counts actual in/out (relaxed / cricket day). Late stay still counts.
+    if count_from_actual_check_in:
+        effective_check_in = check_in_adjusted
+    else:
+        effective_check_in = max(check_in_adjusted, shift_start_mins)
     gross_work_minutes = max(0, check_out_adjusted - effective_check_in)
 
     break_window = resolve_break_window(
@@ -367,6 +374,11 @@ def calculate_daily_attendance(
     else:
         overtime_minutes = 0
         undertime_minutes = max(0, effective_expected_work_minutes - net_work_minutes)
+
+    if waive_undertime_after is not None:
+        leave_from_mins = parse_time_to_minutes(waive_undertime_after)
+        if check_out_adjusted >= leave_from_mins:
+            undertime_minutes = 0
 
     overtime_hours = round(overtime_minutes / 60.0, 4)
     overtime_formatted = format_minutes_to_hhmm(overtime_minutes, show_sign=True)

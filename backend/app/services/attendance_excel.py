@@ -199,6 +199,8 @@ async def generate_multi_tab_attendance_workbook(
                 holidays_set.add(ev_date)
             if ev.get("is_workday_override") or ev_type in (CalendarEventType.WORKING_SATURDAY.value, "working_saturday"):
                 working_saturdays_set.add(ev_date)
+        from app.services.relaxed_day import policies_from_events, set_relaxed_by_date
+        set_relaxed_by_date(policies_from_events(calendar_events))
 
     # 3. Company-wide working days (fallback); per-employee uses joining floor below
     from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start

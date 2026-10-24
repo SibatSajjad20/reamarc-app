@@ -512,10 +512,13 @@ export interface CompanyCalendarEvent {
   id: string;
   title: string;
   date: string;
-  event_type: 'holiday' | 'working_saturday' | 'special_event' | 'event';
+  event_type: 'holiday' | 'working_saturday' | 'special_event' | 'event' | 'relaxed_day';
   is_off_day?: boolean;
   is_workday_override?: boolean;
   description?: string;
+  leave_from?: string;
+  exclude_user_ids?: string[];
+  exclude_wfh?: boolean;
 }
 
 export interface WeekdayShiftRule {

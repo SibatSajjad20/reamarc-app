@@ -148,8 +148,11 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
   const [newEventDate, setNewEventDate] = useState(getDefaultHolidayDate());
-  const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday'>('holiday');
+  const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday' | 'relaxed_day'>('holiday');
   const [newEventDesc, setNewEventDesc] = useState('');
+  const [newLeaveFrom, setNewLeaveFrom] = useState('16:00');
+  const [excludeUserIds, setExcludeUserIds] = useState<string[]>([]);
+  const [excludeSearch, setExcludeSearch] = useState('');
   const eventFormRef = useRef<HTMLFormElement>(null);
   const [holidayErrors, setHolidayErrors] = useState<Record<string, string>>({});
   const [holidayServerError, setHolidayServerError] = useState<string | null>(null);
@@ -640,11 +643,27 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
         is_off_day: newEventType === 'holiday',
         is_workday_override: newEventType === 'working_saturday',
         description: newEventDesc.trim(),
+        ...(newEventType === 'relaxed_day'
+          ? {
+              leave_from: newLeaveFrom,
+              exclude_user_ids: excludeUserIds,
+              exclude_wfh: true,
+            }
+          : {}),
       });
-      addToast('Holiday Added', `"${newEventTitle}" added to official company calendar.`, 'success');
+      addToast(
+        newEventType === 'relaxed_day' ? 'Relaxed day added' : 'Holiday Added',
+        newEventType === 'relaxed_day'
+          ? `"${newEventTitle}" — leave from ${newLeaveFrom}. Existing punches for that date will recalculate.`
+          : `"${newEventTitle}" added to official company calendar.`,
+        'success'
+      );
       setIsEventModalOpen(false);
       setNewEventTitle('');
       setNewEventDesc('');
+      setNewLeaveFrom('16:00');
+      setExcludeUserIds([]);
+      setExcludeSearch('');
       fetchData();
     } catch (err: any) {
       setHolidayServerError(err.message || 'Failed to add calendar event.');
@@ -695,6 +714,9 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                   size="sm"
                   onClick={() => {
                     setNewEventDate(getDefaultHolidayDate());
+                    setNewLeaveFrom('16:00');
+                    setExcludeUserIds([]);
+                    setExcludeSearch('');
                     setIsEventModalOpen(true);
                   }}
                   icon={Plus}
@@ -725,6 +747,9 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 size="sm"
                 onClick={() => {
                   setNewEventDate(getDefaultHolidayDate());
+                  setNewLeaveFrom('16:00');
+                  setExcludeUserIds([]);
+                  setExcludeSearch('');
                   setIsEventModalOpen(true);
                 }}
                 icon={Plus}
@@ -1099,7 +1124,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
           <div className="p-4 rounded-xl bg-surface border border-border shadow-xs flex items-center justify-between">
             <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
               <Calendar className="w-4 h-4 text-accent" />
-              Official Holidays & Working Saturday Overrides
+              Official holidays, working Saturdays, and relaxed / early-leave days
             </h3>
             <span className="text-xs font-medium text-fg-muted">
               Tracking starts from <span className="font-numeric">19 Aug 2026</span>
@@ -1119,12 +1144,20 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 >
                   <div className="space-y-1">
                     <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase bg-warning-bg text-warning-fg border border-warning-bd">
-                      {evt.event_type}
+                      {evt.event_type === 'relaxed_day' ? 'relaxed day' : evt.event_type}
                     </span>
                     <h4 className="text-sm font-semibold text-fg">
                       {evt.title}
                     </h4>
                     <p className="text-xs font-numeric text-fg-muted">{evt.date}</p>
+                    {evt.event_type === 'relaxed_day' && (
+                      <p className="text-xs text-fg-muted pt-1">
+                        Leave from {evt.leave_from || '16:00'} · WFH excluded
+                        {(evt.exclude_user_ids || []).length > 0
+                          ? ` · ${evt.exclude_user_ids!.length} people excluded`
+                          : ''}
+                      </p>
+                    )}
                     {evt.description && (
                       <p className="text-xs text-fg-muted pt-1">{evt.description}</p>
                     )}
@@ -1621,10 +1654,65 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                   options={[
                     { value: 'holiday', label: 'Public Holiday (Off)' },
                     { value: 'working_saturday', label: 'Working Saturday' },
+                    { value: 'relaxed_day', label: 'Relaxed day (leave early, no undertime)' },
                   ]}
                 />
               </div>
             </div>
+
+            {newEventType === 'relaxed_day' && (
+              <div className="space-y-3 rounded-lg border border-border bg-subtle/40 p-3">
+                <CustomTimePicker
+                  label="Free to leave from"
+                  value={newLeaveFrom}
+                  onChange={setNewLeaveFrom}
+                />
+                <p className="text-caption text-fg-muted">
+                  Checkout at this time or later has no undertime and no reason prompt. Hours are check-in to check-out minus lunch, including early clock-in. People on WFH that day keep their normal shift.
+                </p>
+                <div>
+                  <label className="block font-medium text-fg mb-1">Also keep on normal hours</label>
+                  <input
+                    type="search"
+                    value={excludeSearch}
+                    onChange={(e) => setExcludeSearch(e.target.value)}
+                    placeholder="Search Ahmed, Junaid…"
+                    className="w-full px-3 py-2 mb-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                  />
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {members
+                      .filter((m) => {
+                        const q = excludeSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          (m.full_name || '').toLowerCase().includes(q) ||
+                          (m.email || '').toLowerCase().includes(q) ||
+                          (m.department || '').toLowerCase().includes(q)
+                        );
+                      })
+                      .slice(0, 40)
+                      .map((m) => {
+                        const checked = excludeUserIds.includes(m.id);
+                        return (
+                          <label key={m.id} className="flex items-center gap-2 py-1 text-xs text-fg cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setExcludeUserIds((prev) =>
+                                  checked ? prev.filter((id) => id !== m.id) : [...prev, m.id]
+                                );
+                              }}
+                            />
+                            <span>{m.full_name}</span>
+                            {m.department ? <span className="text-fg-muted">· {m.department}</span> : null}
+                          </label>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block font-medium text-fg mb-1">

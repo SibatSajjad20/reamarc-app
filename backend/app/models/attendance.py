@@ -71,3 +71,4 @@ class CalendarEventType(str, Enum):
     HOLIDAY = "holiday"
     WORKING_SATURDAY = "working_saturday"
     SPECIAL_EVENT = "special_event"
+    RELAXED_DAY = "relaxed_day"
