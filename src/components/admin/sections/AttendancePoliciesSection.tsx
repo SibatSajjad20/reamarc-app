@@ -235,7 +235,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
       applyShifts(fetchedShifts);
 
       if (fetchedMembers.status === 'fulfilled' && Array.isArray(fetchedMembers.value)) {
-        setMembers(fetchedMembers.value.filter((m: AdminMember) => m.role !== 'client' && m.role !== 'admin'));
+        setMembers(fetchedMembers.value.filter((m: AdminMember) => m.role !== 'client' && m.role !== 'admin' && m.is_active !== false));
       }
 
       if (fetchedAssignments.status === 'fulfilled' && Array.isArray(fetchedAssignments.value)) {

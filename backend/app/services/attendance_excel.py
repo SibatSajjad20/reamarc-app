@@ -152,7 +152,8 @@ async def generate_multi_tab_attendance_workbook(
     num_days = calendar.monthrange(year, month)[1]
 
     # 1. Fetch Users (Exclude client and admin roles from employee attendance records)
-    user_query: Dict[str, Any] = {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
+    # Deactivated people stay in months they worked in (before their deactivation date).
+    user_query: Dict[str, Any] = {"role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
     if department and department.lower() != "all":
         user_query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
@@ -161,6 +162,7 @@ async def generate_multi_tab_attendance_workbook(
         users = await company_member_users(
             user_query,
             db=db,
+            include_inactive=True,
             projection={"_id": 0, "hashed_password": 0},
             sort=("full_name", 1),
             limit=1000,
@@ -174,9 +176,15 @@ async def generate_multi_tab_attendance_workbook(
     start_of_month = f"{month_prefix}-01"
     end_of_month = f"{month_prefix}-{num_days:02d}"
 
-    from app.services.access import is_tracked
+    from app.services.access import was_tracked
     from app.services.attendance_golive import get_employee_attendance_start
-    users = [u for u in users if is_tracked(u, "attendance") and get_employee_attendance_start(u) <= end_of_month]
+    from app.services.company_members import deactivation_cutoff, member_active_during
+    users = [
+        u for u in users
+        if was_tracked(u, "attendance")
+        and get_employee_attendance_start(u) <= end_of_month
+        and member_active_during(u, start_of_month)
+    ]
 
     if db is not None:
         calendar_events = await db.company_calendar.find(
@@ -352,8 +360,10 @@ async def generate_multi_tab_attendance_workbook(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
         employee_start = get_employee_attendance_start(u)
+        employee_end = deactivation_cutoff(u)
         emp_working_days = attendance_service.compute_month_working_days_sync(
-            year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
+            year, month, holidays_set, working_saturdays_set, min_date,
+            employee_start=employee_start, employee_end=employee_end,
         )
         if emp_working_days <= 0:
             continue
@@ -362,6 +372,7 @@ async def generate_multi_tab_attendance_workbook(
         u_records = [
             r for r in records_by_user.get(u_id, [])
             if str(r.get("date") or "") >= employee_start
+            and (employee_end is None or str(r.get("date") or "") < employee_end)
         ]
         shift_by_date: Dict[str, Any] = {}
 
@@ -398,6 +409,7 @@ async def generate_multi_tab_attendance_workbook(
             "shift_by_date": shift_by_date,
             "missed_punches": missed_punches_count,
             "employee_start": employee_start,
+            "employee_end": employee_end,
             "working_days": emp_working_days,
         }
 
@@ -586,6 +598,8 @@ async def generate_multi_tab_attendance_workbook(
             day_name = cur_date.strftime("%A")
 
             if cur_date_str < employee_start:
+                continue
+            if emp_data.get("employee_end") is not None and cur_date_str >= emp_data["employee_end"]:
                 continue
 
             rec = u_date_records.get(cur_date_str)

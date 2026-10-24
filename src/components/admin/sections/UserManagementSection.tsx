@@ -504,8 +504,19 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                           className="rounded-full shrink-0"
                         />
                         <div className="min-w-0 max-w-[200px]">
-                          <div className="font-medium text-fg truncate" title={m.full_name || 'User'}>
-                            {m.full_name || 'User'}
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="font-medium text-fg truncate" title={m.full_name || 'User'}>
+                              {m.full_name || 'User'}
+                            </div>
+                            {m.is_active === false && (
+                              <span
+                                className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-fg-muted"
+                                title={m.deactivation_date ? `Inactive since ${m.deactivation_date}` : 'Inactive'}
+                                data-testid="member-inactive-badge"
+                              >
+                                Inactive
+                              </span>
+                            )}
                           </div>
                           <div className="text-caption text-fg-muted truncate" title={m.email}>{m.email}</div>
                         </div>

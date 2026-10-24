@@ -314,7 +314,7 @@ async def _heal_overtime_requests(docs: List[dict], active_only_pending: bool = 
 async def _resolve_applicant_role(user_id: Optional[str], stored_role: Optional[str] = None) -> str:
     db = get_database()
     if db is not None and user_id:
-        user = await company_member_user(user_id, db=db)
+        user = await company_member_user(user_id, db=db, include_inactive=True)
         if user and user.get("role"):
             return str(user.get("role")).lower()
     return str(stored_role or "team_member").lower()
@@ -3004,7 +3004,10 @@ async def get_my_timesheet(
     # Calculate total working days in this month (pro-rated from employee joining/go-live)
     from app.services.attendance_golive import get_employee_attendance_start
     employee_start = get_employee_attendance_start(user)
-    total_working_days = await calculate_month_working_days(year, month, employee_start=employee_start)
+    from app.services.company_members import deactivation_cutoff
+    total_working_days = await calculate_month_working_days(
+        year, month, employee_start=employee_start, employee_end=deactivation_cutoff(user)
+    )
     if total_working_days <= 0:
         total_working_days = 0
 
@@ -3066,12 +3069,12 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    user_doc = await company_member_user(user_id, db=db)
+    user_doc = await company_member_user(user_id, db=db, include_inactive=True)
     if not user_doc:
         raise HTTPException(status_code=404, detail="Employee not found")
 
-    from app.services.access import is_tracked
-    if not is_tracked(user_doc, "attendance"):
+    from app.services.access import was_tracked
+    if not was_tracked(user_doc, "attendance"):
         raise HTTPException(status_code=400, detail="Attendance is off for this account.")
 
     role = str(user_doc.get("role") or "").lower()
@@ -3092,6 +3095,7 @@ def compute_month_working_days_sync(
     working_saturdays_set: set,
     effective_start_date: str,
     employee_start: Optional[str] = None,
+    employee_end: Optional[str] = None,
 ) -> int:
     """
     Synchronous calculation of working days in a month using pre-fetched holidays and overrides.
@@ -3113,6 +3117,9 @@ def compute_month_working_days_sync(
         cur_date = date(year, month, day)
         date_str = cur_date.strftime("%Y-%m-%d")
         if min_date and date_str < min_date:
+            continue
+        # employee_end = deactivation date (exclusive): nothing is owed from that day on.
+        if employee_end is not None and date_str >= employee_end:
             continue
 
         if date_str in working_saturdays_set:
@@ -3137,6 +3144,7 @@ async def calculate_month_working_days(
     year: int,
     month: int,
     employee_start: Optional[str] = None,
+    employee_end: Optional[str] = None,
 ) -> int:
     """
     Computes standard company working days in a month:
@@ -3166,7 +3174,8 @@ async def calculate_month_working_days(
     from app.services.attendance_golive import get_effective_start_date
     min_date = get_effective_start_date()
     return compute_month_working_days_sync(
-        year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
+        year, month, holidays_set, working_saturdays_set, min_date,
+        employee_start=employee_start, employee_end=employee_end,
     )
 
 
@@ -3200,20 +3209,24 @@ async def get_daily_matrix(
             rows=[],
         )
 
-    # 1. Fetch active employees (excluding clients and administrators who do not clock in/out)
-    user_query: Dict[str, Any] = {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
+    # 1. Fetch employees (excluding clients and administrators who do not clock in/out).
+    # Deactivated people stay in the register for days before their deactivation date.
+    user_query: Dict[str, Any] = {"role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
+    from app.services.company_members import member_active_during
     users = await company_member_users(
         user_query,
         db=db,
+        include_inactive=True,
         projection={"_id": 0, "hashed_password": 0},
         sort=("full_name", 1),
         limit=1000,
     )
-    from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "attendance")]
+    users = [u for u in users if member_active_during(u, target_date)]
+    from app.services.access import was_tracked
+    users = [u for u in users if was_tracked(u, "attendance")]
 
     # 2. Fetch all attendance records for date
     records_list = await db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000)
@@ -3720,20 +3733,25 @@ async def get_monthly_punctuality_summary(
     if db is None:
         return MonthlyPunctualityResponse(year=year, month=month, total_employees=0, rows=[])
 
-    user_query: Dict[str, Any] = {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
+    user_query: Dict[str, Any] = {"role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
+    from app.services.company_members import deactivation_cutoff, member_active_during
     users = await company_member_users(
         user_query,
         db=db,
+        include_inactive=True,
         projection={"_id": 0, "hashed_password": 0},
         sort=("full_name", 1),
         limit=1000,
     )
-    from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "attendance")]
+    from app.services.access import was_tracked
     month_prefix = f"{year:04d}-{month:02d}"
+    users = [
+        u for u in users
+        if was_tracked(u, "attendance") and member_active_during(u, f"{month_prefix}-01")
+    ]
 
     # Batch-load all shifts & assignments
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
@@ -3786,8 +3804,10 @@ async def get_monthly_punctuality_summary(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department")
 
+        employee_end = deactivation_cutoff(u)
         total_working_days = compute_month_working_days_sync(
-            year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
+            year, month, holidays_set, working_saturdays_set, min_date,
+            employee_start=employee_start, employee_end=employee_end,
         )
         if total_working_days <= 0:
             continue
@@ -3805,6 +3825,7 @@ async def get_monthly_punctuality_summary(
         records = [
             r for r in records_by_user.get(u_id, [])
             if str(r.get("date") or "") >= employee_start
+            and (employee_end is None or str(r.get("date") or "") < employee_end)
         ]
 
         daily_dicts = []
@@ -4301,7 +4322,7 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
     if not rec:
         return None
 
-    user = await company_member_user(user_id, db=db) or {}
+    user = await company_member_user(user_id, db=db, include_inactive=True) or {}
     user_dept = user.get("department")
     shift = await get_shift_for_user(user_id, user_dept, date_str)
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
@@ -5938,7 +5959,7 @@ async def admin_manual_attendance_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    target_user = await company_member_user(user_id, db=db)
+    target_user = await company_member_user(user_id, db=db, include_inactive=True)
     if not target_user:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
 
@@ -6134,7 +6155,7 @@ async def override_attendance_record(
         date_str = rec.get("date", date_str)
     else:
         # 2. Check if target_id is user_id
-        target_user = await company_member_user(target_id, db=db)
+        target_user = await company_member_user(target_id, db=db, include_inactive=True)
         if target_user:
             user_id = target_id
             rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
@@ -6481,7 +6502,7 @@ async def respond_to_missed_punch_inquiry(
     target_date = inq.get("date")
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    user_doc = await company_member_user(user_id, db=db)
+    user_doc = await company_member_user(user_id, db=db, include_inactive=True)
     dept = (user_doc or {}).get("department", "")
     shift = await get_shift_for_user(user_id, dept, target_date)
     existing_rec = await db.attendance_records.find_one({"user_id": user_id, "date": target_date}, {"_id": 0})

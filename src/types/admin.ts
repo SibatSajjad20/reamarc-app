@@ -16,6 +16,7 @@ export interface AdminMember {
   probation_start_date?: string | null;
   probation_end_date?: string | null;
   is_active: boolean;
+  deactivation_date?: string | null;
   created_at?: string;
   workspace_ids?: string[];
   avatar_url?: string | null;

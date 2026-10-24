@@ -286,10 +286,14 @@ async def list_members(
         gdb = get_global_db()
         current_cid = current_user.get("company_id")
         mem_query: Dict[str, Any] = {"company_id": current_cid}
-        if is_active is None or is_active is True:
+        # Default lists everyone still in the directory, deactivated included (shown with an
+        # Inactive badge), like single-company mode. "removed" = taken out of this company.
+        if is_active is True:
             mem_query["status"] = "active"
         elif is_active is False:
             mem_query["status"] = {"$in": ["inactive", "removed"]}
+        else:
+            mem_query["status"] = {"$in": ["active", "inactive"]}
         if role:
             mem_query["role"] = role.lower()
         if department:
@@ -326,7 +330,10 @@ async def list_members(
             merged["primary_department"] = m.get("primary_department")
             merged["needs_setup"] = bool(m.get("needs_setup", False))
             merged["company_id"] = current_cid
-            merged["is_active"] = (m.get("status") == "active")
+            merged["is_active"] = (m.get("status") == "active") and u.get("is_active") is not False
+            if m.get("deactivation_date") or m.get("deactivated_at"):
+                merged["deactivation_date"] = m.get("deactivation_date") or u.get("deactivation_date")
+                merged["deactivated_at"] = m.get("deactivated_at") or u.get("deactivated_at")
             home = u.get("company_id")
             merged["login_managed_elsewhere"] = bool(
                 u.get("is_super_admin") or home != current_cid or m["user_id"] in extra_ids

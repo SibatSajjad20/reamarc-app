@@ -136,6 +136,9 @@ def _overlay_membership(user: Dict[str, Any], membership: Dict[str, Any], compan
     merged["membership_id"] = membership.get("id")
     merged["company_id"] = company_id
     merged["is_active"] = membership.get("status") == "active" and user.get("is_active") is not False
+    merged["membership_status"] = membership.get("status")
+    merged["deactivation_date"] = membership.get("deactivation_date") or user.get("deactivation_date")
+    merged["deactivated_at"] = membership.get("deactivated_at") or user.get("deactivated_at")
     if "crm_enabled" in membership:
         merged["crm_enabled"] = membership.get("crm_enabled")
     if "crm_paused" in membership:
@@ -236,9 +239,9 @@ async def company_member_users(
         return await _flags_off_find(db, query, projection, sort, limit)
 
     mem_query: Dict[str, Any] = {"company_id": cid}
-    if include_inactive:
-        mem_query["status"] = {"$in": ["active", "inactive"]}
-    else:
+    # include_inactive is for history (reports, name lookups, orphan cleanup): it must also
+    # return deactivated / removed people, whose user doc may carry is_active=False.
+    if not include_inactive:
         mem_query["status"] = "active"
     wanted = _wanted_user_ids(query)
     if wanted is not None:
@@ -251,13 +254,10 @@ async def company_member_users(
     if not mems:
         return []
     uids = [m.get("user_id") for m in mems if m.get("user_id")]
-    users = await gdb.users.find(
-        {
-            "$or": [{"id": {"$in": uids}}, {"_id": {"$in": uids}}],
-            "is_active": {"$ne": False},
-        },
-        {"hashed_password": 0},
-    ).to_list(None)
+    user_query: Dict[str, Any] = {"$or": [{"id": {"$in": uids}}, {"_id": {"$in": uids}}]}
+    if not include_inactive:
+        user_query["is_active"] = {"$ne": False}
+    users = await gdb.users.find(user_query, {"hashed_password": 0}).to_list(None)
     user_by_id = {str(u.get("id") or u.get("_id")): u for u in users}
 
     results: List[Dict[str, Any]] = []
@@ -274,8 +274,10 @@ async def company_member_users(
     return _sort_docs(results, sort)[:limit]
 
 
-async def company_member_user(user_id: Any, db=None) -> dict | None:
-    """Load one current-company member by id. Includes needs_setup members."""
+async def company_member_user(user_id: Any, db=None, *, include_inactive: bool = False) -> dict | None:
+    """Load one current-company member by id. Includes needs_setup members.
+
+    include_inactive=True also returns deactivated people (for history views)."""
     if not user_id:
         return None
     uid = str(user_id)
@@ -310,9 +312,28 @@ async def company_member_user(user_id: Any, db=None) -> dict | None:
     if not mem:
         return None
     user = await gdb.users.find_one({"$or": [{"id": uid}, {"_id": uid}]}, {"hashed_password": 0})
-    if not user or user.get("is_active") is False:
+    if not user or (user.get("is_active") is False and not include_inactive):
         return None
     return _overlay_membership(user, mem, cid)
+
+
+def deactivation_cutoff(user: Optional[Dict[str, Any]]) -> Optional[str]:
+    """YYYY-MM-DD from which a deactivated person stops counting, or None if active.
+
+    A deactivated person with no recorded date returns "" (treated as never active in
+    a period, which keeps the pre-fix behaviour for very old deactivations)."""
+    if not user or user.get("is_active") is not False:
+        return None
+    raw = user.get("deactivation_date") or user.get("deactivated_at") or ""
+    return str(raw)[:10]
+
+
+def member_active_during(user: Optional[Dict[str, Any]], period_start: str) -> bool:
+    """True if the person was active on at least one day on/after period_start."""
+    cutoff = deactivation_cutoff(user)
+    if cutoff is None:
+        return True
+    return bool(cutoff) and cutoff > period_start
 
 
 async def company_member_map(ids: Sequence[Any], **kwargs: Any) -> Dict[str, Dict[str, Any]]:

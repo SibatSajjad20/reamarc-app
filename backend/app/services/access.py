@@ -529,6 +529,16 @@ def is_tracked(user: Optional[Dict[str, Any]], module: str) -> bool:
     return bool(eff["tracked"].get(module, False))
 
 
+def was_tracked(user: Optional[Dict[str, Any]], module: str) -> bool:
+    """Like is_tracked but ignores deactivation: for history views of past periods.
+
+    Callers must still limit deactivated people to dates before their deactivation date."""
+    if not user:
+        return False
+    as_active = {**user, "is_active": True}
+    return bool(effective_access(as_active)["tracked"].get(module, False))
+
+
 def tracked_user_filter(module: str) -> Dict[str, Any]:
     """MongoDB query filter fragment matching users tracked for attendance or daily_log."""
     if module == "attendance":
