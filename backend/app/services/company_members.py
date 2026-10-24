@@ -193,6 +193,18 @@ def access_is_blank(access: Any) -> bool:
     return not any(bool(v) for v in access.values())
 
 
+def _wanted_user_ids(query: Dict[str, Any]) -> Optional[List[str]]:
+    """User ids pinned by a top-level `id` filter (equality or $in), else None."""
+    if not isinstance(query, dict) or "id" not in query:
+        return None
+    v = query["id"]
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict) and set(v) == {"$in"} and isinstance(v["$in"], (list, tuple, set)):
+        return [str(x) for x in v["$in"] if x]
+    return None
+
+
 async def company_member_users(
     filter: dict | None = None,
     *,
@@ -228,7 +240,14 @@ async def company_member_users(
         mem_query["status"] = {"$in": ["active", "inactive"]}
     else:
         mem_query["status"] = "active"
-    mems = await gdb.company_memberships.find(mem_query).to_list(limit)
+    wanted = _wanted_user_ids(query)
+    if wanted is not None:
+        if not wanted:
+            return []
+        mem_query["user_id"] = {"$in": wanted}
+    # `limit` caps the RESULT, not the membership scan: the filter is applied after the
+    # overlay, so truncating memberships first silently dropped real members.
+    mems = await gdb.company_memberships.find(mem_query).to_list(None)
     if not mems:
         return []
     uids = [m.get("user_id") for m in mems if m.get("user_id")]
@@ -238,7 +257,7 @@ async def company_member_users(
             "is_active": {"$ne": False},
         },
         {"hashed_password": 0},
-    ).to_list(limit)
+    ).to_list(None)
     user_by_id = {str(u.get("id") or u.get("_id")): u for u in users}
 
     results: List[Dict[str, Any]] = []
