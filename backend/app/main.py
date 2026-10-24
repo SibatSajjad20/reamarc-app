@@ -14,7 +14,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive, finance
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -75,6 +75,13 @@ async def lifespan(app: FastAPI):
             await ensure_indexes(db)
         except Exception as idx_err:
             logging.getLogger(__name__).warning(f"Content calendar indexes warning: {idx_err}")
+
+        # Ensure finance indexes
+        try:
+            from app.services.finance_settings import ensure_finance_indexes
+            await ensure_finance_indexes(db)
+        except Exception as fin_idx_err:
+            logging.getLogger(__name__).warning(f"Finance indexes warning: {fin_idx_err}")
 
         # Backfill primary_department only. Role rules are fixed in code.
         try:
@@ -335,6 +342,7 @@ app.include_router(dashboard.router, prefix=settings.API_V1_STR)
 app.include_router(access.router, prefix=settings.API_V1_STR)
 app.include_router(owner.router, prefix=settings.API_V1_STR)
 app.include_router(company.router, prefix=settings.API_V1_STR)
+app.include_router(finance.router, prefix=settings.API_V1_STR)
 
 
 

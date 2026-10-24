@@ -443,24 +443,35 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if role == "admin":
         levels["active_clients"] = "manage"
         levels["exceptions"] = "all"
+        levels["finance"] = "manage"
     elif role == "operations":
         levels["active_clients"] = "manage"
         levels["exceptions"] = "all" if (modules["attendance"] or modules["daily_log"]) else "none"
+        levels["finance"] = "view"
     elif role == "hr":
         levels["active_clients"] = "view"
         levels["exceptions"] = "all" if modules["daily_log"] else "none"
+        levels["finance"] = "none"
     elif role == "team_lead":
         levels["active_clients"] = "view"
         levels["exceptions"] = "department" if modules["daily_log"] else "none"
+        levels["finance"] = "none"
     elif role == "team_member":
         levels["active_clients"] = "view"
         levels["exceptions"] = "none"
+        levels["finance"] = "none"
     elif role == "client":
         levels["active_clients"] = "none"
         levels["exceptions"] = "none"
+        levels["finance"] = "none"
     else:
         levels["active_clients"] = "view"
         levels["exceptions"] = "none"
+        levels["finance"] = "none"
+
+    perm_finance = (user.get("permissions") or {}).get("finance")
+    if perm_finance and perm_finance in ("view", "create", "manage", "none"):
+        levels["finance"] = perm_finance
 
     # Content stages: only when content_calendar is on
     content_stages: List[str] = []

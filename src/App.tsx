@@ -16,6 +16,7 @@ import { CrmView } from './components/views/CrmView';
 import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
 import { WebsitePipelineView } from './components/views/WebsitePipelineView';
+import { FinanceContainer } from './components/finance/FinanceContainer';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
@@ -136,6 +137,7 @@ function AppInner() {
 
   const eff = user?.effective_access;
   const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
+  const canSeeFinance = !isClient && (isAdmin || isOperations || user?.is_super_admin || perms.canAccessFinance || Boolean(eff?.finance));
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
   const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
@@ -161,6 +163,7 @@ function AppInner() {
     'won-deal-approvals',
     'content-calendar',
     'website-pipeline',
+    'finance',
     'portal',
     'settings',
     'owner',
@@ -338,6 +341,16 @@ function AppInner() {
           setCurrentView('marketing');
           localStorage.setItem('reamarc_active_view', 'marketing');
         }
+      } else if (currentPath === 'finance' || currentPath.startsWith('finance/')) {
+        if (isClient || !canSeeFinance) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setCurrentView('finance');
+          localStorage.setItem('reamarc_active_view', 'finance');
+        }
       } else if (currentPath.startsWith('settings')) {
         const segments = currentPath.split('/');
         const requestedSlug = (segments[1] || 'profile') as SettingsSectionSlug;
@@ -405,6 +418,11 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'finance' && !canSeeFinance) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'marketing' && !canSeeMarketing) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -442,7 +460,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeFinance, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
     void (async () => {
@@ -465,6 +483,7 @@ function AppInner() {
     if (canSeeAttendance) allowedViews.push('attendance');
     if (canSeeDailyLog) allowedViews.push('daily-log');
     if (canSeeExceptions) allowedViews.push('exceptions');
+    if (canSeeFinance) allowedViews.push('finance');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin || user?.is_super_admin) allowedViews.push('admin');
     allowedViews.push('settings');
@@ -980,6 +999,16 @@ function AppInner() {
             )
           )}
 
+          {currentView === 'finance' && (
+            canSeeFinance ? (
+              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+                <FinanceContainer />
+              </div>
+            ) : (
+              <AccessDenied module="Finance" />
+            )
+          )}
+
           {currentView === 'website-pipeline' && (
             canSeeWebsitePipeline ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
@@ -1073,6 +1102,7 @@ function AppInner() {
         canSeeCrm={canSeeCrm}
         canSeeWonDealApprovals={canSeeWonDealApprovals}
         canSeeMarketing={canSeeMarketing}
+        canSeeFinance={canSeeFinance}
         canSeeContentCalendar={canSeeContentCalendar}
         canSeeWebsitePipeline={canSeeWebsitePipeline}
         canSeeAttendance={canSeeAttendance}

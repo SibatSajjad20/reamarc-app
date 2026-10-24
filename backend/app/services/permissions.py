@@ -49,6 +49,7 @@ MODULE_LEVELS: Dict[str, List[str]] = {
     "sales": ["none", "own", "department", "all"],
     "active_clients": ["none", "view", "manage"],
     "ads": ["none", "view", "manage"],
+    "finance": ["none", "view", "create", "manage"],
 }
 
 LOG_LIKE_MODULES: Set[str] = {"daily_log", "attendance", "exceptions"}
@@ -58,6 +59,7 @@ WORK_MODULES: Set[str] = {
     "sales",
     "active_clients",
     "ads",
+    "finance",
 }
 
 MODULE_CONFIG = {
@@ -134,6 +136,17 @@ MODULE_CONFIG = {
         "notes": "View-only for all internal staff",
         "has_none": True,
     },
+    "finance": {
+        "label": "Finance",
+        "levels": [
+            ("none", "No access"),
+            ("view", "View"),
+            ("create", "Create"),
+            ("manage", "Manage"),
+        ],
+        "notes": "Invoices, receipts, accounts & receivables",
+        "has_none": True,
+    },
     "ads": {
         "label": "Ads",
         "levels": [
@@ -162,6 +175,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "all",
         "active_clients": "manage",
         "ads": "manage",
+        "finance": "manage",
     },
     "hr": {
         "daily_log": "all",
@@ -172,6 +186,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "none",
         "active_clients": "view",
         "ads": "none",
+        "finance": "none",
     },
     "operations": {
         "daily_log": "all",
@@ -182,6 +197,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "all",
         "active_clients": "manage",
         "ads": "view",
+        "finance": "view",
     },
     "team_lead": {
         "daily_log": "department",
@@ -192,6 +208,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "none",
         "active_clients": "view",
         "ads": "none",
+        "finance": "none",
     },
     "team_member": {
         "daily_log": "own",
@@ -202,6 +219,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "none",
         "active_clients": "view",
         "ads": "none",
+        "finance": "none",
     },
 }
 

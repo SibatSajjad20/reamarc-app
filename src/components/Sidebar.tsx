@@ -60,6 +60,7 @@ import {
   GitFork,
   Tags,
   Megaphone,
+  Receipt,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
@@ -237,6 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isManagementRole = isAdmin || isHR || isOperations;
 
   const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
+  const canSeeFinance = !isClient && (isAdmin || isOperations || user?.is_super_admin || perms.canAccessFinance || Boolean(eff?.finance));
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -443,6 +445,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : []),
       ],
     },
+    ...(canSeeFinance
+      ? [
+          {
+            id: 'finance-group',
+            label: 'Finance',
+            items: [
+              {
+                id: 'finance' as ViewType,
+                label: 'Finance',
+                icon: Receipt,
+              },
+            ],
+          },
+        ]
+      : []),
     {
       id: 'team',
       label: 'Team',

@@ -182,6 +182,17 @@ TENANT_COLLECTIONS: Set[str] = frozenset({
     "workspace_audit",
     "google_drive_folders",
     "drive_picker_grants",
+    "finance_settings",
+    "finance_services",
+    "invoices",
+    "receipts",
+    "finance_accounts",
+    "finance_ledger",
+    "finance_transfers",
+    "finance_counters",
+    "finance_audit",
+    "recurring_invoices",
+    "wht_certificates",
 })
 
 
@@ -526,6 +537,11 @@ class TenantCollection:
 class TenantDB:
     def __init__(self, raw_db: AsyncIOMotorDatabase):
         self._raw_db = raw_db
+
+    @property
+    def company_id(self) -> Optional[str]:
+        ctx = get_tenant_context()
+        return ctx.company_id if ctx else None
 
     def raw(self) -> AsyncIOMotorDatabase:
         """Unwrap to the Motor database (GridFS and other non-collection APIs)."""

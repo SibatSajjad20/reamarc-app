@@ -37,6 +37,7 @@ import {
   Keyboard,
   LogOut,
   SearchX,
+  Receipt,
 } from 'lucide-react';
 
 interface CommandPaletteProps {
@@ -59,6 +60,7 @@ interface CommandPaletteProps {
   canSeeCrm: boolean;
   canSeeWonDealApprovals?: boolean;
   canSeeMarketing: boolean;
+  canSeeFinance?: boolean;
   canSeeContentCalendar: boolean;
   canSeeWebsitePipeline: boolean;
   canSeeAttendance: boolean;
@@ -94,6 +96,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   canSeeCrm,
   canSeeWonDealApprovals = false,
   canSeeMarketing,
+  canSeeFinance = false,
   canSeeContentCalendar,
   canSeeWebsitePipeline,
   canSeeAttendance,
@@ -229,6 +232,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             >
               <TrendingUp size={16} className="text-fg-muted shrink-0" />
               <span>Performance marketing</span>
+            </CommandItem>
+          )}
+          {canSeeFinance && (
+            <CommandItem
+              onSelect={() => handleSelectPage('finance')}
+              className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+            >
+              <Receipt size={16} className="text-fg-muted shrink-0" />
+              <span>Finance</span>
             </CommandItem>
           )}
           {canSeeContentCalendar && (
