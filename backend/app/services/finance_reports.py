@@ -10,15 +10,30 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.services.finance_pdf import NumberedCanvas, format_currency_amount
+from app.services.finance_pdf import NumberedCanvas, _wordmark_flowable, format_currency_amount
 
 logger = logging.getLogger(__name__)
 
 
 def _today_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _as_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None:
+            return default
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _clean_mongo_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
+    cleaned = dict(doc)
+    cleaned.pop("_id", None)
+    return cleaned
 
 
 def _calc_days_overdue(due_date_str: str, as_of_str: str) -> int:
@@ -336,6 +351,7 @@ async def get_collections_report(
     date_to: Optional[str] = None,
     method: Optional[str] = None,
     bank: Optional[str] = None,
+    client_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Collections breakdown by method and bank account."""
     start_date = date_from or "2020-01-01"
@@ -344,15 +360,18 @@ async def get_collections_report(
     query: Dict[str, Any] = {
         "company_id": company_id,
         "date": {"$gte": start_date, "$lte": end_date},
-        "status": "posted",
+        "status": {"$in": ["posted", "pending"]},
     }
     if method and method.lower() != "all":
         query["method"] = method.lower().strip()
     if bank and bank.lower() != "all":
         query["bank"] = bank.lower().strip()
+    if client_name and client_name.strip():
+        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
 
     cursor = db["receipts"].find(query).sort("date", -1)
-    receipts = await cursor.to_list(length=1000)
+    raw_receipts = await cursor.to_list(length=1000)
+    receipts = [_clean_mongo_doc(r) for r in raw_receipts]
 
     summary = {
         "cash_pkr": 0,
@@ -360,12 +379,22 @@ async def get_collections_report(
         "meezan_pkr": 0,
         "total_wht_pkr": 0,
         "total_collected_pkr": 0,
+        "pending_pkr": 0,
+        "on_hold_pkr": 0,
     }
 
     for r in receipts:
-        pkr = r.get("pkr_amount", 0)
+        pkr = _as_int(r.get("pkr_amount"))
         m = r.get("method")
         b = r.get("bank")
+        st = r.get("status")
+
+        if st == "pending":
+            summary["pending_pkr"] += pkr
+            continue
+        if st == "void":
+            summary["on_hold_pkr"] += pkr
+            continue
 
         summary["total_collected_pkr"] += pkr
         if m == "cash":
@@ -375,11 +404,14 @@ async def get_collections_report(
         elif b == "meezan":
             summary["meezan_pkr"] += pkr
 
-        # Convert WHT to PKR for summary
+        wht = _as_int(r.get("wht_amount"))
         if r.get("currency") == "PKR":
-            summary["total_wht_pkr"] += r.get("wht_amount", 0)
+            summary["total_wht_pkr"] += wht
         elif r.get("exchange_rate"):
-            summary["total_wht_pkr"] += int(round(r.get("wht_amount", 0) * r.get("exchange_rate")))
+            try:
+                summary["total_wht_pkr"] += int(round(wht * float(r.get("exchange_rate") or 0)))
+            except (TypeError, ValueError):
+                pass
 
     return {
         "date_from": start_date,
@@ -404,7 +436,7 @@ async def get_wht_report(
         "company_id": company_id,
         "date": {"$gte": start_date, "$lte": end_date},
         "wht_amount": {"$gt": 0},
-        "status": "posted",
+        "status": {"$in": ["posted", "pending"]},
     }
     if client_name:
         query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
@@ -529,63 +561,161 @@ def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
+def _ageing_company_block(settings: Dict[str, Any], style: Any) -> Any:
+    addr = (settings.get("company_address") or "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
+    phone = settings.get("company_phone") or "+92 3070205555"
+    email = settings.get("company_email") or "faizan.khan@reamarc.io"
+    web = settings.get("company_website") or "http://reamarc.io"
+    tax_id = settings.get("tax_id") or "Govt. UID 9926976-3"
+    return Paragraph(f"{addr}<br/>{phone}<br/>{email}<br/>{web}<br/>{tax_id}", style)
+
+
 def export_ageing_summary_pdf(report: Dict[str, Any], settings: Dict[str, Any]) -> bytes:
-    """Generate landscape PDF report for Ageing Summary."""
+    """Landscape ageing summary with letterhead, wordmark, and a full-width table."""
     buffer = io.BytesIO()
+    page_w, _page_h = landscape(A4)
+    left = right = 40
+    usable = page_w - left - right
     doc = SimpleDocTemplate(
         buffer,
         pagesize=landscape(A4),
-        leftMargin=36,
-        rightMargin=36,
+        leftMargin=left,
+        rightMargin=right,
         topMargin=36,
-        bottomMargin=36,
+        bottomMargin=48,
     )
     styles = getSampleStyleSheet()
     normal = styles["Normal"]
+    muted = colors.HexColor("#71717A")
+    ink = colors.HexColor("#18181B")
+    rule = colors.HexColor("#E4E4E7")
+    hair = colors.HexColor("#A1A1AA")
 
-    th_style = ParagraphStyle("RTh", parent=normal, fontName="Helvetica-Bold", fontSize=8, leading=10, textColor=colors.HexColor("#2B2D42"))
-    td_style = ParagraphStyle("RTd", parent=normal, fontName="Helvetica", fontSize=8, leading=10)
-    td_right = ParagraphStyle("RTdRight", parent=td_style, alignment=2)
-    bold_right = ParagraphStyle("RBoldRight", parent=td_style, fontName="Helvetica-Bold", alignment=2)
+    company_style = ParagraphStyle(
+        "AgeingCompany",
+        parent=normal,
+        fontName="Helvetica",
+        fontSize=8,
+        leading=11,
+        textColor=muted,
+        alignment=2,
+    )
+    title_style = ParagraphStyle(
+        "AgeingTitle",
+        parent=normal,
+        fontName="Helvetica-Bold",
+        fontSize=16,
+        leading=20,
+        textColor=ink,
+    )
+    meta_style = ParagraphStyle(
+        "AgeingMeta",
+        parent=normal,
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=12,
+        textColor=muted,
+        alignment=2,
+    )
+    th_style = ParagraphStyle(
+        "AgeingTh",
+        parent=normal,
+        fontName="Helvetica",
+        fontSize=7.5,
+        leading=10,
+        textColor=muted,
+    )
+    th_right = ParagraphStyle("AgeingThRight", parent=th_style, alignment=2)
+    td_style = ParagraphStyle(
+        "AgeingTd",
+        parent=normal,
+        fontName="Helvetica",
+        fontSize=8.5,
+        leading=11,
+        textColor=ink,
+    )
+    td_right = ParagraphStyle("AgeingTdRight", parent=td_style, alignment=2)
+    td_muted = ParagraphStyle("AgeingTdMuted", parent=td_style, textColor=muted)
+    bold_style = ParagraphStyle("AgeingBold", parent=td_style, fontName="Helvetica-Bold")
+    bold_right = ParagraphStyle("AgeingBoldRight", parent=td_right, fontName="Helvetica-Bold")
+    empty_style = ParagraphStyle("AgeingEmpty", parent=td_style, textColor=muted, alignment=1)
 
     story: List[Any] = []
     as_of = report.get("as_of_date", "")
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    rows = report.get("rows") or []
+    summaries = report.get("currencies_summary") or {}
 
-    # Title
-    story.append(Paragraph(f'<font size="16"><b>Receivables Ageing Summary</b></font>', normal))
-    story.append(Paragraph(f'<font color="#64748B" size="9">As of: <b>{as_of}</b> · Generated on {datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")}</font>', normal))
-    story.append(Spacer(1, 15))
+    header = Table(
+        [[_wordmark_flowable(normal), _ageing_company_block(settings or {}, company_style)]],
+        colWidths=[usable * 0.55, usable * 0.45],
+    )
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header)
+    story.append(Spacer(1, 14))
+    story.append(HRFlowable(width="100%", thickness=0.6, color=rule, spaceBefore=0, spaceAfter=14))
 
-    table_data = [
-        [
-            Paragraph("Client Name", th_style),
-            Paragraph("Currency", th_style),
-            Paragraph("Current", bold_right),
-            Paragraph("1-30 Days", bold_right),
-            Paragraph("31-60 Days", bold_right),
-            Paragraph("61-90 Days", bold_right),
-            Paragraph("90+ Days", bold_right),
-            Paragraph("Total", bold_right),
-        ]
-    ]
+    title_row = Table(
+        [[
+            Paragraph("Receivables Ageing Summary", title_style),
+            Paragraph(
+                f"As of {as_of}<br/><font size='8'>Generated {generated}</font>",
+                meta_style,
+            ),
+        ]],
+        colWidths=[usable * 0.62, usable * 0.38],
+    )
+    title_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(title_row)
+    story.append(Spacer(1, 16))
 
-    for r in report.get("rows", []):
-        curr = r["currency"]
+    table_data = [[
+        Paragraph("Client", th_style),
+        Paragraph("Curr.", th_style),
+        Paragraph("Current", th_right),
+        Paragraph("1–30 days", th_right),
+        Paragraph("31–60 days", th_right),
+        Paragraph("61–90 days", th_right),
+        Paragraph("90+ days", th_right),
+        Paragraph("Total due", th_right),
+    ]]
+
+    if not rows:
         table_data.append([
-            Paragraph(r["client_name"], td_style),
-            Paragraph(curr, td_style),
-            Paragraph(format_currency_amount(r["current"], curr), td_right),
-            Paragraph(format_currency_amount(r["1_30"], curr), td_right),
-            Paragraph(format_currency_amount(r["31_60"], curr), td_right),
-            Paragraph(format_currency_amount(r["61_90"], curr), td_right),
-            Paragraph(format_currency_amount(r["90_plus"], curr), td_right),
-            Paragraph(format_currency_amount(r["total"], curr), bold_right),
+            Paragraph("No outstanding receivables for this period.", empty_style),
+            "", "", "", "", "", "", "",
         ])
+    else:
+        for r in rows:
+            curr = r["currency"]
+            table_data.append([
+                Paragraph(r["client_name"], td_style),
+                Paragraph(curr, td_muted),
+                Paragraph(format_currency_amount(r["current"], curr), td_right),
+                Paragraph(format_currency_amount(r["1_30"], curr), td_right),
+                Paragraph(format_currency_amount(r["31_60"], curr), td_right),
+                Paragraph(format_currency_amount(r["61_90"], curr), td_right),
+                Paragraph(format_currency_amount(r["90_plus"], curr), td_right),
+                Paragraph(format_currency_amount(r["total"], curr), bold_right),
+            ])
 
-    for curr, totals in report.get("currencies_summary", {}).items():
+    total_start = len(table_data)
+    for curr, totals in summaries.items():
         table_data.append([
-            Paragraph(f"<b>TOTAL {curr}</b>", th_style),
-            Paragraph(curr, th_style),
+            Paragraph(f"Total {curr}", bold_style),
+            Paragraph(curr, bold_style),
             Paragraph(format_currency_amount(totals["current"], curr), bold_right),
             Paragraph(format_currency_amount(totals["1_30"], curr), bold_right),
             Paragraph(format_currency_amount(totals["31_60"], curr), bold_right),
@@ -594,17 +724,54 @@ def export_ageing_summary_pdf(report: Dict[str, Any], settings: Dict[str, Any]) 
             Paragraph(format_currency_amount(totals["total"], curr), bold_right),
         ])
 
-    col_widths = [180, 50, 85, 85, 85, 85, 85, 115]
-    summary_table = Table(table_data, colWidths=col_widths)
-    summary_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#E9E5F5")),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("LINEBELOW", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-    ]))
+    col_widths = [
+        usable * 0.26,
+        usable * 0.07,
+        usable * 0.11,
+        usable * 0.11,
+        usable * 0.11,
+        usable * 0.11,
+        usable * 0.11,
+        usable * 0.12,
+    ]
+    summary_table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 7),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, -1), 8),
+        ("LEFTPADDING", (1, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (1, 0), (-1, -1), 0),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, ink),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, rule),
+    ]
+    if not rows:
+        style_cmds.append(("SPAN", (0, 1), (-1, 1)))
+        style_cmds.append(("TOPPADDING", (0, 1), (-1, 1), 18))
+        style_cmds.append(("BOTTOMPADDING", (0, 1), (-1, 1), 18))
+    for i in range(1, total_start):
+        if i % 2 == 0:
+            style_cmds.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FAFAFA")))
+    if summaries:
+        style_cmds.append(("LINEABOVE", (0, total_start), (-1, total_start), 0.8, hair))
+        style_cmds.append(("LINEBELOW", (0, -1), (-1, -1), 1, ink))
+        style_cmds.append(("BACKGROUND", (0, total_start), (-1, -1), colors.HexColor("#FAFAFA")))
+
+    summary_table.setStyle(TableStyle(style_cmds))
     story.append(summary_table)
 
-    doc.build(story, canvasmaker=NumberedCanvas)
+    def _footer(canvas, _doc):
+        canvas.saveState()
+        canvas.setStrokeColor(rule)
+        canvas.setLineWidth(0.5)
+        canvas.line(left, 32, page_w - right, 32)
+        canvas.setFont("Helvetica", 7)
+        canvas.setFillColor(muted)
+        canvas.drawString(left, 20, "Reamarc Digital Solutions  ·  Confidential")
+        canvas.restoreState()
+
+    doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_footer, onLaterPages=_footer)
     return buffer.getvalue()

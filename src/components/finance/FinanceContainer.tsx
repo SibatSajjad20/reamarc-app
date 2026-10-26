@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import {
   LayoutDashboard,
   FileText,
@@ -6,16 +7,31 @@ import {
   Clock,
   Wallet,
   Settings,
+  Shield,
 } from 'lucide-react';
 import type { FinanceTab, Invoice } from '../../types/finance';
-import { Button } from '../ui/button';
 import { FinanceOverview } from './FinanceOverview';
 import { InvoicesView } from './InvoicesView';
 import { InvoiceEditor } from './InvoiceEditor';
 import { ReceiptsView } from './ReceiptsView';
 import { ReceivablesView } from './ReceivablesView';
+import { CollectionsView } from './CollectionsView';
+import { SummaryAccountsView } from './SummaryAccountsView';
 import { AccountsView } from './AccountsView';
+import { WhtView } from './WhtView';
 import { FinanceSettingsView } from './FinanceSettingsView';
+
+const FINANCE_TAB_LABELS: Record<FinanceTab, string> = {
+  overview: 'Overview',
+  invoices: 'Invoices',
+  receivables: 'Receivables',
+  receipts: 'Receipts',
+  collections: 'Collections',
+  summary: 'Summary accounts',
+  accounts: 'Cash & bank',
+  wht: 'Withhold tax',
+  settings: 'Settings',
+};
 
 interface FinanceContainerProps {
   initialTab?: FinanceTab;
@@ -25,9 +41,44 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
   initialTab = 'overview',
 }) => {
   const [activeTab, setActiveTab] = useState<FinanceTab>(initialTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<FinanceTab>>(() => new Set([initialTab]));
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [invoiceForPayment, setInvoiceForPayment] = useState<Invoice | null>(null);
+  const { setTrail } = useBreadcrumb();
+
+  useEffect(() => {
+    setVisitedTabs((prev) => {
+      if (prev.has(activeTab)) return prev;
+      const next = new Set(prev);
+      next.add(activeTab);
+      return next;
+    });
+  }, [activeTab]);
+
+  useEffect(() => {
+    const goOverview = () => {
+      setActiveTab('overview');
+      setIsEditorOpen(false);
+    };
+    const goTab = () => {
+      setIsEditorOpen(false);
+      setActiveTab(activeTab);
+    };
+    const editorLabel = editingInvoice?.number
+      ? `Edit ${editingInvoice.number}`
+      : 'New invoice';
+    setTrail([
+      { label: 'Accounts', onClick: goOverview },
+      ...(isEditorOpen
+        ? [
+            { label: 'Invoices', onClick: () => { setActiveTab('invoices'); setIsEditorOpen(false); } },
+            { label: editorLabel },
+          ]
+        : [{ label: FINANCE_TAB_LABELS[activeTab], onClick: goTab }]),
+    ]);
+    return () => setTrail(null);
+  }, [activeTab, isEditorOpen, editingInvoice, setTrail]);
 
   const handleNavigateTab = (tab: FinanceTab, extra?: { action?: string; invoiceId?: string }) => {
     setActiveTab(tab);
@@ -67,7 +118,10 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
     { id: 'invoices', label: 'Invoices', icon: FileText },
     { id: 'receivables', label: 'Receivables', icon: Clock },
     { id: 'receipts', label: 'Receipts', icon: CreditCard },
-    { id: 'accounts', label: 'Accounts', icon: Wallet },
+    { id: 'collections', label: 'Collections', icon: CreditCard },
+    { id: 'summary', label: 'Summary Accounts', icon: FileText },
+    { id: 'accounts', label: 'Cash & Bank', icon: Wallet },
+    { id: 'wht', label: 'Withhold Tax', icon: Shield },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
@@ -76,17 +130,12 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
       <div className="bg-surface border-b border-border sticky top-0 z-30 px-6 pt-5 pb-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4">
           <div>
-            <h1 className="text-h1 font-semibold text-fg tracking-tight">Finance</h1>
+            <h1 className="text-h1 font-semibold text-fg tracking-tight">Accounts</h1>
             <p className="text-caption text-fg-muted mt-0.5">
-              Invoices, receivables, receipts, and cash / bank accounts
+              Invoices, receivables, receipts, collections, and cash / bank accounts
             </p>
           </div>
 
-          {isEditorOpen && activeTab === 'invoices' && (
-            <Button type="button" variant="secondary" size="sm" onClick={handleCloseEditor}>
-              Back to invoices
-            </Button>
-          )}
         </div>
 
         {!isEditorOpen && (
@@ -115,45 +164,80 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
       </div>
 
       <div className="flex-1 p-6 w-full min-w-0">
-        {activeTab === 'overview' && (
-          <FinanceOverview
-            onNavigateTab={handleNavigateTab}
-            onEditInvoice={handleStartEditInvoice}
-          />
+        {visitedTabs.has('overview') && (
+          <div className={activeTab === 'overview' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'overview'}>
+            <FinanceOverview
+              onNavigateTab={handleNavigateTab}
+              onEditInvoice={handleStartEditInvoice}
+            />
+          </div>
         )}
 
-        {activeTab === 'invoices' && (
-          isEditorOpen ? (
-            <InvoiceEditor
-              invoiceId={editingInvoice?.id}
-              initialInvoice={editingInvoice}
-              onBack={handleCloseEditor}
-              onSaved={() => {
-                setIsEditorOpen(false);
-                setEditingInvoice(null);
-              }}
-            />
-          ) : (
+        {visitedTabs.has('invoices') && (
+          <div className={activeTab === 'invoices' && !isEditorOpen ? 'block' : 'hidden'} aria-hidden={!(activeTab === 'invoices' && !isEditorOpen)}>
             <InvoicesView
               onCreateNew={handleStartCreateInvoice}
               onEditInvoice={handleStartEditInvoice}
               onRecordPaymentForInvoice={handleRecordPaymentForInvoice}
             />
-          )
+          </div>
         )}
-
-        {activeTab === 'receivables' && <ReceivablesView />}
-
-        {activeTab === 'receipts' && (
-          <ReceiptsView
-            initialInvoiceToPay={invoiceForPayment}
-            onPaymentSuccess={() => setInvoiceForPayment(null)}
+        {activeTab === 'invoices' && isEditorOpen && (
+          <InvoiceEditor
+            invoiceId={editingInvoice?.id}
+            initialInvoice={editingInvoice}
+            onBack={handleCloseEditor}
+            onSaved={() => {
+              setIsEditorOpen(false);
+              setEditingInvoice(null);
+            }}
           />
         )}
 
-        {activeTab === 'accounts' && <AccountsView />}
+        {visitedTabs.has('receivables') && (
+          <div className={activeTab === 'receivables' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'receivables'}>
+            <ReceivablesView />
+          </div>
+        )}
 
-        {activeTab === 'settings' && <FinanceSettingsView />}
+        {visitedTabs.has('collections') && (
+          <div className={activeTab === 'collections' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'collections'}>
+            <CollectionsView />
+          </div>
+        )}
+
+        {visitedTabs.has('summary') && (
+          <div className={activeTab === 'summary' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'summary'}>
+            <SummaryAccountsView />
+          </div>
+        )}
+
+        {visitedTabs.has('receipts') && (
+          <div className={activeTab === 'receipts' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'receipts'}>
+            <ReceiptsView
+              initialInvoiceToPay={invoiceForPayment}
+              onPaymentSuccess={() => setInvoiceForPayment(null)}
+            />
+          </div>
+        )}
+
+        {visitedTabs.has('accounts') && (
+          <div className={activeTab === 'accounts' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'accounts'}>
+            <AccountsView />
+          </div>
+        )}
+
+        {visitedTabs.has('wht') && (
+          <div className={activeTab === 'wht' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'wht'}>
+            <WhtView />
+          </div>
+        )}
+
+        {visitedTabs.has('settings') && (
+          <div className={activeTab === 'settings' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'settings'}>
+            <FinanceSettingsView />
+          </div>
+        )}
       </div>
     </div>
   );

@@ -25,15 +25,18 @@ from app.schemas.finance import (
     FinanceSettingsUpdate,
     FinanceTransferCreate,
     InvoiceCreate,
+    InvoiceDeleteRequest,
     InvoiceUpdate,
     InvoiceVoidRequest,
     ReceiptCreate,
+    ReceiptDeleteRequest,
     ReceiptVoidRequest,
     RecurringInvoiceCreate,
     RecurringInvoiceUpdate,
 )
 from app.services.finance_invoices import (
     create_invoice_draft,
+    delete_invoice,
     duplicate_invoice,
     get_invoice_by_share_token,
     get_invoices,
@@ -49,7 +52,7 @@ from app.services.finance_ledger import (
     transfer_cash_to_bank,
 )
 from app.services.finance_pdf import generate_invoice_pdf, generate_receipt_pdf
-from app.services.finance_receipts import get_receipts, post_receipt, void_receipt
+from app.services.finance_receipts import confirm_receipt, delete_receipt, get_receipts, post_receipt, void_receipt
 from app.services.finance_reports import (
     export_ageing_summary_excel,
     export_ageing_summary_pdf,
@@ -153,7 +156,7 @@ async def update_service_endpoint(
 
 @router.get("/invoices")
 async def list_invoices_endpoint(
-    status: Optional[str] = Query(None, description="all, draft, unpaid, partially_paid, paid, overdue, void"),
+    status: Optional[str] = Query(None, description="all, draft, unpaid, partially_paid, paid, overdue, void, deleted, with_deleted"),
     workspace_id: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
@@ -259,6 +262,21 @@ async def void_invoice_endpoint(
     return voided
 
 
+@router.post("/invoices/{invoice_id}/delete")
+async def delete_invoice_endpoint(
+    invoice_id: str,
+    payload: InvoiceDeleteRequest,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "manage")),
+):
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    deleted = await delete_invoice(db, cid, invoice_id, reason=payload.reason, user_id=uid, user_name=uname)
+    deleted.pop("_id", None)
+    return deleted
+
+
 @router.post("/invoices/{invoice_id}/duplicate")
 async def duplicate_invoice_endpoint(
     invoice_id: str,
@@ -304,6 +322,8 @@ async def list_receipts_endpoint(
     workspace_id: Optional[str] = Query(None),
     client_name: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     current_user: Dict[str, Any] = Depends(require_permission("finance", "view")),
@@ -317,6 +337,8 @@ async def list_receipts_endpoint(
         workspace_id=workspace_id,
         status_filter=status,
         search=search,
+        date_from=date_from,
+        date_to=date_to,
         skip=skip,
         limit=limit,
     )
@@ -366,6 +388,35 @@ async def void_receipt_endpoint(
     voided = await void_receipt(db, cid, receipt_id, reason=payload.reason, user_id=uid, user_name=uname)
     voided.pop("_id", None)
     return voided
+
+
+@router.post("/receipts/{receipt_id}/delete")
+async def delete_receipt_endpoint(
+    receipt_id: str,
+    payload: ReceiptDeleteRequest,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "manage")),
+):
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    deleted = await delete_receipt(db, cid, receipt_id, reason=payload.reason, user_id=uid, user_name=uname)
+    deleted.pop("_id", None)
+    return deleted
+
+
+@router.post("/receipts/{receipt_id}/confirm")
+async def confirm_receipt_endpoint(
+    receipt_id: str,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "manage")),
+):
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    posted = await confirm_receipt(db, cid, receipt_id, user_id=uid, user_name=uname)
+    posted.pop("_id", None)
+    return posted
 
 
 @router.get("/receipts/{receipt_id}/pdf")
@@ -525,8 +576,11 @@ async def get_report_endpoint(
 
     elif report_type == "collections":
         data = await get_collections_report(
-            db, cid, date_from=date_from, date_to=date_to, method=method, bank=bank
+            db, cid, date_from=date_from, date_to=date_to, method=method, bank=bank, client_name=client_name
         )
+        for it in data.get("receipts") or []:
+            if isinstance(it, dict):
+                it.pop("_id", None)
         return data
 
     elif report_type == "wht":
@@ -612,8 +666,56 @@ async def get_public_invoice_pdf_endpoint(request: Request, share_token: str):
 # 7. FILE UPLOADS (PROOFS & CERTIFICATES)
 # =========================================================================
 
+def _sniff_finance_proof(content: bytes, ext: str) -> str:
+    """Match daily-log / avatar upload security: magic bytes, not client MIME."""
+    if not content:
+        raise HTTPException(status_code=400, detail="Empty file uploaded.")
+
+    dangerous_prefixes = (
+        b"MZ",
+        b"\x7fELF",
+        b"\xfe\xed\xfa",
+        b"\xcf\xfa\xed\xfe",
+        b"<!DOCTYPE",
+        b"<!doctype",
+        b"<html",
+        b"<HTML",
+        b"<script",
+        b"<SCRIPT",
+        b"<?php",
+    )
+    for prefix in dangerous_prefixes:
+        if content.startswith(prefix):
+            raise HTTPException(
+                status_code=400,
+                detail=f"File content signature (magic bytes) does not match declared extension '{ext}'.",
+            )
+
+    ext_clean = (ext or "").lower().lstrip(".")
+    if ext_clean == "pdf" and content.startswith(b"%PDF-"):
+        return "application/pdf"
+    if ext_clean == "png" and content.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if ext_clean in ("jpg", "jpeg") and content.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if (
+        ext_clean == "webp"
+        and len(content) >= 12
+        and content[:4] == b"RIFF"
+        and content[8:12] == b"WEBP"
+    ):
+        return "image/webp"
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"File content signature (magic bytes) does not match declared extension '{ext}'.",
+    )
+
+
 @router.post("/upload")
+@limiter.limit("15/minute")
 async def upload_proof_file_endpoint(
+    request: Request,
     file: UploadFile = File(...),
     current_user: Dict[str, Any] = Depends(require_permission("finance", "create")),
 ):
@@ -632,13 +734,15 @@ async def upload_proof_file_endpoint(
     if len(content) > 15 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File size exceeds 15MB limit")
 
+    sniffed_type = _sniff_finance_proof(content, ext)
+
     rel_key = f"finance/proofs/{cid}/{uuid.uuid4().hex[:12]}_{filename}"
     file_id = await save_upload_bytes(
         db,
         relative_key=rel_key,
         content=content,
         original_name=filename,
-        content_type=file.content_type,
+        content_type=sniffed_type,
         extra_metadata={"company_id": cid, "uploaded_by": current_user.get("id")},
     )
 

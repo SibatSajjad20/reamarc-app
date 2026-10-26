@@ -28,6 +28,15 @@ interface InvoicePreviewProps {
   };
 }
 
+function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[88px_1fr] gap-x-2.5 py-[3px] text-[11px] leading-4">
+      <dt className="text-right text-zinc-500">{label}</dt>
+      <dd className="text-zinc-900 font-numeric">{value}</dd>
+    </div>
+  );
+}
+
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, companySettings }) => {
   const currency = invoice.currency || 'PKR';
   const subtotal = invoice.subtotal || 0;
@@ -40,8 +49,9 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
   const items = invoice.line_items || [];
   const status = (invoice.status || 'draft').toLowerCase();
 
-  const compName = companySettings?.company_name || 'Reamarc - Digital Solutions';
-  const compAddr = companySettings?.company_address || '3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK';
+  const compAddr =
+    companySettings?.company_address ||
+    '3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK';
   const compPhone = companySettings?.company_phone || '+92 3070205555';
   const compEmail = companySettings?.company_email || 'faizan.khan@reamarc.io';
   const compWeb = companySettings?.company_website || 'http://reamarc.io';
@@ -55,214 +65,210 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
     swift_code: 'MEZNPKKAGRD',
   };
   const payToBank = invoice.pay_to_bank || defaultBank;
-
-  const signatures = companySettings?.signature_labels || ['Account Officer', 'Account Manager', 'General Manager'];
+  const signatures = [
+    { id: 'manager', label: 'Account Manager' },
+    { id: 'stamp', label: null as string | null },
+    { id: 'ceo', label: 'CEO' },
+  ];
 
   return (
-    <div className="relative bg-surface text-fg border border-border rounded-lg shadow-lg p-8 sm:p-10 font-sans max-w-4xl mx-auto overflow-hidden">
-      {/* Status Watermark / Stamp */}
+    <article className="relative mx-auto max-w-[720px] bg-white text-zinc-900 px-10 py-9 subpixel-antialiased [font-synthesis:none]">
       {status === 'paid' && (
-        <div className="absolute top-28 right-24 pointer-events-none select-none border-4 border-emerald-500 text-emerald-600 font-extrabold text-3xl px-6 py-2 rounded-lg rotate-12 opacity-35 tracking-wider">
+        <div className="absolute top-24 right-10 text-[11px] font-semibold tracking-[0.28em] text-emerald-700">
           PAID
         </div>
       )}
       {status === 'partially_paid' && (
-        <div className="absolute top-28 right-24 pointer-events-none select-none border-4 border-amber-500 text-amber-600 font-extrabold text-2xl px-6 py-2 rounded-lg rotate-12 opacity-35 tracking-wider">
+        <div className="absolute top-24 right-10 text-[11px] font-semibold tracking-[0.18em] text-amber-700">
           PARTIALLY PAID
         </div>
       )}
       {status === 'void' && (
-        <div className="absolute top-28 right-24 pointer-events-none select-none border-4 border-rose-500 text-rose-600 font-extrabold text-3xl px-6 py-2 rounded-lg rotate-12 opacity-40 tracking-wider">
-          VOID
+        <div className="absolute top-24 right-10 text-[11px] font-semibold tracking-[0.28em] text-rose-700">
+          ON HOLD
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-6 border-b border-border">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-accent-text font-semibold text-3xl tracking-tight">R</span>
-            <span className="text-fg font-bold text-2xl tracking-tight">reamarc</span>
-          </div>
-          <p className="text-xs text-fg-muted mt-0.5 tracking-wide uppercase pl-6 font-medium">
-            Realty Digital Solutions
-          </p>
-        </div>
-
-        <div className="text-left sm:text-right text-xs text-fg-muted space-y-0.5">
-          <p className="font-semibold text-fg text-sm">{compName}</p>
+      <header className="flex items-start justify-between gap-8">
+        <img
+          src="/assets/reamarc-wordmark.png?v=5"
+          alt="Reamarc Digital Solutions"
+          className="h-12 w-auto shrink-0"
+          draggable={false}
+        />
+        <div className="text-right text-[11px] leading-[1.55] text-zinc-600 shrink-0">
           <p className="whitespace-pre-line">{compAddr}</p>
           <p>{compPhone}</p>
           <p>{compEmail}</p>
           <p>{compWeb}</p>
-          <p className="font-medium text-fg-2">{taxId}</p>
+          <p>{taxId}</p>
         </div>
-      </div>
+      </header>
 
-      {/* Title & Metadata */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 my-6">
-        <div>
-          <h1 className="text-h1 font-semibold tracking-tight text-fg mb-3">INVOICE</h1>
-          <p className="text-xs font-bold text-fg-muted uppercase tracking-wider mb-1">Bill To</p>
-          <p className="font-semibold text-fg text-base">{invoice.client_name || 'Client Name'}</p>
+      <div className="mt-8 mb-7 h-px bg-zinc-200" />
+
+      <div className="flex items-start justify-between gap-10">
+        <div className="min-w-0">
+          <p className="text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-500">Bill to</p>
+          <p className="mt-2 text-[15px] font-semibold tracking-[-0.01em]">{invoice.client_name || 'Client Name'}</p>
           {invoice.client_billing?.address && (
-            <p className="text-xs text-fg-2 mt-1 whitespace-pre-line">{invoice.client_billing.address}</p>
+            <p className="mt-1 text-[11px] leading-4 text-zinc-600 whitespace-pre-line">
+              {invoice.client_billing.address}
+            </p>
           )}
           {(invoice.client_billing?.email || invoice.client_billing?.phone) && (
-            <p className="text-xs text-fg-muted mt-0.5">
-              {[invoice.client_billing.email, invoice.client_billing.phone].filter(Boolean).join(' · ')}
+            <p className="mt-1 text-[11px] text-zinc-600">
+              {[invoice.client_billing.email, invoice.client_billing.phone].filter(Boolean).join('  ·  ')}
             </p>
           )}
           {invoice.client_billing?.tax_id && (
-            <p className="text-xs text-fg-muted mt-0.5">NTN/Tax ID: {invoice.client_billing.tax_id}</p>
+            <p className="mt-1 text-[11px] text-zinc-500">NTN / Tax ID: {invoice.client_billing.tax_id}</p>
           )}
         </div>
 
-        <div className="sm:text-right flex flex-col justify-start sm:items-end">
-          <div className="w-full sm:w-auto inline-block text-left text-xs space-y-1.5 bg-canvas/70 p-3.5 rounded-lg border border-border">
-            <div className="flex justify-between gap-6">
-              <span className="font-semibold text-fg-muted">INVOICE</span>
-              <span className="font-bold text-fg">{invoice.number || 'DRAFT'}</span>
-            </div>
-            <div className="flex justify-between gap-6">
-              <span className="font-semibold text-fg-muted">DATE</span>
-              <span className="text-fg">{invoice.issue_date || '—'}</span>
-            </div>
-            <div className="flex justify-between gap-6">
-              <span className="font-semibold text-fg-muted">TERMS</span>
-              <span className="text-fg">{invoice.terms || 'Due on receipt'}</span>
-            </div>
-            <div className="flex justify-between gap-6">
-              <span className="font-semibold text-fg-muted">DUE DATE</span>
-              <span className="font-medium text-fg">{invoice.due_date || '—'}</span>
-            </div>
-            {invoice.reference && (
-              <div className="flex justify-between gap-6">
-                <span className="font-semibold text-fg-muted">REFERENCE</span>
-                <span className="text-fg">{invoice.reference}</span>
-              </div>
-            )}
-          </div>
+        <div>
+          <dl className="w-[220px]">
+            <MetaRow label="INVOICE" value={invoice.number || 'DRAFT'} />
+            <MetaRow label="DATE" value={invoice.issue_date || '—'} />
+            <MetaRow label="TERMS" value={invoice.terms || 'Due on receipt'} />
+            <MetaRow label="DUE DATE" value={invoice.due_date || '—'} />
+            <MetaRow label="REFERENCE" value={invoice.reference || '—'} />
+          </dl>
         </div>
       </div>
 
-      {/* Line Items Table */}
-      <div className="overflow-x-auto my-6">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="bg-[#E9E5F5] text-fg border-b border-border">
-              <th className="py-2.5 px-3 font-bold w-10">SL</th>
-              <th className="py-2.5 px-3 font-bold">DESCRIPTION</th>
-              <th className="py-2.5 px-3 font-bold text-center w-16">QTY</th>
-              <th className="py-2.5 px-3 font-bold text-right w-28">RATE</th>
-              <th className="py-2.5 px-3 font-bold text-right w-28">AMOUNT</th>
+      <table className="mt-8 w-full border-collapse text-[12px]">
+        <thead>
+          <tr className="border-b border-zinc-900 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
+            <th className="py-2 pr-3 text-left w-8 font-medium">#</th>
+            <th className="py-2 pr-3 text-left font-medium">Description</th>
+            <th className="py-2 px-3 text-right w-14 font-medium">Qty</th>
+            <th className="py-2 px-3 text-right w-[108px] font-medium">Rate</th>
+            <th className="py-2 pl-3 text-right w-[120px] font-medium">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.length === 0 ? (
+            <tr>
+              <td colSpan={5} className="py-8 text-center text-[12px] text-zinc-400">
+                No line items
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="py-6 text-center text-fg-muted italic">
-                  No line items added yet
+          ) : (
+            items.map((item, idx) => (
+              <tr key={idx} className="border-b border-zinc-100">
+                <td className="py-2.5 pr-3 text-zinc-500 font-numeric">{item.serial || idx + 1}</td>
+                <td className="py-2.5 pr-3">{item.description}</td>
+                <td className="py-2.5 px-3 text-right font-numeric text-zinc-600">{item.quantity}</td>
+                <td className="py-2.5 px-3 text-right font-numeric text-zinc-600">
+                  {formatMinorMoney(item.rate, currency)}
+                </td>
+                <td className="py-2.5 pl-3 text-right font-numeric">
+                  {formatMinorMoney(item.amount, currency)}
                 </td>
               </tr>
-            ) : (
-              items.map((item, idx) => (
-                <tr key={idx} className="hover:bg-canvas/60">
-                  <td className="py-2.5 px-3 text-fg-muted">{item.serial || idx + 1}</td>
-                  <td className="py-2.5 px-3 text-fg font-medium">{item.description}</td>
-                  <td className="py-2.5 px-3 text-center text-fg-2">{item.quantity}</td>
-                  <td className="py-2.5 px-3 text-right text-fg-2">
-                    {formatMinorMoney(item.rate, currency)}
-                  </td>
-                  <td className="py-2.5 px-3 text-right font-semibold text-fg">
-                    {formatMinorMoney(item.amount, currency)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+            ))
+          )}
+        </tbody>
+      </table>
 
-      {/* Totals & Notes Section */}
-      <div className="grid grid-cols-1 sm:grid-cols-12 gap-6 pt-2 pb-6 border-b border-border">
-        <div className="sm:col-span-7 flex flex-col justify-between">
-          <div>
-            <p className="text-xs text-fg-muted font-medium mb-1">Amount in words:</p>
-            <p className="text-xs italic text-indigo-950 font-semibold bg-accent-soft/50 p-2.5 rounded border border-indigo-100/60">
-              {amountInWords(balanceDue > 0 ? balanceDue : total, currency)}
-            </p>
-          </div>
-          <div className="mt-4 text-xs text-fg-2">
-            <p>{invoice.notes || companySettings?.notes_template || 'We greatly appreciate your business and the opportunity to serve you.'}</p>
-          </div>
+      <div className="mt-6 flex items-start justify-between gap-10">
+        <div className="max-w-[320px] text-[11px] leading-4 text-zinc-600">
+          <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500">Amount in words</p>
+          <p className="mt-1.5 italic">
+            {amountInWords(balanceDue > 0 ? balanceDue : total, currency)}
+          </p>
+          <p className="mt-4">
+            {invoice.notes ||
+              companySettings?.notes_template ||
+              'Thank you for your business.'}
+          </p>
         </div>
 
-        <div className="sm:col-span-5 text-xs space-y-1.5 self-end">
-          <div className="flex justify-between py-1 border-b border-border">
-            <span className="text-fg-muted">Subtotal:</span>
-            <span className="font-medium text-fg">{formatMinorMoney(subtotal, currency)}</span>
+        <dl className="w-[240px] text-[12px]">
+          <div className="flex justify-between py-1">
+            <dt className="text-zinc-500">Subtotal</dt>
+            <dd className="font-numeric">{formatMinorMoney(subtotal, currency)}</dd>
           </div>
           {discountAmount > 0 && (
-            <div className="flex justify-between py-1 border-b border-border text-rose-600">
-              <span>Discount:</span>
-              <span>-{formatMinorMoney(discountAmount, currency)}</span>
+            <div className="flex justify-between py-1">
+              <dt className="text-zinc-500">Discount</dt>
+              <dd className="font-numeric">-{formatMinorMoney(discountAmount, currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between py-1.5 border-b border-border font-bold text-fg text-sm">
-            <span>Total:</span>
-            <span>{formatMinorMoney(total, currency)}</span>
+          <div className="flex justify-between py-1.5 border-t border-zinc-200 mt-1 font-semibold">
+            <dt>Net total</dt>
+            <dd className="font-numeric">{formatMinorMoney(total, currency)}</dd>
           </div>
           {amountPaid > 0 && (
-            <div className="flex justify-between py-1 text-emerald-700">
-              <span>Amount Paid:</span>
-              <span>-{formatMinorMoney(amountPaid, currency)}</span>
+            <div className="flex justify-between py-1">
+              <dt className="text-zinc-500">Amount paid</dt>
+              <dd className="font-numeric">-{formatMinorMoney(amountPaid, currency)}</dd>
             </div>
           )}
           {whtSettled > 0 && (
-            <div className="flex justify-between py-1 text-fg-2">
-              <span>WHT Settled:</span>
-              <span>-{formatMinorMoney(whtSettled, currency)}</span>
+            <div className="flex justify-between py-1">
+              <dt className="text-zinc-500">WHT settled</dt>
+              <dd className="font-numeric">-{formatMinorMoney(whtSettled, currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between py-2 border-t-2 border-indigo-600 font-bold text-accent-text text-base">
-            <span>BALANCE DUE:</span>
-            <span>{formatMinorMoney(balanceDue, currency)}</span>
+          <div className="flex justify-between py-2 mt-1 border-t border-zinc-900 font-semibold">
+            <dt>Balance due</dt>
+            <dd className="font-numeric">{formatMinorMoney(balanceDue, currency)}</dd>
           </div>
-        </div>
+        </dl>
       </div>
 
-      {/* Bank Details Block */}
-      <div className="my-6 p-4 rounded-lg bg-canvas border border-border text-xs text-fg-2">
-        <p className="font-bold text-fg mb-1.5">Please make payment to:</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-          <p><span className="text-fg-muted">Bank Name:</span> <span className="font-medium">{payToBank.bank_name}</span></p>
-          <p><span className="text-fg-muted">Account Title:</span> <span className="font-medium">{payToBank.account_title}</span></p>
-          <p><span className="text-fg-muted">Account #:</span> <span className="font-mono font-medium">{payToBank.account_number}</span></p>
-          <p><span className="text-fg-muted">IBAN #:</span> <span className="font-mono font-medium">{payToBank.iban}</span></p>
+      <div className="mt-8 pt-5 border-t border-zinc-200 text-[11px] leading-4 text-zinc-700">
+        <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500">Payment</p>
+        <div className="mt-2 grid grid-cols-2 gap-x-8 gap-y-1 max-w-lg">
+          <p>
+            <span className="text-zinc-500">Bank</span> {payToBank.bank_name}
+          </p>
+          <p>
+            <span className="text-zinc-500">Title</span> {payToBank.account_title}
+          </p>
+          <p>
+            <span className="text-zinc-500">Account</span>{' '}
+            <span className="font-numeric">{payToBank.account_number}</span>
+          </p>
+          <p>
+            <span className="text-zinc-500">IBAN</span>{' '}
+            <span className="font-numeric">{payToBank.iban}</span>
+          </p>
           {payToBank.swift_code && (
-            <p><span className="text-fg-muted">Swift Code:</span> <span className="font-mono font-medium">{payToBank.swift_code}</span></p>
+            <p>
+              <span className="text-zinc-500">Swift</span>{' '}
+              <span className="font-numeric">{payToBank.swift_code}</span>
+            </p>
           )}
         </div>
       </div>
 
-      {/* Signatures */}
-      <div className="grid grid-cols-3 gap-6 my-8 text-center text-xs">
-        {signatures.map((label, idx) => (
-          <div key={idx} className="flex flex-col items-center">
-            <div className="w-32 border-b border-border-strong mb-1.5" />
-            <span className="font-semibold text-fg-2">{label}</span>
+      <div className="mt-12 grid grid-cols-3 gap-8 items-end">
+        {signatures.map((sig) => (
+          <div key={sig.id} className="text-center">
+            {sig.id === 'stamp' ? (
+              <img
+                src="/assets/reamarc-stamp.png?v=4"
+                alt="Reamarc stamp"
+                className="mx-auto h-[78px] w-[78px] object-contain"
+              />
+            ) : (
+              <>
+                <div className="mx-auto mb-2 h-px w-[70%] bg-zinc-300" />
+                <p className="text-[10px] font-medium text-zinc-700">{sig.label}</p>
+              </>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Footer Notice */}
-      <div className="text-center text-[10px] text-fg-muted mt-6 pt-4 border-t border-border">
-        <p>
-          {invoice.terms_text || companySettings?.terms_template ||
-            'If you have any questions or require further clarification, please do not hesitate to contact us. We appreciate the opportunity to work with you and look forward to your response.'}
-        </p>
-      </div>
-    </div>
+      <p className="mt-10 text-[10px] leading-4 text-zinc-500">
+        {invoice.terms_text ||
+          companySettings?.terms_template ||
+          'Questions about this invoice can be sent to the billing contact above.'}
+      </p>
+    </article>
   );
 };

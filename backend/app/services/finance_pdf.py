@@ -4,6 +4,7 @@ from __future__ import annotations
 import io
 import math
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -12,7 +13,7 @@ try:
     from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
     from reportlab.lib.units import inch
     from reportlab.pdfgen import canvas
-    from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from reportlab.platypus import HRFlowable, Image as RLImage, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     REPORTLAB_AVAILABLE = True
 except ImportError:
     colors = None  # type: ignore
@@ -23,6 +24,7 @@ except ImportError:
     canvas = None  # type: ignore
     HRFlowable = None  # type: ignore
     KeepTogether = None  # type: ignore
+    RLImage = None  # type: ignore
     Paragraph = None  # type: ignore
     SimpleDocTemplate = None  # type: ignore
     Spacer = None  # type: ignore
@@ -31,6 +33,88 @@ except ImportError:
     REPORTLAB_AVAILABLE = False
 
 _BaseCanvas = canvas.Canvas if REPORTLAB_AVAILABLE else object
+
+# Built-in faces until Inter TTF files are registered.
+FONT_REGULAR = "Helvetica"
+FONT_BOLD = "Helvetica-Bold"
+FONT_ITALIC = "Helvetica-Oblique"
+FONT_BOLD_ITALIC = "Helvetica-BoldOblique"
+_FONTS_READY = False
+
+
+def _ensure_pdf_fonts() -> None:
+    """Register Inter (OFL) for invoice and receipt PDFs. Falls back to Helvetica."""
+    global FONT_REGULAR, FONT_BOLD, FONT_ITALIC, FONT_BOLD_ITALIC, _FONTS_READY
+    if _FONTS_READY:
+        return
+    _FONTS_READY = True
+    if not REPORTLAB_AVAILABLE:
+        return
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    here = Path(__file__).resolve()
+    font_dirs = [
+        here.parents[1] / "assets" / "fonts",
+        here.parents[3] / "backend" / "app" / "assets" / "fonts",
+    ]
+    fonts_dir = next((d for d in font_dirs if (d / "Inter-Regular.ttf").is_file()), None)
+    if fonts_dir is None:
+        return
+    regular = fonts_dir / "Inter-Regular.ttf"
+    bold = fonts_dir / "Inter-Bold.ttf"
+    italic = fonts_dir / "Inter-Italic.ttf"
+    bold_italic = fonts_dir / "Inter-BoldItalic.ttf"
+    if not all(p.is_file() for p in (regular, bold, italic, bold_italic)):
+        return
+    pdfmetrics.registerFont(TTFont("Inter", str(regular)))
+    pdfmetrics.registerFont(TTFont("Inter-Bold", str(bold)))
+    pdfmetrics.registerFont(TTFont("Inter-Italic", str(italic)))
+    pdfmetrics.registerFont(TTFont("Inter-BoldItalic", str(bold_italic)))
+    pdfmetrics.registerFontFamily(
+        "Inter",
+        normal="Inter",
+        bold="Inter-Bold",
+        italic="Inter-Italic",
+        boldItalic="Inter-BoldItalic",
+    )
+    FONT_REGULAR = "Inter"
+    FONT_BOLD = "Inter-Bold"
+    FONT_ITALIC = "Inter-Italic"
+    FONT_BOLD_ITALIC = "Inter-BoldItalic"
+
+
+def _asset_path(filename: str) -> Optional[Path]:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[3] / "public" / "assets" / filename,
+        here.parents[2] / "public" / "assets" / filename,
+    ]
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
+
+
+def _wordmark_path() -> Optional[Path]:
+    return _asset_path("reamarc-wordmark.png")
+
+
+def _stamp_path() -> Optional[Path]:
+    return _asset_path("reamarc-stamp.png")
+
+
+def _wordmark_flowable(normal_style: Any) -> Any:
+    path = _wordmark_path()
+    if REPORTLAB_AVAILABLE and RLImage is not None and path is not None:
+        img = RLImage(str(path), width=176, height=41.8)
+        img.hAlign = "LEFT"
+        return img
+    return Paragraph(
+        '<font color="#6847E0" size="16"><b>reamarc</b></font><br/>'
+        '<font color="#64748B" size="7">DIGITAL SOLUTIONS</font>',
+        normal_style,
+    )
 
 
 # Number to words helper supporting Pakistani numbering (Crores, Lakhs) and International (Millions)
@@ -111,6 +195,8 @@ def number_to_words_western(amount: int) -> str:
         parts.append(f"{_three_digits_to_words(millions)} Million")
     if thousands:
         parts.append(f"{_three_digits_to_words(thousands)} Thousand")
+    if parts and hundreds:
+        return f"{' '.join(parts)} And {_three_digits_to_words(hundreds)}"
     if hundreds:
         parts.append(_three_digits_to_words(hundreds))
 
@@ -126,27 +212,25 @@ def amount_in_words(minor_units: int, currency: str = "PKR") -> str:
     main_units = minor_units // 100
     sub_units = minor_units % 100
 
+    words = number_to_words_western(main_units)
+
     if currency == "PKR":
-        words = number_to_words_pakistani(main_units)
         curr_label = "Rupees"
         sub_label = "Paisa"
     elif currency == "USD":
-        words = number_to_words_western(main_units)
         curr_label = "US Dollars"
         sub_label = "Cents"
     elif currency == "GBP":
-        words = number_to_words_western(main_units)
         curr_label = "British Pounds"
         sub_label = "Pence"
     else:
-        words = number_to_words_western(main_units)
         curr_label = currency
         sub_label = "Cents"
 
     if sub_units > 0:
         sub_words = _two_digits_to_words(sub_units)
-        return f"{curr_label} {words} and {sub_words} {sub_label} Only"
-    return f"{curr_label} {words} Only"
+        return f"{words} {curr_label} And {sub_words} {sub_label} Only"
+    return f"{words} {curr_label} Only"
 
 
 def format_currency_amount(minor_units: int, currency: str = "PKR") -> str:
@@ -179,11 +263,12 @@ class NumberedCanvas(_BaseCanvas):
 
     def draw_page_number(self, page_count: int):
         self.saveState()
-        self.setFont("Helvetica", 8)
+        self.setFont(FONT_REGULAR, 8)
         self.setFillColor(colors.HexColor("#64748B"))
         # Footer text
         footer_text = f"Page {self._pageNumber} of {page_count}"
-        self.drawRightString(A4[0] - 36, 25, footer_text)
+        page_w = getattr(self, "_pagesize", A4)[0]
+        self.drawRightString(page_w - 36, 20, footer_text)
         self.restoreState()
 
 
@@ -191,6 +276,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     """Generate professional PDF for an invoice matching Reamarc specifications."""
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError("PDF generation requires 'reportlab'. Please install with: pip install reportlab")
+    _ensure_pdf_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -202,7 +288,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     )
 
     styles = getSampleStyleSheet()
-    normal = styles["Normal"]
+    normal = ParagraphStyle("InvoiceBody", parent=styles["Normal"], fontName=FONT_REGULAR)
 
     # Custom styles
     primary_color = colors.HexColor("#2B2D42")
@@ -215,7 +301,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_company_title = ParagraphStyle(
         "CompanyTitle",
         parent=normal,
-        fontName="Helvetica-Bold",
+        fontName=FONT_BOLD,
         fontSize=13,
         leading=16,
         textColor=colors.HexColor("#0F172A"),
@@ -224,7 +310,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_company_details = ParagraphStyle(
         "CompanyDetails",
         parent=normal,
-        fontName="Helvetica",
+        fontName=FONT_REGULAR,
         fontSize=8.5,
         leading=12,
         textColor=text_muted,
@@ -233,7 +319,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_invoice_heading = ParagraphStyle(
         "InvoiceHeading",
         parent=normal,
-        fontName="Helvetica-Bold",
+        fontName=FONT_BOLD,
         fontSize=20,
         leading=24,
         textColor=primary_color,
@@ -241,7 +327,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_label = ParagraphStyle(
         "LabelStyle",
         parent=normal,
-        fontName="Helvetica-Bold",
+        fontName=FONT_BOLD,
         fontSize=8.5,
         leading=11,
         textColor=text_muted,
@@ -249,15 +335,42 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_meta_value = ParagraphStyle(
         "MetaValue",
         parent=normal,
-        fontName="Helvetica",
+        fontName=FONT_REGULAR,
         fontSize=8.5,
         leading=11,
         textColor=text_dark,
     )
+    style_meta_label = ParagraphStyle(
+        "MetaLabel",
+        parent=style_label,
+        alignment=2,
+        leading=12,
+    )
+    style_meta_value_right = ParagraphStyle(
+        "MetaValueRight",
+        parent=style_meta_value,
+        alignment=0,
+        leading=12,
+        fontName=FONT_REGULAR,
+    )
+    style_sig_label = ParagraphStyle(
+        "SigLabel",
+        parent=style_meta_value,
+        alignment=1,
+        fontName=FONT_BOLD,
+        fontSize=8,
+        textColor=text_dark,
+    )
+    style_sig_line = ParagraphStyle(
+        "SigLine",
+        parent=style_meta_value,
+        alignment=1,
+        textColor=colors.HexColor("#94A3B8"),
+    )
     style_th = ParagraphStyle(
         "TableHeading",
         parent=normal,
-        fontName="Helvetica-Bold",
+        fontName=FONT_BOLD,
         fontSize=8.5,
         leading=11,
         textColor=primary_color,
@@ -265,7 +378,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_td = ParagraphStyle(
         "TableCell",
         parent=normal,
-        fontName="Helvetica",
+        fontName=FONT_REGULAR,
         fontSize=8.5,
         leading=11,
         textColor=text_dark,
@@ -278,7 +391,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_words = ParagraphStyle(
         "WordsStyle",
         parent=normal,
-        fontName="Helvetica-Oblique",
+        fontName=FONT_ITALIC,
         fontSize=8.5,
         leading=12,
         textColor=primary_color,
@@ -287,13 +400,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     story: List[Any] = []
 
     # 1. Header: Logo (left) and Company Info (right)
-    # Using stylish vector typography for Reamarc Realty Digital Solutions logo
-    logo_p = Paragraph(
-        '<font color="#5046E5" size="20"><b>R</b></font> '
-        '<font color="#1E293B" size="18"><b>reamarc</b></font><br/>'
-        '<font color="#64748B" size="7">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Realty Digital Solutions</font>',
-        normal,
-    )
+    logo_p = _wordmark_flowable(normal)
 
     comp_name = settings.get("company_name", "Reamarc - Digital Solutions")
     comp_addr = settings.get("company_address", "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
@@ -323,8 +430,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     b_addr = (billing.get("address") or "").replace("\n", "<br/>")
     b_contact = " · ".join(filter(None, [billing.get("email"), billing.get("phone")]))
 
-    bill_to_html = f'<font color="#1E293B"><b>INVOICE</b></font><br/><br/>' \
-                   f'<font color="#64748B"><b>BILL TO</b></font><br/>' \
+    bill_to_html = f'<font color="#64748B"><b>BILL TO</b></font><br/>' \
                    f'<font color="#0F172A"><b>{client_name}</b></font><br/>'
     if b_addr:
         bill_to_html += f'<font color="#475569">{b_addr}</font><br/>'
@@ -335,32 +441,37 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
 
     bill_to_p = Paragraph(bill_to_html, style_meta_value)
 
-    # Right: Invoice metadata table
+    # Right: Invoice metadata table — labels left, values right-aligned to the page edge
     inv_num = invoice.get("number", "DRAFT")
-    inv_date = invoice.get("issue_date", "")
-    terms = invoice.get("terms", "Due on receipt")
-    due_date = invoice.get("due_date", "")
-    ref = invoice.get("reference") or "—"
+    inv_date = invoice.get("issue_date", "") or "—"
+    terms = invoice.get("terms", "Due on receipt") or "—"
+    due_date = invoice.get("due_date", "") or "—"
+    ref = (invoice.get("reference") or "").strip() or "—"
 
     meta_data = [
-        [Paragraph("INVOICE", style_label), Paragraph(f"<b>{inv_num}</b>", style_meta_value)],
-        [Paragraph("DATE", style_label), Paragraph(inv_date, style_meta_value)],
-        [Paragraph("TERMS", style_label), Paragraph(terms, style_meta_value)],
-        [Paragraph("DUE DATE", style_label), Paragraph(due_date, style_meta_value)],
-        [Paragraph("REFERENCE", style_label), Paragraph(ref, style_meta_value)],
+        [Paragraph("INVOICE", style_meta_label), Paragraph(f"<b>{inv_num}</b>", style_meta_value_right)],
+        [Paragraph("DATE", style_meta_label), Paragraph(inv_date, style_meta_value_right)],
+        [Paragraph("TERMS", style_meta_label), Paragraph(terms, style_meta_value_right)],
+        [Paragraph("DUE DATE", style_meta_label), Paragraph(due_date, style_meta_value_right)],
+        [Paragraph("REFERENCE", style_meta_label), Paragraph(ref, style_meta_value_right)],
     ]
-    meta_table = Table(meta_data, colWidths=[80, 120])
+    meta_table = Table(meta_data, colWidths=[78, 108])
     meta_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (1, 0), (1, -1), "LEFT"),
         ("TOPPADDING", (0, 0), (-1, -1), 2),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
-        ("LEFTPADDING", (0, 0), (-1, -1), 0),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, -1), 10),
+        ("LEFTPADDING", (1, 0), (1, -1), 0),
+        ("RIGHTPADDING", (1, 0), (1, -1), 0),
     ]))
 
     info_table = Table([[bill_to_p, meta_table]], colWidths=[323, 200])
     info_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ALIGN", (1, 0), (1, 0), "RIGHT"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
@@ -444,7 +555,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
             Paragraph(f"-{format_currency_amount(discount_amount, currency)}", style_td_right),
         ])
     totals_rows.append([
-        Paragraph("<b>Total</b>", style_label),
+        Paragraph("<b>Net total</b>", style_label),
         Paragraph(f"<b>{format_currency_amount(total, currency)}</b>", style_td_right),
     ])
     if amount_paid > 0:
@@ -525,20 +636,34 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     story.append(bank_card)
     story.append(Spacer(1, 25))
 
-    # 6. Signatures Row
-    sig_labels = settings.get("signature_labels") or ["Account Officer", "Account Manager", "General Manager"]
-    sig_cols = []
-    for sig in sig_labels[:3]:
-        sig_cols.append(Paragraph(f'<font color="#94A3B8">___________________</font><br/><b>{sig}</b>', style_meta_value))
+    # 6. Signatures: Account Manager | circular stamp (no caption) | CEO
+    stamp_path = _stamp_path()
+    if REPORTLAB_AVAILABLE and RLImage is not None and stamp_path is not None and stamp_path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
+        stamp_cell = RLImage(str(stamp_path), width=78, height=78)
+        stamp_cell.hAlign = "CENTER"
+    else:
+        stamp_cell = Spacer(1, 78)
 
-    # Fill up to 3 cols
-    while len(sig_cols) < 3:
-        sig_cols.append(Paragraph("", style_meta_value))
+    manager_block = [
+        Paragraph("________________________", style_sig_line),
+        Spacer(1, 4),
+        Paragraph("Account Manager", style_sig_label),
+    ]
+    ceo_block = [
+        Paragraph("________________________", style_sig_line),
+        Spacer(1, 4),
+        Paragraph("CEO", style_sig_label),
+    ]
 
-    sig_table = Table([sig_cols], colWidths=[174, 174, 175])
+    sig_table = Table(
+        [[manager_block, stamp_cell, ceo_block]],
+        colWidths=[186, 151, 186],
+    )
     sig_table.setStyle(TableStyle([
         ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
         ("TOPPADDING", (0, 0), (-1, -1), 0),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
     ]))
@@ -558,7 +683,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     def _draw_decorations(canv, document):
         if status_label in ("paid", "partially_paid", "void"):
             canv.saveState()
-            canv.setFont("Helvetica-Bold", 45)
+            canv.setFont(FONT_BOLD, 45)
             canv.translate(300, 480)
             canv.rotate(25)
             if status_label == "paid":
@@ -572,7 +697,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
             else:
                 canv.setFillColor(colors.HexColor("#EF4444"), alpha=0.18)
                 canv.setStrokeColor(colors.HexColor("#EF4444"), alpha=0.4)
-                text = "VOID"
+                text = "ON HOLD"
 
             canv.drawCentredString(0, 0, text)
             canv.rect(-130, -15, 260, 60, stroke=1, fill=0)
@@ -586,6 +711,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     """Generate professional PDF for a receipt matching Page 3 of the uploaded reference."""
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError("PDF generation requires 'reportlab'. Please install with: pip install reportlab")
+    _ensure_pdf_fonts()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         buffer,
@@ -597,7 +723,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     )
 
     styles = getSampleStyleSheet()
-    normal = styles["Normal"]
+    normal = ParagraphStyle("ReceiptBody", parent=styles["Normal"], fontName=FONT_REGULAR)
 
     primary_color = colors.HexColor("#2B2D42")
     brand_purple = colors.HexColor("#5046E5")
@@ -609,7 +735,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_company_details = ParagraphStyle(
         "ReceiptCompDetails",
         parent=normal,
-        fontName="Helvetica",
+        fontName=FONT_REGULAR,
         fontSize=8.5,
         leading=12,
         textColor=text_muted,
@@ -618,7 +744,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_th = ParagraphStyle(
         "RTh",
         parent=normal,
-        fontName="Helvetica-Bold",
+        fontName=FONT_BOLD,
         fontSize=8.5,
         leading=11,
         textColor=primary_color,
@@ -626,7 +752,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     style_td = ParagraphStyle(
         "RTd",
         parent=normal,
-        fontName="Helvetica",
+        fontName=FONT_REGULAR,
         fontSize=8.5,
         leading=11,
         textColor=text_dark,
@@ -640,12 +766,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     story: List[Any] = []
 
     # 1. Header
-    logo_p = Paragraph(
-        '<font color="#5046E5" size="20"><b>R</b></font> '
-        '<font color="#1E293B" size="18"><b>reamarc</b></font><br/>'
-        '<font color="#64748B" size="7">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Realty Digital Solutions</font>',
-        normal,
-    )
+    logo_p = _wordmark_flowable(normal)
 
     comp_name = settings.get("company_name", "Reamarc - Digital Solutions")
     comp_addr = settings.get("company_address", "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
@@ -677,13 +798,13 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     left_info = Paragraph(
         f'<font color="#1E293B" size="20"><b>Receipt</b></font><br/><br/>'
         f'<font color="#64748B"><b>Received From</b></font><br/>'
-        f'<font color="#0F172A" size="11"><b>{client_name}</b></font><br/>'
-        f'<font color="#64748B">Receipt No: <b>{rcpt_num}</b></font>',
+        f'<font color="#0F172A" size="11"><b>{client_name}</b></font>',
         normal,
     )
     right_info = Paragraph(
         f'<font color="#1E293B"><b>Date:</b> {rcpt_date}</font><br/><br/>'
-        f'<font color="#1E293B"><b>Reference No:</b> {ref_num}</font>',
+        f'<font color="#1E293B"><b>Reference No:</b> {ref_num}</font><br/>'
+        f'<font color="#1E293B"><b>Receipt No:</b> {rcpt_num}</font>',
         ParagraphStyle("RMetaRight", parent=normal, alignment=2, leading=14),
     )
 
@@ -756,11 +877,16 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     story.append(Spacer(1, 15))
 
     # 4. Memo and Total Settled / Balance
-    memo_text = receipt.get("memo") or f"Amount Received via {receipt.get('method', 'bank').upper()}"
-    if receipt.get("bank"):
-        memo_text += f" ({receipt.get('bank', '').upper()})"
-    if receipt.get("reference_number"):
-        memo_text += f" Ref # {receipt.get('reference_number')}"
+    bank_name = (receipt.get("bank") or "").strip()
+    if bank_name == "meezan":
+        bank_label = "Meezan Bank"
+    elif bank_name == "abl":
+        bank_label = "Allied Bank"
+    elif receipt.get("method") == "cash":
+        bank_label = "Cash"
+    else:
+        bank_label = "this bank"
+    memo_text = receipt.get("memo") or f"{client_name} received from {bank_label}"
 
     memo_p = Paragraph(f"<b>Memo:</b> {memo_text}", style_td)
 
@@ -790,12 +916,12 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     def _draw_decorations(canv, document):
         if status_label == "void":
             canv.saveState()
-            canv.setFont("Helvetica-Bold", 45)
+            canv.setFont(FONT_BOLD, 45)
             canv.translate(300, 480)
             canv.rotate(25)
             canv.setFillColor(colors.HexColor("#EF4444"), alpha=0.18)
             canv.setStrokeColor(colors.HexColor("#EF4444"), alpha=0.4)
-            canv.drawCentredString(0, 0, "VOID")
+            canv.drawCentredString(0, 0, "ON HOLD")
             canv.rect(-130, -15, 260, 60, stroke=1, fill=0)
             canv.restoreState()
 

@@ -145,6 +145,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     profile: { label: 'Settings', icon: Settings },
     settings: { label: 'Settings', icon: Settings },
     owner: { label: 'Companies', icon: Building2 },
+    finance: { label: 'Accounts', icon: Receipt },
   };
 
   return (
@@ -240,7 +241,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
             >
               <Receipt size={16} className="text-fg-muted shrink-0" />
-              <span>Finance</span>
+              <span>Accounts</span>
             </CommandItem>
           )}
           {canSeeContentCalendar && (

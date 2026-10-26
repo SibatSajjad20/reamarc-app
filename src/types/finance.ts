@@ -1,9 +1,9 @@
 export type Currency = 'PKR' | 'USD' | 'GBP';
 export type PaymentMethod = 'cash' | 'bank';
 export type BankId = 'abl' | 'meezan';
-export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void';
-export type ReceiptStatus = 'posted' | 'void';
-export type FinanceTab = 'overview' | 'invoices' | 'receivables' | 'receipts' | 'accounts' | 'settings';
+export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void' | 'deleted';
+export type ReceiptStatus = 'posted' | 'pending' | 'void' | 'deleted';
+export type FinanceTab = 'overview' | 'invoices' | 'receivables' | 'receipts' | 'collections' | 'summary' | 'accounts' | 'wht' | 'settings';
 
 export interface BankAccountConfig {
   bank_id: string;
@@ -62,6 +62,9 @@ export interface Invoice {
   void_reason?: string | null;
   voided_at?: string | null;
   voided_by?: string | null;
+  deleted_reason?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   is_recurring?: boolean;
   recurring_interval?: string | null;
   created_by?: string | null;
@@ -139,9 +142,13 @@ export interface Receipt {
   proof_file_ids: string[];
   wht_certificate_file_id?: string | null;
   status: ReceiptStatus;
+  is_cheque?: boolean;
   void_reason?: string | null;
   voided_at?: string | null;
   voided_by?: string | null;
+  deleted_reason?: string | null;
+  deleted_at?: string | null;
+  deleted_by?: string | null;
   created_by?: string | null;
   created_by_name?: string | null;
   created_at: string;
@@ -162,6 +169,7 @@ export interface ReceiptCreatePayload {
   allocations: { invoice_id: string; amount: number; wht?: number }[];
   proof_file_ids?: string[];
   wht_certificate_file_id?: string | null;
+  is_cheque?: boolean;
 }
 
 export interface FinanceAccount {
@@ -186,6 +194,7 @@ export interface FinanceLedgerEntry {
   source_type: string;
   source_id?: string | null;
   memo?: string | null;
+  slip_file_id?: string | null;
   created_by?: string | null;
   created_by_name?: string | null;
   created_at: string;
@@ -276,6 +285,8 @@ export interface CollectionsReport {
     meezan_pkr: number;
     total_wht_pkr: number;
     total_collected_pkr: number;
+    pending_pkr?: number;
+    on_hold_pkr?: number;
   };
 }
 

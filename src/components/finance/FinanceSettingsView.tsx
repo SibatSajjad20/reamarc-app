@@ -1,32 +1,41 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Settings,
   Building2,
   CreditCard,
   Hash,
-  FileText,
   ListPlus,
   Save,
   CheckCircle2,
   AlertCircle,
   Plus,
   Edit2,
-  Check,
   X,
   Search,
-  Layers,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { formatMinorMoney, majorToMinor, minorToMajor } from '../../utils/money';
 import type { FinanceSettings, FinanceService, BankAccountConfig, Currency } from '../../types/finance';
 import { CustomSelect } from '../ui/CustomSelect';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { CURRENCY_OPTIONS, TERMS_OPTIONS } from './financeUi';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
+import { useCacheInvalidation } from '../../utils/cacheBus';
+import { CardListSkeleton } from '../ui/Skeletons';
 
 export const FinanceSettingsView: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'company' | 'banks' | 'numbering' | 'services'>('company');
-  const [settings, setSettings] = useState<FinanceSettings | null>(null);
-  const [services, setServices] = useState<FinanceService[]>([]);
-  const [loading, setLoading] = useState(true);
+  const cachedSettings = financeService.getCachedSettings();
+  const cachedServices = financeService.getCachedServices(false);
+  const [settings, setSettings] = useState<FinanceSettings | null>(() => cachedSettings?.data || null);
+  const [services, setServices] = useState<FinanceService[]>(() => cachedServices?.data || []);
+  const [loading, setLoading] = useState(!cachedSettings);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadReqIdRef = useRef(0);
+  useModuleLoadGate(loading);
   const [saving, setSaving] = useState(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -49,26 +58,51 @@ export const FinanceSettingsView: React.FC = () => {
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const loadData = async () => {
-    setLoading(true);
+  const loadData = useCallback(async (opts?: { silent?: boolean }) => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const reqId = ++loadReqIdRef.current;
+    const cachedSetts = financeService.getCachedSettings();
+    const cachedSrvs = financeService.getCachedServices(false);
+    const silent = Boolean(opts?.silent) || Boolean(cachedSetts);
+
+    if (cachedSetts && !opts?.silent) {
+      setSettings(cachedSetts.data);
+      if (cachedSrvs) setServices(cachedSrvs.data || []);
+      setLoading(false);
+    } else if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const [setts, srvs] = await Promise.all([
-        financeService.getSettings(),
-        financeService.getServices(false), // get all including inactive
+        financeService.getSettings({ signal: controller.signal }),
+        financeService.getServices(false, { signal: controller.signal }),
       ]);
+      if (reqId !== loadReqIdRef.current) return;
       setSettings(setts);
       setServices(srvs || []);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== loadReqIdRef.current) return;
       console.error('Failed to load finance settings:', err);
       showNotification('error', err.message || 'Failed to load settings');
     } finally {
-      setLoading(false);
+      if (reqId === loadReqIdRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    void loadData();
+    return () => loadAbortRef.current?.abort();
+  }, [loadData]);
+
+  useCacheInvalidation(['finance'], () => {
+    void loadData({ silent: true });
+  });
 
   // Save Settings
   const handleSaveSettings = async (e: React.FormEvent) => {
@@ -79,7 +113,7 @@ export const FinanceSettingsView: React.FC = () => {
     try {
       const updated = await financeService.updateSettings(settings);
       setSettings(updated);
-      showNotification('success', 'Finance settings saved successfully');
+      showNotification('success', 'Accounts settings saved successfully');
     } catch (err: any) {
       showNotification('error', err.message || 'Failed to save settings');
     } finally {
@@ -182,8 +216,9 @@ export const FinanceSettingsView: React.FC = () => {
 
   if (loading || !settings) {
     return (
-      <div className="py-20 text-center text-fg-muted dark:text-fg-muted">
-        Loading finance settings...
+      <div className="space-y-6">
+        <CardListSkeleton rows={6} />
+        <CardListSkeleton rows={4} />
       </div>
     );
   }
@@ -225,7 +260,7 @@ export const FinanceSettingsView: React.FC = () => {
             ) : (
               <AlertCircle className="w-5 h-5 text-rose-600 dark:text-rose-400" />
             )}
-            <span className="text-sm font-medium">{notification.message}</span>
+            <span className="text-ui font-medium">{notification.message}</span>
           </div>
           <button
             onClick={() => setNotification(null)}
@@ -238,11 +273,11 @@ export const FinanceSettingsView: React.FC = () => {
 
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-fg dark:text-white flex items-center gap-2">
-          <Settings className="w-6 h-6 text-accent-text" />
-          Finance Configuration & Service Catalog
+        <h2 className="text-h1 font-semibold text-fg flex items-center gap-2">
+          <Settings className="w-5 h-5 text-accent-text" />
+          Accounts Configuration & Service Catalog
         </h2>
-        <p className="text-sm text-fg-muted dark:text-fg-muted">
+        <p className="text-caption text-fg-muted mt-1">
           Manage company billing identity, verified bank accounts printed on invoices, document prefixes, and agency services.
         </p>
       </div>
@@ -251,10 +286,10 @@ export const FinanceSettingsView: React.FC = () => {
       <div className="flex border-b border-border dark:border-border">
         <button
           onClick={() => setActiveTab('company')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+          className={`px-3 py-2.5 text-ui font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'company'
-              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
+              ? 'border-accent text-accent-text'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           <Building2 className="w-4 h-4" />
@@ -263,10 +298,10 @@ export const FinanceSettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('banks')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+          className={`px-3 py-2.5 text-ui font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'banks'
-              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
+              ? 'border-accent text-accent-text'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           <CreditCard className="w-4 h-4" />
@@ -275,10 +310,10 @@ export const FinanceSettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('numbering')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+          className={`px-3 py-2.5 text-ui font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'numbering'
-              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
+              ? 'border-accent text-accent-text'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           <Hash className="w-4 h-4" />
@@ -287,10 +322,10 @@ export const FinanceSettingsView: React.FC = () => {
 
         <button
           onClick={() => setActiveTab('services')}
-          className={`px-4 py-2.5 text-sm font-medium border-b-2 flex items-center gap-2 transition ${
+          className={`px-3 py-2.5 text-ui font-medium border-b-2 flex items-center gap-2 transition ${
             activeTab === 'services'
-              ? 'border-primary-600 text-accent-text dark:border-primary-400 dark:text-primary-400 font-semibold'
-              : 'border-transparent text-fg-muted hover:text-fg-2 dark:text-fg-muted dark:hover:text-slate-200'
+              ? 'border-accent text-accent-text'
+              : 'border-transparent text-fg-muted hover:text-fg'
           }`}
         >
           <ListPlus className="w-4 h-4" />
@@ -301,13 +336,13 @@ export const FinanceSettingsView: React.FC = () => {
       {/* TAB 1: Company Identity */}
       {activeTab === 'company' && (
         <form onSubmit={handleSaveSettings} className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-5">
-          <h3 className="text-base font-bold text-fg dark:text-white border-b border-border dark:border-border pb-3">
+          <h3 className="text-h3 font-semibold text-fg border-b border-border dark:border-border pb-3">
             Company Billing Information (Printed on Invoices & Receipts)
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Company Legal Name
               </label>
               <input
@@ -315,80 +350,75 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.company_name}
                 onChange={(e) => setSettings({ ...settings, company_name: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Tax ID / NTN / Govt UID
               </label>
               <input
                 type="text"
                 value={settings.tax_id}
                 onChange={(e) => setSettings({ ...settings, tax_id: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Official Business Address
               </label>
               <input
                 type="text"
                 value={settings.company_address}
                 onChange={(e) => setSettings({ ...settings, company_address: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Official Phone Number
               </label>
               <input
                 type="text"
                 value={settings.company_phone}
                 onChange={(e) => setSettings({ ...settings, company_phone: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Finance Email Address
               </label>
               <input
                 type="email"
                 value={settings.company_email}
                 onChange={(e) => setSettings({ ...settings, company_email: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Official Website
               </label>
               <input
                 type="text"
                 value={settings.company_website}
                 onChange={(e) => setSettings({ ...settings, company_website: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
           </div>
 
           <div className="pt-4 flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
+            <Button type="submit" size="sm" icon={Save} disabled={saving}>
               {saving ? 'Saving...' : 'Save Company Details'}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -401,83 +431,83 @@ export const FinanceSettingsView: React.FC = () => {
             <div className="flex items-center justify-between border-b border-border dark:border-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-amber-500" />
-                <h3 className="text-base font-bold text-fg dark:text-white">
+                <h3 className="text-h3 font-semibold text-fg">
                   Meezan Bank Limited (Islamic Banking)
                 </h3>
               </div>
-              <span className="text-xs font-mono font-medium text-fg-muted">ID: meezan</span>
+              <span className="text-caption font-numeric text-fg-muted">ID: meezan</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Bank Name
                 </label>
                 <input
                   type="text"
                   value={meezanBank.bank_name}
                   onChange={(e) => updateBankAccount('meezan', 'bank_name', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Account Title
                 </label>
                 <input
                   type="text"
                   value={meezanBank.account_title}
                   onChange={(e) => updateBankAccount('meezan', 'account_title', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Account Number
                 </label>
                 <input
                   type="text"
                   value={meezanBank.account_number}
                   onChange={(e) => updateBankAccount('meezan', 'account_number', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   IBAN (International Bank Account Number)
                 </label>
                 <input
                   type="text"
                   value={meezanBank.iban}
                   onChange={(e) => updateBankAccount('meezan', 'iban', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   SWIFT / BIC Code
                 </label>
                 <input
                   type="text"
                   value={meezanBank.swift_code}
                   onChange={(e) => updateBankAccount('meezan', 'swift_code', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Branch Name & Address
                 </label>
                 <input
                   type="text"
                   value={meezanBank.branch || ''}
                   onChange={(e) => updateBankAccount('meezan', 'branch', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
             </div>
@@ -488,97 +518,92 @@ export const FinanceSettingsView: React.FC = () => {
             <div className="flex items-center justify-between border-b border-border dark:border-border pb-3">
               <div className="flex items-center gap-2">
                 <span className="w-3 h-3 rounded-full bg-blue-600" />
-                <h3 className="text-base font-bold text-fg dark:text-white">
+                <h3 className="text-h3 font-semibold text-fg">
                   Allied Bank Limited (ABL)
                 </h3>
               </div>
-              <span className="text-xs font-mono font-medium text-fg-muted">ID: abl</span>
+              <span className="text-caption font-numeric text-fg-muted">ID: abl</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Bank Name
                 </label>
                 <input
                   type="text"
                   value={ablBank.bank_name}
                   onChange={(e) => updateBankAccount('abl', 'bank_name', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Account Title
                 </label>
                 <input
                   type="text"
                   value={ablBank.account_title}
                   onChange={(e) => updateBankAccount('abl', 'account_title', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Account Number
                 </label>
                 <input
                   type="text"
                   value={ablBank.account_number}
                   onChange={(e) => updateBankAccount('abl', 'account_number', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   IBAN (International Bank Account Number)
                 </label>
                 <input
                   type="text"
                   value={ablBank.iban}
                   onChange={(e) => updateBankAccount('abl', 'iban', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   SWIFT / BIC Code
                 </label>
                 <input
                   type="text"
                   value={ablBank.swift_code}
                   onChange={(e) => updateBankAccount('abl', 'swift_code', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white font-mono focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+                <label className="block text-label font-medium text-fg mb-1.5">
                   Branch Name & Address
                 </label>
                 <input
                   type="text"
                   value={ablBank.branch || ''}
                   onChange={(e) => updateBankAccount('abl', 'branch', e.target.value)}
-                  className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
                 />
               </div>
             </div>
           </div>
 
           <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
+            <Button type="submit" size="sm" icon={Save} disabled={saving}>
               {saving ? 'Saving...' : 'Save Bank Details'}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -586,13 +611,13 @@ export const FinanceSettingsView: React.FC = () => {
       {/* TAB 3: Numbering & Terms */}
       {activeTab === 'numbering' && (
         <form onSubmit={handleSaveSettings} className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-6 space-y-5">
-          <h3 className="text-base font-bold text-fg dark:text-white border-b border-border dark:border-border pb-3">
+          <h3 className="text-h3 font-semibold text-fg border-b border-border dark:border-border pb-3">
             Document Numbering, Default Terms & Templates
           </h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Invoice Number Prefix
               </label>
               <input
@@ -600,13 +625,13 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.invoice_prefix}
                 onChange={(e) => setSettings({ ...settings, invoice_prefix: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm font-mono text-fg dark:text-white uppercase focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg uppercase outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
-              <p className="text-[11px] text-fg-muted mt-1">E.g. &apos;INV&apos; generates INV-2026-0001</p>
+              <p className="text-caption text-fg-muted mt-1">E.g. &apos;INV&apos; generates INV-2026-0001</p>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Receipt Number Prefix
               </label>
               <input
@@ -614,13 +639,13 @@ export const FinanceSettingsView: React.FC = () => {
                 required
                 value={settings.receipt_prefix}
                 onChange={(e) => setSettings({ ...settings, receipt_prefix: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-sm font-mono text-fg dark:text-white uppercase focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg uppercase outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
-              <p className="text-[11px] text-fg-muted mt-1">E.g. &apos;RCT&apos; generates RCT-2026-0001</p>
+              <p className="text-caption text-fg-muted mt-1">E.g. &apos;RCT&apos; generates RCT-2026-0001</p>
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Default Due Date Terms
               </label>
               <CustomSelect
@@ -633,39 +658,34 @@ export const FinanceSettingsView: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Default Notes Template
               </label>
               <textarea
                 rows={3}
                 value={settings.notes_template}
                 onChange={(e) => setSettings({ ...settings, notes_template: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-xs text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full min-h-[88px] px-3 py-2 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
+              <label className="block text-label font-medium text-fg mb-1.5">
                 Default Terms & Conditions
               </label>
               <textarea
                 rows={3}
                 value={settings.terms_template}
                 onChange={(e) => setSettings({ ...settings, terms_template: e.target.value })}
-                className="w-full px-3 py-2 bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-xs text-fg dark:text-white focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                className="w-full min-h-[88px] px-3 py-2 rounded-md border border-border-strong bg-surface text-sm text-fg outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
             </div>
           </div>
 
           <div className="pt-4 flex justify-end">
-            <button
-              type="submit"
-              disabled={saving}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
+            <Button type="submit" size="sm" icon={Save} disabled={saving}>
               {saving ? 'Saving...' : 'Save Numbering & Terms'}
-            </button>
+            </Button>
           </div>
         </form>
       )}
@@ -676,42 +696,35 @@ export const FinanceSettingsView: React.FC = () => {
           {/* Top Bar */}
           <div className="p-5 border-b border-border dark:border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h3 className="text-base font-bold text-fg dark:text-white flex items-center gap-2">
+              <h3 className="text-h3 font-semibold text-fg flex items-center gap-2">
                 <ListPlus className="w-5 h-5 text-accent-text" />
                 Service Catalog
               </h3>
-              <p className="text-xs text-fg-muted dark:text-fg-muted">
+              <p className="text-caption text-fg-muted mt-0.5">
                 Services selectable when drafting invoices. Includes 21 pre-configured agency services and custom offerings.
               </p>
             </div>
 
             <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-                <input
-                  type="text"
-                  placeholder="Search services..."
-                  value={serviceSearch}
-                  onChange={(e) => setServiceSearch(e.target.value)}
-                  className="pl-9 pr-3 py-1.5 text-xs bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg text-fg dark:text-fg-2 focus:outline-none focus:ring-1 focus-visible:focus-ring w-52"
-                />
-              </div>
-
-              <button
-                onClick={openAddServiceModal}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-medium transition"
-              >
-                <Plus className="w-4 h-4" />
+              <Input
+                icon={Search}
+                placeholder="Search services..."
+                value={serviceSearch}
+                onChange={(e) => setServiceSearch(e.target.value)}
+                inputSize="sm"
+                className="w-52"
+              />
+              <Button type="button" size="sm" icon={Plus} onClick={openAddServiceModal}>
                 Add Service
-              </button>
+              </Button>
             </div>
           </div>
 
           {/* Service List Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
+            <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-canvas dark:bg-canvas/50 text-fg-muted dark:text-fg-muted text-xs uppercase font-semibold border-b border-border dark:border-border">
+                <tr className="bg-canvas text-fg-2 text-caption font-semibold border-b border-border">
                   <th className="py-3 px-4 w-12 text-center">#</th>
                   <th className="py-3 px-4">Service Name</th>
                   <th className="py-3 px-4">Description</th>
@@ -723,7 +736,7 @@ export const FinanceSettingsView: React.FC = () => {
               <tbody className="divide-y divide-border dark:divide-border">
                 {filteredServices.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-12 text-center text-fg-muted dark:text-fg-muted">
+                    <td colSpan={6} className="py-12 text-center text-fg-muted">
                       No services found matching &quot;{serviceSearch}&quot;.
                     </td>
                   </tr>
@@ -733,18 +746,18 @@ export const FinanceSettingsView: React.FC = () => {
                       key={srv.id}
                       className="hover:bg-canvas/80 dark:hover:bg-hover transition-colors"
                     >
-                      <td className="py-3 px-4 text-center text-xs text-fg-muted font-mono">
+                      <td className="py-3 px-4 text-center text-fg-muted font-numeric">
                         {idx + 1}
                       </td>
                       <td className="py-3 px-4">
-                        <span className="font-semibold text-fg dark:text-fg-2">
+                        <span className="font-medium text-fg">
                           {srv.name}
                         </span>
                       </td>
-                      <td className="py-3 px-4 text-xs text-fg-muted dark:text-fg-muted max-w-xs truncate">
+                      <td className="py-3 px-4 text-fg-muted max-w-xs truncate">
                         {srv.description || '—'}
                       </td>
-                      <td className="py-3 px-4 text-right font-mono text-xs font-semibold text-fg dark:text-fg-2 whitespace-nowrap">
+                      <td className="py-3 px-4 text-right font-numeric font-medium text-fg whitespace-nowrap">
                         {srv.default_rate > 0
                           ? formatMinorMoney(srv.default_rate, srv.currency || 'PKR')
                           : 'Custom rate'}
@@ -785,7 +798,7 @@ export const FinanceSettingsView: React.FC = () => {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-surface dark:bg-surface rounded-2xl shadow-xl border border-border dark:border-border w-full max-w-md overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-border dark:border-border">
-              <h3 className="text-base font-bold text-fg dark:text-white flex items-center gap-2">
+              <h3 className="text-h3 font-semibold text-fg flex items-center gap-2">
                 <ListPlus className="w-5 h-5 text-accent-text" />
                 {editingService ? 'Edit Catalog Service' : 'Add New Service to Catalog'}
               </h3>
@@ -799,95 +812,64 @@ export const FinanceSettingsView: React.FC = () => {
 
             <form onSubmit={handleSaveService} className="p-6 space-y-4">
               {serviceError && (
-                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 dark:bg-rose-950/40 dark:border-rose-800 dark:text-rose-300 text-xs flex items-center gap-2">
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-ui flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{serviceError}</span>
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
-                  Service Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. Website Maintenance & Support"
-                  value={serviceName}
-                  onChange={(e) => setServiceName(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-medium"
-                />
-              </div>
+              <Input
+                label="Service Name"
+                required
+                placeholder="e.g. Website Maintenance & Support"
+                value={serviceName}
+                onChange={(e) => setServiceName(e.target.value)}
+              />
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
-                    Currency
-                  </label>
+                  <p className="block text-label font-medium text-fg mb-1.5">Currency</p>
                   <CustomSelect
                     value={serviceCurrency}
                     onChange={(value) => setServiceCurrency(value as Currency)}
                     options={CURRENCY_OPTIONS}
                   />
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
-                    Default Rate
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
-                    value={serviceRate}
-                    onChange={(e) => setServiceRate(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-mono"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
-                  Default Description / Scope
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Scope or deliverables summary..."
-                  value={serviceDescription}
-                  onChange={(e) => setServiceDescription(e.target.value)}
-                  className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                <Input
+                  label="Default Rate"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="0.00"
+                  value={serviceRate}
+                  onChange={(e) => setServiceRate(e.target.value)}
+                  className="font-numeric"
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-1">
-                <input
-                  type="checkbox"
-                  id="srv_active"
+              <Textarea
+                label="Default Description / Scope"
+                rows={2}
+                placeholder="Scope or deliverables summary..."
+                value={serviceDescription}
+                onChange={(e) => setServiceDescription(e.target.value)}
+              />
+
+              <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg pt-1">
+                <Checkbox
                   checked={serviceIsActive}
-                  onChange={(e) => setServiceIsActive(e.target.checked)}
-                  className="rounded text-accent-text focus-visible:focus-ring"
+                  onCheckedChange={(checked) => setServiceIsActive(checked === true)}
                 />
-                <label htmlFor="srv_active" className="text-xs text-fg-2 dark:text-fg-muted cursor-pointer">
-                  Service active and selectable in invoices
-                </label>
-              </div>
+                Service active and selectable in invoices
+              </label>
 
-              <div className="pt-3 flex items-center justify-end gap-3 border-t border-border dark:border-border">
-                <button
-                  type="button"
-                  onClick={() => setIsAddServiceModalOpen(false)}
-                  className="px-4 py-2 border border-border dark:border-border rounded-lg text-xs font-medium text-fg-2 dark:text-fg-muted hover:bg-canvas dark:hover:bg-hover transition"
-                >
+              <div className="pt-3 flex items-center justify-end gap-3 border-t border-border">
+                <Button type="button" variant="secondary" size="sm" onClick={() => setIsAddServiceModalOpen(false)}>
                   Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={serviceSaving}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
-                >
+                </Button>
+                <Button type="submit" size="sm" disabled={serviceSaving}>
                   {serviceSaving ? 'Saving...' : editingService ? 'Update Service' : 'Add to Catalog'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>

@@ -1,27 +1,26 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
   CreditCard,
-  Plus,
-  Search,
   Download,
-  Ban,
-  Upload,
-  CheckCircle2,
   AlertCircle,
-  FileText,
-  Clock,
-  ArrowUpRight,
   ShieldCheck,
   Check,
-  X,
+  Paperclip,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { workspaceService } from '../../services/workspaceService';
-import { formatMinorMoney, majorToMinor, minorToMajor } from '../../utils/money';
-import { FINANCE_PROOF_ACCEPT } from '../../utils/financeProof';
+import { formatMinorMoney, majorToMinor, minorToMajor, parseMajorGrouped } from '../../utils/money';
+import { AmountInput, CURRENCY_OPTIONS, FinanceProofSlot } from './financeUi';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
+import { useCacheInvalidation } from '../../utils/cacheBus';
+import { TableSkeletonRows } from '../ui/Skeletons';
 import { CustomSelect } from '../ui/CustomSelect';
 import { Input } from '../ui/input';
-import { CURRENCY_OPTIONS } from './financeUi';
+import { Checkbox } from '../ui/checkbox';
+import { RadioGroup, RadioGroupItem } from '../ui/radio-group';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { useToast } from '../../context/ToastContext';
+import { openFileAttachment } from '../../utils/fileUrl';
 import type {
   Receipt,
   ReceiptCreatePayload,
@@ -41,15 +40,20 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   initialInvoiceToPay,
   onPaymentSuccess,
 }) => {
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const cachedReceipts = financeService.getCachedReceipts();
+  const [receipts, setReceipts] = useState<Receipt[]>(() => cachedReceipts?.data.items || []);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [openInvoices, setOpenInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedReceipts);
+  const [uploadingKind, setUploadingKind] = useState<'proof' | 'wht' | null>(null);
   const [posting, setPosting] = useState(false);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadReqIdRef = useRef(0);
+  useModuleLoadGate(loading);
   const [error, setError] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [voidModalRcpt, setVoidModalRcpt] = useState<Receipt | null>(null);
-  const [voidReason, setVoidReason] = useState('');
+  const [isCheque, setIsCheque] = useState(false);
+  const { addToast } = useToast();
+  const formErrorRef = useRef<HTMLParagraphElement | null>(null);
 
   // Payment Form State
   const [clientName, setClientName] = useState<string>(initialInvoiceToPay?.client_name || '');
@@ -65,8 +69,8 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const [whtAmountMajor, setWhtAmountMajor] = useState<number>(0);
   const [exchangeRate, setExchangeRate] = useState<number>(currency === 'PKR' ? 1.0 : 278.50);
   const [memo, setMemo] = useState<string>('');
-  const [proofFileIds, setProofFileIds] = useState<string[]>([]);
-  const [whtCertFileId, setWhtCertFileId] = useState<string | null>(null);
+  const [proofFile, setProofFile] = useState<{ id: string; filename: string } | null>(null);
+  const [whtCert, setWhtCert] = useState<{ id: string; filename: string } | null>(null);
 
   // Allocations mapping: invoiceId -> { selected: bool, amountMajor: number, whtMajor: number }
   interface AllocRowState {
@@ -77,26 +81,56 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   }
   const [allocRows, setAllocRows] = useState<AllocRowState[]>([]);
 
-  // Load receipts & workspaces
-  const fetchReceipts = async () => {
-    setLoading(true);
+  const fetchReceipts = useCallback(async (opts?: { silent?: boolean }) => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const reqId = ++loadReqIdRef.current;
+    const cached = financeService.getCachedReceipts();
+    const silent = Boolean(opts?.silent) || Boolean(cached);
+
+    if (cached && !opts?.silent) {
+      setReceipts(cached.data.items || []);
+      setLoading(false);
+    } else if (!silent) {
+      setLoading(true);
+    }
+
     try {
       const [res, ws] = await Promise.all([
-        financeService.getReceipts(),
+        financeService.getReceipts({}, { signal: controller.signal }),
         workspaceService.getWorkspaces().catch(() => []),
       ]);
+      if (reqId !== loadReqIdRef.current) return;
       setReceipts(res.items || []);
       setWorkspaces(ws || []);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== loadReqIdRef.current) return;
       console.error('Error fetching receipts:', err);
     } finally {
-      setLoading(false);
+      if (reqId === loadReqIdRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
-    fetchReceipts();
-  }, []);
+    void fetchReceipts();
+    return () => loadAbortRef.current?.abort();
+  }, [fetchReceipts]);
+
+  useEffect(() => {
+    if (!initialInvoiceToPay) return;
+    setClientName(initialInvoiceToPay.client_name || '');
+    setSelectedWorkspaceId(initialInvoiceToPay.workspace_id || '');
+    setCurrency(initialInvoiceToPay.currency || 'PKR');
+    setAmountReceivedMajor(minorToMajor(initialInvoiceToPay.balance_due));
+  }, [initialInvoiceToPay]);
+
+  useCacheInvalidation(['finance'], () => {
+    void fetchReceipts({ silent: true });
+  });
 
   // When client changes, load that client's open invoices
   useEffect(() => {
@@ -138,7 +172,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       }
     };
     loadOpenInvoices();
-  }, [clientName]);
+  }, [clientName, initialInvoiceToPay]);
 
   // Handle client selection from dropdown
   const handleSelectWorkspace = (wsId: string) => {
@@ -169,6 +203,13 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const totalAllocatedSettlementMinor = totalAllocatedAmountMinor + totalAllocatedWhtMinor;
   const unappliedCreditMinor = Math.max(0, settlesTotalMinor - totalAllocatedSettlementMinor);
 
+  useEffect(() => {
+    const selected = allocRows.filter((r) => r.selected);
+    if (selected.length === 0) return;
+    setAmountReceivedMajor(selected.reduce((sum, r) => sum + r.amountMajor, 0));
+    setWhtAmountMajor(selected.reduce((sum, r) => sum + r.whtMajor, 0));
+  }, [allocRows]);
+
   // Live PKR amount calculation for Foreign Currency receipts
   const pkrCreditedMajor = useMemo(() => {
     if (currency === 'PKR') return amountReceivedMajor;
@@ -176,30 +217,36 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   }, [currency, amountReceivedMajor, exchangeRate]);
 
   // File Upload Handlers
-  const handleUploadProof = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const uploadFinanceAttachment = async (
+    file: File,
+    kind: 'proof' | 'wht',
+  ) => {
+    setUploadingKind(kind);
+    setError(null);
     try {
       const res = await financeService.uploadProofFile(file);
-      setProofFileIds((prev) => [...prev, res.file_id]);
-      setSuccessMsg(`Proof uploaded: ${res.filename}`);
-      setTimeout(() => setSuccessMsg(null), 3000);
+      if (kind === 'proof') {
+        setProofFile({ id: res.file_id, filename: res.filename });
+        addToast('Proof slip uploaded', res.filename, 'success');
+      } else {
+        setWhtCert({ id: res.file_id, filename: res.filename });
+        addToast('WHT certificate uploaded', res.filename, 'success');
+      }
     } catch (err: any) {
-      setError(err?.message || 'Upload failed');
+      const message = err?.message || (kind === 'proof' ? 'Proof slip upload failed' : 'WHT certificate upload failed');
+      setError(message);
+      addToast(kind === 'proof' ? 'Proof slip upload failed' : 'WHT certificate upload failed', message, 'error');
+    } finally {
+      setUploadingKind(null);
     }
   };
 
-  const handleUploadWhtCert = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      const res = await financeService.uploadProofFile(file);
-      setWhtCertFileId(res.file_id);
-      setSuccessMsg(`WHT Certificate uploaded: ${res.filename}`);
-      setTimeout(() => setSuccessMsg(null), 3000);
-    } catch (err: any) {
-      setError(err?.message || 'Upload failed');
-    }
+  const showFormError = (message: string) => {
+    setError(message);
+    addToast('Could not record receipt', message, 'error');
+    requestAnimationFrame(() => {
+      formErrorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
   };
 
   const handlePostReceipt = async (e: React.FormEvent) => {
@@ -207,34 +254,34 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
     setError(null);
 
     if (!clientName.trim()) {
-      setError('Please select or enter a client name');
+      showFormError('Please select or enter a client name');
       return;
     }
     if (amountReceivedMinor + whtAmountMinor <= 0) {
-      setError('Receipt amount received or WHT withheld must be greater than zero');
+      showFormError('Receipt amount received or WHT withheld must be greater than zero');
       return;
     }
     if (method === 'bank' && !referenceNumber.trim()) {
-      setError('Bank payments require a Reference / Cheque number');
+      showFormError('Bank payments require a Reference / Deposit Slip Number');
       return;
     }
     if (currency !== 'PKR' && (!exchangeRate || exchangeRate <= 0)) {
-      setError(`Foreign currency (${currency}) requires a positive exchange rate`);
+      showFormError(`Foreign currency (${currency}) requires a positive exchange rate`);
       return;
     }
     if (totalAllocatedAmountMinor > amountReceivedMinor) {
-      setError(`Allocated cash amount exceeds total amount received`);
+      showFormError('Allocated cash amount exceeds total amount received');
       return;
     }
     if (totalAllocatedWhtMinor > whtAmountMinor) {
-      setError(`Allocated WHT exceeds total WHT withheld`);
+      showFormError('Allocated WHT exceeds total WHT withheld');
       return;
     }
     const overAllocated = allocRows.find(
       (r) => r.selected && majorToMinor(r.amountMajor) + majorToMinor(r.whtMajor) > r.invoice.balance_due
     );
     if (overAllocated) {
-      setError(
+      showFormError(
         `Allocation for ${overAllocated.invoice.number} exceeds remaining balance of ${formatMinorMoney(overAllocated.invoice.balance_due, currency)}`
       );
       return;
@@ -261,41 +308,53 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
         bank: method === 'bank' ? bank : null,
         reference_number: method === 'bank' ? referenceNumber.trim() : null,
         exchange_rate: currency === 'PKR' ? null : exchangeRate,
-        memo: memo.trim() || null,
+        memo: memo.trim() || `${clientName.trim()} received from this bank`,
         allocations: allocationsPayload,
-        proof_file_ids: proofFileIds,
-        wht_certificate_file_id: whtCertFileId,
+        proof_file_ids: proofFile ? [proofFile.id] : [],
+        wht_certificate_file_id: whtCert?.id || null,
+        is_cheque: isCheque,
       };
 
-      await financeService.postReceipt(payload);
-      setSuccessMsg('Receipt recorded and ledger posted successfully!');
-      setTimeout(() => setSuccessMsg(null), 4000);
+      const created = await financeService.postReceipt(payload);
+      if (isCheque) {
+        addToast(
+          'Cheque receipt created',
+          created.number ? `${created.number} is waiting for approval.` : 'Sent to pending requests.',
+          'success',
+        );
+      } else {
+        addToast(
+          'Receipt recorded',
+          created.number ? `${created.number} was posted to the ledger.` : 'Payment posted to the ledger.',
+          'success',
+        );
+      }
 
-      // Reset form
       setAmountReceivedMajor(0);
       setWhtAmountMajor(0);
       setReferenceNumber('');
       setMemo('');
-      setProofFileIds([]);
-      setWhtCertFileId(null);
+      setProofFile(null);
+      setWhtCert(null);
+      setIsCheque(false);
       fetchReceipts();
       onPaymentSuccess?.();
     } catch (err: any) {
-      setError(err?.message || 'Failed to post receipt');
+      showFormError(err?.message || 'Failed to post receipt');
     } finally {
       setPosting(false);
     }
   };
 
-  const handleVoidReceipt = async () => {
-    if (!voidModalRcpt || !voidReason.trim()) return;
+  const handleApproveReceipt = async (id: string) => {
     try {
-      await financeService.voidReceipt(voidModalRcpt.id, voidReason);
-      setVoidModalRcpt(null);
-      setVoidReason('');
+      await financeService.confirmReceipt(id);
+      addToast('Receipt approved', 'The receipt is now posted.', 'success');
       fetchReceipts();
     } catch (err: any) {
-      setError(err?.message || 'Failed to void receipt');
+      const message = err?.message || 'Failed to approve receipt';
+      setError(message);
+      addToast('Could not approve receipt', message, 'error');
     }
   };
 
@@ -308,25 +367,6 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           Allocate client payments to open invoices, record WHT tax deductions, post money movements to Cash/Bank ledger, and issue receipts
         </p>
       </div>
-
-      {error && (
-        <div className="p-3.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
-            <span>{error}</span>
-          </div>
-          <button onClick={() => setError(null)} className="text-rose-500 hover:text-rose-700">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {successMsg && (
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs rounded-lg flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-          <span>{successMsg}</span>
-        </div>
-      )}
 
       {/* Record Payment Section */}
       <div className="bg-surface rounded-lg border border-border p-6 space-y-6">
@@ -366,11 +406,12 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
 
             <div>
               <label className="block text-xs font-semibold text-fg-2 mb-1">Payment Date</label>
-              <input
-                type="date"
+              <CustomDatePicker
                 value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="w-full text-xs rounded-lg border border-border-strong px-3 py-2 font-medium"
+                onChange={setPaymentDate}
+                clearable={false}
+                offDayMode="none"
+                aria-label="Payment date"
               />
             </div>
 
@@ -387,64 +428,53 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           {/* Row 2: Method & Bank */}
           <div className="p-4 rounded-lg bg-canvas border border-border grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
             <div>
-              <label className="block text-xs font-semibold text-fg-2 mb-2">Payment Method</label>
-              <div className="flex items-center gap-4 text-xs font-medium text-fg-2">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="method"
-                    value="bank"
-                    checked={method === 'bank'}
-                    onChange={() => setMethod('bank')}
-                    className="text-accent-text focus-visible:focus-ring"
-                  />
-                  <span>Bank Transfer / Cheque</span>
+              <p className="block text-label font-medium text-fg mb-2">Payment Method</p>
+              <RadioGroup
+                value={method}
+                onValueChange={(value) => setMethod(value as PaymentMethod)}
+                className="flex flex-wrap items-center gap-4"
+              >
+                <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                  <RadioGroupItem value="bank" />
+                  Bank Transfer / Cheque
                 </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="method"
-                    value="cash"
-                    checked={method === 'cash'}
-                    onChange={() => setMethod('cash')}
-                    className="text-accent-text focus-visible:focus-ring"
-                  />
-                  <span>Cash in Hand</span>
+                <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                  <RadioGroupItem value="cash" />
+                  Cash in Hand
                 </label>
-              </div>
+              </RadioGroup>
+              <label className="mt-3 inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                <Checkbox
+                  checked={isCheque}
+                  onCheckedChange={(checked) => setIsCheque(checked === true)}
+                />
+                Cheque (send to pending requests)
+              </label>
             </div>
 
             {method === 'bank' ? (
               <>
                 <div>
-                  <label className="block text-xs font-semibold text-fg-2 mb-2">Deposit Bank</label>
-                  <div className="flex items-center gap-4 text-xs font-medium text-fg-2">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="bank"
-                        value="meezan"
-                        checked={bank === 'meezan'}
-                        onChange={() => setBank('meezan')}
-                      />
-                      <span>Meezan Bank</span>
+                  <p className="block text-label font-medium text-fg mb-2">Deposit Bank</p>
+                  <RadioGroup
+                    value={bank}
+                    onValueChange={(value) => setBank(value as BankId)}
+                    className="flex flex-wrap items-center gap-4"
+                  >
+                    <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                      <RadioGroupItem value="meezan" />
+                      Meezan Bank
                     </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="radio"
-                        name="bank"
-                        value="abl"
-                        checked={bank === 'abl'}
-                        onChange={() => setBank('abl')}
-                      />
-                      <span>Allied Bank (ABL)</span>
+                    <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                      <RadioGroupItem value="abl" />
+                      Allied Bank (ABL)
                     </label>
-                  </div>
+                  </RadioGroup>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-fg-2 mb-1">
-                    Reference / Cheque # <span className="text-rose-500">*</span>
+                    Reference / Deposit Slip Number <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -462,20 +492,14 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             )}
           </div>
 
-          {/* Row 3: Amounts, WHT, and Foreign Exchange */}
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-fg-2 mb-1">
                 Amount Received ({currency}) <span className="text-rose-500">*</span>
               </label>
-              <input
-                type="number"
-                min="0"
-                step="any"
+              <AmountInput
                 value={amountReceivedMajor || ''}
-                onChange={(e) => setAmountReceivedMajor(parseFloat(e.target.value) || 0)}
-                placeholder="0"
-                className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-bold text-fg"
+                onChange={(raw) => setAmountReceivedMajor(parseMajorGrouped(raw))}
               />
             </div>
 
@@ -483,14 +507,9 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
               <label className="block text-xs font-semibold text-fg-2 mb-1">
                 WHT Withheld ({currency})
               </label>
-              <input
-                type="number"
-                min="0"
-                step="any"
+              <AmountInput
                 value={whtAmountMajor || ''}
-                onChange={(e) => setWhtAmountMajor(parseFloat(e.target.value) || 0)}
-                placeholder="0"
-                className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-medium text-fg-2"
+                onChange={(raw) => setWhtAmountMajor(parseMajorGrouped(raw))}
               />
             </div>
 
@@ -499,28 +518,26 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 <label className="block text-xs font-semibold text-fg-2 mb-1">
                   Exchange Rate (PKR / {currency}) <span className="text-rose-500">*</span>
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
+                <AmountInput
                   value={exchangeRate || ''}
-                  onChange={(e) => setExchangeRate(parseFloat(e.target.value) || 0)}
-                  className="w-full text-sm rounded-lg border border-border-strong px-3 py-2 font-semibold"
+                  onChange={(raw) => setExchangeRate(parseMajorGrouped(raw))}
                 />
               </div>
             )}
+          </div>
 
-            <div className="p-3 bg-accent-soft/70 rounded-lg border border-indigo-100 text-xs">
-              <span className="text-fg-muted block">Total Settles Invoice:</span>
-              <span className="text-sm font-bold text-accent-text">
-                {formatMinorMoney(settlesTotalMinor, currency)}
-              </span>
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-subtle px-4 py-3">
+            <div>
+              <p className="text-caption text-fg-muted">Total settles invoices</p>
               {currency !== 'PKR' && (
-                <span className="block text-[11px] text-fg-muted mt-0.5">
-                  Account Credit: ₨ {pkrCreditedMajor.toLocaleString(undefined, { maximumFractionDigits: 0 })} PKR
-                </span>
+                <p className="text-caption text-fg-muted mt-0.5">
+                  Account credit ₨{pkrCreditedMajor.toLocaleString('en-US', { maximumFractionDigits: 0 })} PKR
+                </p>
               )}
             </div>
+            <p className="text-h3 font-semibold font-numeric text-fg">
+              {formatMinorMoney(settlesTotalMinor, currency)}
+            </p>
           </div>
 
           {/* Row 4: Open Invoices Allocation Table */}
@@ -548,20 +565,19 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     <th className="py-2.5 px-3">Invoice #</th>
                     <th className="py-2.5 px-3">Due Date</th>
                     <th className="py-2.5 px-3 text-right">Invoice Total</th>
-                    <th className="py-2.5 px-3 text-right">Balance Due</th>
                     <th className="py-2.5 px-3 text-right w-36">Apply Amount</th>
                     <th className="py-2.5 px-3 text-right w-32">Apply WHT</th>
+                    <th className="py-2.5 px-3 text-right">Balance Due</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {allocRows.map((row, idx) => (
                     <tr key={row.invoice.id} className={row.selected ? 'bg-accent-soft/30' : ''}>
-                      <td className="py-2.5 px-3">
-                        <input
-                          type="checkbox"
+                      <td className="py-2.5 px-3 align-middle">
+                        <Checkbox
                           checked={row.selected}
-                          onChange={(e) => {
-                            const sel = e.target.checked;
+                          onCheckedChange={(checked) => {
+                            const sel = checked === true;
                             const next = [...allocRows];
                             next[idx].selected = sel;
                             if (sel && next[idx].amountMajor === 0) {
@@ -569,7 +585,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             }
                             setAllocRows(next);
                           }}
-                          className="rounded text-accent-text focus-visible:focus-ring"
+                          aria-label={`Allocate ${row.invoice.number}`}
                         />
                       </td>
                       <td className="py-2.5 px-3 font-semibold text-fg">{row.invoice.number}</td>
@@ -577,38 +593,32 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                       <td className="py-2.5 px-3 text-right text-fg-2">
                         {formatMinorMoney(row.invoice.total, row.invoice.currency)}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-bold text-fg">
-                        {formatMinorMoney(row.invoice.balance_due, row.invoice.currency)}
-                      </td>
                       <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
+                        <AmountInput
                           disabled={!row.selected}
                           value={row.amountMajor}
-                          onChange={(e) => {
+                          onChange={(raw) => {
                             const next = [...allocRows];
-                            next[idx].amountMajor = parseFloat(e.target.value) || 0;
+                            next[idx].amountMajor = parseMajorGrouped(raw);
                             setAllocRows(next);
                           }}
-                          className="w-full text-right text-xs rounded border border-border-strong px-2 py-1 bg-surface font-medium disabled:opacity-50"
+                          className="h-8 px-2 py-1 text-right text-xs"
                         />
                       </td>
                       <td className="py-2.5 px-3 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="any"
+                        <AmountInput
                           disabled={!row.selected}
                           value={row.whtMajor}
-                          onChange={(e) => {
+                          onChange={(raw) => {
                             const next = [...allocRows];
-                            next[idx].whtMajor = parseFloat(e.target.value) || 0;
+                            next[idx].whtMajor = parseMajorGrouped(raw);
                             setAllocRows(next);
                           }}
-                          className="w-full text-right text-xs rounded border border-border-strong px-2 py-1 bg-surface font-medium disabled:opacity-50"
+                          className="h-8 px-2 py-1 text-right text-xs"
                         />
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-fg">
+                        {formatMinorMoney(row.invoice.balance_due, row.invoice.currency)}
                       </td>
                     </tr>
                   ))}
@@ -627,31 +637,53 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 type="text"
                 value={memo}
                 onChange={(e) => setMemo(e.target.value)}
-                placeholder="e.g. Online Amount Received (Jahanzaib Raj) via Meezan Bank..."
+                    placeholder={`${clientName || 'Client name'} received from this bank`}
                 className="w-full text-xs rounded-lg border border-border-strong px-3 py-2"
               />
             </div>
 
             <div className="flex flex-col gap-2">
               <label className="block text-xs font-semibold text-fg-2">Attachments</label>
-              <div className="flex gap-2">
-                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-border-strong rounded-lg p-2 hover:bg-canvas transition text-fg-2 flex items-center justify-center gap-1.5">
-                  <Upload className="w-3.5 h-3.5" />
-                  <span>{proofFileIds.length ? `${proofFileIds.length} Proof(s)` : 'Proof Slip'}</span>
-                  <input type="file" onChange={handleUploadProof} className="hidden" accept={FINANCE_PROOF_ACCEPT} />
-                </label>
-
-                <label className="flex-1 cursor-pointer text-center text-xs border border-dashed border-border-strong rounded-lg p-2 hover:bg-canvas transition text-fg-2 flex items-center justify-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>{whtCertFileId ? 'WHT Added' : 'WHT Cert'}</span>
-                  <input type="file" onChange={handleUploadWhtCert} className="hidden" accept={FINANCE_PROOF_ACCEPT} />
-                </label>
+              <div className="grid grid-cols-2 gap-2">
+                <FinanceProofSlot
+                  emptyLabel="Proof Slip"
+                  filename={proofFile?.filename}
+                  uploading={uploadingKind === 'proof'}
+                  disabled={uploadingKind !== null}
+                  onFile={(file) => void uploadFinanceAttachment(file, 'proof')}
+                  onClear={() => setProofFile(null)}
+                  onOpen={
+                    proofFile
+                      ? () => void openFileAttachment(financeService.getProofFileUrl(proofFile.id), proofFile.filename)
+                      : undefined
+                  }
+                />
+                <FinanceProofSlot
+                  emptyLabel="WHT Cert"
+                  filename={whtCert?.filename}
+                  uploading={uploadingKind === 'wht'}
+                  disabled={uploadingKind !== null}
+                  icon={<ShieldCheck className="h-3.5 w-3.5 shrink-0" />}
+                  onFile={(file) => void uploadFinanceAttachment(file, 'wht')}
+                  onClear={() => setWhtCert(null)}
+                  onOpen={
+                    whtCert
+                      ? () => void openFileAttachment(financeService.getProofFileUrl(whtCert.id), whtCert.filename)
+                      : undefined
+                  }
+                />
               </div>
             </div>
           </div>
 
           {/* Form Actions */}
-          <div className="flex justify-end pt-2">
+          <div className="flex flex-col items-end gap-2 pt-2">
+            {error && (
+              <p ref={formErrorRef} className="w-full text-xs text-rose-600 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                {error}
+              </p>
+            )}
             <button
               type="submit"
               disabled={posting}
@@ -689,11 +721,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {loading ? (
-                <tr>
-                  <td colSpan={10} className="py-12 text-center text-fg-muted">
-                    Loading receipts…
-                  </td>
-                </tr>
+                <TableSkeletonRows rows={8} columns={10} />
               ) : receipts.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="py-12 text-center text-fg-muted">
@@ -720,36 +748,73 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     <td className="py-3 px-4 text-right font-bold text-fg">
                       {formatMinorMoney(rcpt.settles_total, rcpt.currency)}
                     </td>
-                    <td className="py-3 px-4 text-center">
-                      {rcpt.status === 'posted' ? (
-                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                          Posted
-                        </span>
-                      ) : (
-                        <span className="px-2.5 py-1 text-xs font-semibold rounded-full bg-slate-200 text-fg-2 line-through">
-                          Void
-                        </span>
-                      )}
+                    <td className="py-3 px-4 align-middle">
+                      <div className="flex items-center justify-center">
+                        {rcpt.status === 'posted' && (
+                          <span className="inline-flex h-7 items-center px-2.5 text-xs font-semibold rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            Approved
+                          </span>
+                        )}
+                        {rcpt.status === 'pending' && (
+                          <span className="inline-flex h-7 items-center px-2.5 text-xs font-semibold rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                            Pending
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-3 px-4 text-right space-x-1">
-                      <a
-                        href={financeService.getReceiptPdfUrl(rcpt.id)}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="p-1.5 text-fg-muted hover:text-accent-text rounded hover:bg-hover transition inline-block"
-                        title="Download Receipt PDF"
-                      >
-                        <Download className="w-4 h-4" />
-                      </a>
-                      {rcpt.status === 'posted' && (
-                        <button
-                          onClick={() => setVoidModalRcpt(rcpt)}
-                          className="p-1.5 text-fg-muted hover:text-rose-600 rounded hover:bg-hover transition inline-block"
-                          title="Void receipt (reverses ledger and reopens invoice)"
+                    <td className="py-3 px-4 align-middle">
+                      <div className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+                        {rcpt.proof_file_ids?.map((fileId, idx) => (
+                          <button
+                            key={fileId}
+                            type="button"
+                            onClick={() =>
+                              void openFileAttachment(
+                                financeService.getProofFileUrl(fileId),
+                                `proof-${idx + 1}`,
+                              )
+                            }
+                            className="inline-flex h-7 w-7 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition"
+                            title={rcpt.proof_file_ids.length > 1 ? `Open proof slip ${idx + 1}` : 'Open proof slip'}
+                          >
+                            <Paperclip className="w-4 h-4" />
+                          </button>
+                        ))}
+                        {rcpt.wht_certificate_file_id && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void openFileAttachment(
+                                financeService.getProofFileUrl(rcpt.wht_certificate_file_id!),
+                                'wht-certificate',
+                              )
+                            }
+                            className="inline-flex h-7 w-7 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition"
+                            title="Open WHT certificate"
+                          >
+                            <ShieldCheck className="w-4 h-4" />
+                          </button>
+                        )}
+                        <a
+                          href={financeService.getReceiptPdfUrl(rcpt.id)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex h-7 w-7 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition"
+                          title="Download Receipt PDF"
                         >
-                          <Ban className="w-4 h-4" />
-                        </button>
-                      )}
+                          <Download className="w-4 h-4" />
+                        </a>
+                        {rcpt.status === 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => void handleApproveReceipt(rcpt.id)}
+                            className="inline-flex h-7 items-center px-2.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:bg-accent-hover"
+                            title="Approve receipt"
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -759,54 +824,6 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
         </div>
       </div>
 
-      {/* Void Receipt Confirmation Modal */}
-      {voidModalRcpt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
-          <div className="bg-surface rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
-            <h3 className="text-base font-bold text-rose-600 flex items-center gap-2">
-              <Ban className="w-5 h-5" /> Void Receipt {voidModalRcpt.number}
-            </h3>
-            <p className="text-xs text-fg-2">
-              Voiding a receipt immediately appends compensating reversal entries to the Cash/Bank ledger
-              and re-opens the allocated invoices' balances.
-            </p>
-
-            <div>
-              <label className="block text-xs font-semibold text-fg-2 mb-1">
-                Reason for voiding <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                rows={3}
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
-                placeholder="e.g. Bounced cheque / payment disputed..."
-                className="w-full text-xs rounded-lg border border-border-strong p-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setVoidModalRcpt(null);
-                  setVoidReason('');
-                }}
-                className="px-4 py-2 border border-border-strong text-fg-2 hover:bg-canvas text-xs font-semibold rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleVoidReceipt}
-                disabled={!voidReason.trim()}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50"
-              >
-                Confirm Void
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

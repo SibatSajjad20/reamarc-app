@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   TrendingUp,
   AlertCircle,
@@ -6,20 +6,17 @@ import {
   ArrowRight,
   Plus,
   CreditCard,
-  Building2,
   Wallet,
-  ArrowUpRight,
-  ArrowDownLeft,
   FileText,
   ChevronRight,
-  RefreshCw,
-  Share2,
-  ShieldCheck,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { formatMinorMoney } from '../../utils/money';
 import type { Invoice, FinanceAccount, FinanceLedgerEntry, AgeingSummaryReport, FinanceTab } from '../../types/finance';
 import { FinanceStatusBadge } from './financeUi';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
+import { useCacheInvalidation } from '../../utils/cacheBus';
+import { KpiRowSkeleton, CardListSkeleton } from '../ui/Skeletons';
 
 interface FinanceOverviewProps {
   onNavigateTab: (tab: FinanceTab, extra?: { action?: string; invoiceId?: string }) => void;
@@ -30,35 +27,77 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
   onNavigateTab,
   onEditInvoice,
 }) => {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-  const [ledger, setLedger] = useState<FinanceLedgerEntry[]>([]);
-  const [ageingReport, setAgeingReport] = useState<AgeingSummaryReport | null>(null);
-  const [loading, setLoading] = useState(true);
+  const cachedInvoices = financeService.getCachedInvoices({ limit: 6 });
+  const cachedAccounts = financeService.getCachedAccounts();
+  const cachedLedger = financeService.getCachedLedger({ limit: 6 });
+  const cachedAgeing = financeService.getCachedAgeingSummary();
+  const hasCache = Boolean(cachedInvoices || cachedAccounts);
 
-  const loadOverview = async () => {
-    setLoading(true);
+  const [invoices, setInvoices] = useState<Invoice[]>(() => cachedInvoices?.data.items || []);
+  const [accounts, setAccounts] = useState<FinanceAccount[]>(() => cachedAccounts?.data || []);
+  const [ledger, setLedger] = useState<FinanceLedgerEntry[]>(() => cachedLedger?.data.items || []);
+  const [ageingReport, setAgeingReport] = useState<AgeingSummaryReport | null>(() => cachedAgeing?.data || null);
+  const [loading, setLoading] = useState(!hasCache);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadReqIdRef = useRef(0);
+  const hasLoadedOnceRef = useRef(hasCache);
+  useModuleLoadGate(loading);
+
+  const loadOverview = useCallback(async (opts?: { silent?: boolean }) => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const reqId = ++loadReqIdRef.current;
+    const cached = financeService.getCachedInvoices({ limit: 6 }) || financeService.getCachedAccounts();
+    const silent = Boolean(opts?.silent) || hasLoadedOnceRef.current || Boolean(cached);
+
+    if (cached && !opts?.silent) {
+      const inv = financeService.getCachedInvoices({ limit: 6 });
+      const accs = financeService.getCachedAccounts();
+      const ledg = financeService.getCachedLedger({ limit: 6 });
+      const ageing = financeService.getCachedAgeingSummary();
+      if (inv) setInvoices(inv.data.items || []);
+      if (accs) setAccounts(accs.data || []);
+      if (ledg) setLedger(ledg.data.items || []);
+      if (ageing) setAgeingReport(ageing.data);
+      setLoading(false);
+    } else if (!silent) {
+      setLoading(true);
+    }
+
     try {
+      const signal = controller.signal;
       const [invRes, accs, ledgRes, ageing] = await Promise.all([
-        financeService.getInvoices({ limit: 6 }),
-        financeService.getAccounts(),
-        financeService.getLedger({ limit: 6 }),
-        financeService.getAgeingSummary().catch(() => null),
+        financeService.getInvoices({ limit: 6 }, { signal }),
+        financeService.getAccounts({ signal }),
+        financeService.getLedger({ limit: 6 }, { signal }),
+        financeService.getAgeingSummary(undefined, undefined, { signal }).catch(() => null),
       ]);
+      if (reqId !== loadReqIdRef.current) return;
       setInvoices(invRes.items || []);
       setAccounts(accs || []);
       setLedger(ledgRes.items || []);
       if (ageing) setAgeingReport(ageing);
-    } catch (err) {
+      hasLoadedOnceRef.current = true;
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== loadReqIdRef.current) return;
       console.error('Failed to load finance overview:', err);
     } finally {
-      setLoading(false);
+      if (reqId === loadReqIdRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, []);
 
   useEffect(() => {
-    loadOverview();
-  }, []);
+    void loadOverview();
+    return () => loadAbortRef.current?.abort();
+  }, [loadOverview]);
+
+  useCacheInvalidation(['finance'], () => {
+    void loadOverview({ silent: true });
+  });
 
   const cashAccount = accounts.find((a) => a.code === 'cash');
   const ablAccount = accounts.find((a) => a.code === 'abl');
@@ -84,7 +123,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-fg dark:text-white flex items-center gap-2">
-            Finance Hub Overview
+            Overview
           </h2>
           <p className="text-sm text-fg-muted dark:text-fg-muted">
             Real-time accounts, client receivables, billing lifecycle, and audit movements.
@@ -94,7 +133,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => onNavigateTab('invoices', { action: 'create' })}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium transition"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-accent text-accent-fg hover:bg-accent-hover rounded-md text-sm font-medium transition"
           >
             <Plus className="w-4 h-4" />
             New Invoice
@@ -118,6 +157,16 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
         </div>
       </div>
 
+      {loading ? (
+        <>
+          <KpiRowSkeleton count={4} />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <CardListSkeleton rows={5} />
+            <CardListSkeleton rows={5} />
+          </div>
+        </>
+      ) : (
+      <>
       {/* KPI Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Liquid Position */}
@@ -130,7 +179,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
               <Wallet className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-semibold text-fg dark:text-white mt-2">
+          <p className="text-h2 font-semibold font-numeric text-fg mt-2">
             {formatMinorMoney(totalLiquid, 'PKR')}
           </p>
           <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
@@ -154,7 +203,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
               <Clock className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-semibold text-fg dark:text-white mt-2">
+          <p className="text-h2 font-semibold font-numeric text-fg mt-2">
             {formatMinorMoney(totalReceivablesPKR, 'PKR')}
           </p>
           <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
@@ -180,7 +229,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
               <AlertCircle className="w-4 h-4" />
             </div>
           </div>
-          <p className="text-2xl font-semibold text-rose-600 dark:text-rose-400 mt-2">
+          <p className="text-h2 font-semibold font-numeric text-rose-700 dark:text-rose-300 mt-2">
             {formatMinorMoney(overdueReceivablesPKR, 'PKR')}
           </p>
           <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
@@ -205,19 +254,19 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
           <div className="space-y-1.5 mt-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-fg-2 dark:text-fg-muted">Cash:</span>
-              <span className="font-mono font-bold text-fg dark:text-fg-2">
+              <span className="font-numeric font-semibold text-fg">
                 {formatMinorMoney(cashAccount?.balance || 0, 'PKR')}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-fg-2 dark:text-fg-muted">ABL:</span>
-              <span className="font-mono font-bold text-fg dark:text-fg-2">
+              <span className="font-numeric font-semibold text-fg">
                 {formatMinorMoney(ablAccount?.balance || 0, 'PKR')}
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-fg-2 dark:text-fg-muted">Meezan:</span>
-              <span className="font-mono font-bold text-fg dark:text-fg-2">
+              <span className="font-numeric font-semibold text-fg dark:text-fg-2">
                 {formatMinorMoney(meezanAccount?.balance || 0, 'PKR')}
               </span>
             </div>
@@ -254,7 +303,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                 >
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-xs text-fg dark:text-white">
+                      <span className="font-numeric font-semibold text-xs text-fg dark:text-white">
                         {inv.number}
                       </span>
                       {getStatusBadge(inv.status)}
@@ -268,11 +317,11 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                   </div>
 
                   <div className="text-right">
-                    <p className="text-xs font-mono font-bold text-fg dark:text-white">
+                    <p className="text-xs font-numeric font-semibold text-fg dark:text-white">
                       {formatMinorMoney(inv.total, inv.currency)}
                     </p>
                     {inv.balance_due > 0 ? (
-                      <p className="text-[11px] text-rose-600 font-mono">
+                      <p className="text-[11px] text-rose-600 font-numeric">
                         Due: {formatMinorMoney(inv.balance_due, inv.currency)}
                       </p>
                     ) : (
@@ -316,7 +365,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                         <span className="font-semibold text-xs text-fg dark:text-fg-2 uppercase">
                           {entry.account_code}
                         </span>
-                        <span className="text-[11px] text-fg-muted font-mono">{entry.date}</span>
+                        <span className="text-[11px] text-fg-muted font-numeric">{entry.date}</span>
                       </div>
                       <p className="text-xs text-fg-2 dark:text-fg-muted mt-0.5 truncate max-w-xs">
                         {entry.memo || entry.source_type}
@@ -325,7 +374,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
 
                     <div className="text-right">
                       <span
-                        className={`font-mono text-xs font-bold ${
+                        className={`font-numeric text-xs font-semibold ${
                           isIn ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
                         }`}
                       >
@@ -340,6 +389,8 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 };

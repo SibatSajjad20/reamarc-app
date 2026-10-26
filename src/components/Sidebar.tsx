@@ -449,11 +449,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [
           {
             id: 'finance-group',
-            label: 'Finance',
+            label: 'Accounts',
             items: [
               {
                 id: 'finance' as ViewType,
-                label: 'Finance',
+                label: 'Accounts',
                 icon: Receipt,
               },
             ],

@@ -61,6 +61,28 @@ export function majorToMinor(major: number | null | undefined): number {
   return Math.round(major * 100);
 }
 
+/** Display helper for amount fields: 120000 → "120,000" while typing. */
+export function formatMajorGrouped(value: string | number | null | undefined): string {
+  const raw = String(value ?? '').replace(/,/g, '');
+  if (!raw || raw === '-' || raw === '.') return raw;
+  const negative = raw.startsWith('-');
+  const unsigned = negative ? raw.slice(1) : raw;
+  const [intPart, ...rest] = unsigned.split('.');
+  const digits = (intPart || '').replace(/\D/g, '');
+  if (digits === '' && rest.length === 0) return negative ? '-' : '';
+  const grouped = digits ? Number(digits).toLocaleString('en-US') : '0';
+  const decimals = rest.length ? rest.join('').replace(/\D/g, '').slice(0, 2) : undefined;
+  const body = decimals !== undefined ? `${grouped}.${decimals}` : grouped;
+  return negative ? `-${body}` : body;
+}
+
+export function parseMajorGrouped(value: string | number | null | undefined): number {
+  const cleaned = String(value ?? '').replace(/,/g, '').trim();
+  if (!cleaned) return 0;
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? 0 : n;
+}
+
 export function formatMinorMoney(
   minorUnits: number | null | undefined,
   currency?: string | null,
@@ -124,7 +146,7 @@ export function numberToWordsPakistani(num: number): string {
 export function numberToWordsWestern(num: number): string {
   if (num === 0) return 'Zero';
   let n = Math.floor(num);
-  const parts: string[] = [];
+  const head: string[] = [];
 
   const billions = Math.floor(n / 1000000000);
   n %= 1000000000;
@@ -134,12 +156,15 @@ export function numberToWordsWestern(num: number): string {
   n %= 1000;
   const hundreds = n;
 
-  if (billions) parts.push(`${threeDigitsToWords(billions)} Billion`);
-  if (millions) parts.push(`${threeDigitsToWords(millions)} Million`);
-  if (thousands) parts.push(`${twoDigitsToWords(thousands)} Thousand`);
-  if (hundreds) parts.push(threeDigitsToWords(hundreds));
+  if (billions) head.push(`${threeDigitsToWords(billions)} Billion`);
+  if (millions) head.push(`${threeDigitsToWords(millions)} Million`);
+  if (thousands) head.push(`${threeDigitsToWords(thousands)} Thousand`);
 
-  return parts.join(' ');
+  if (head.length && hundreds) {
+    return `${head.join(' ')} And ${threeDigitsToWords(hundreds)}`;
+  }
+  if (head.length) return head.join(' ');
+  return threeDigitsToWords(hundreds);
 }
 
 export function amountInWords(minorUnits: number | null | undefined, currency = 'PKR'): string {
@@ -148,31 +173,23 @@ export function amountInWords(minorUnits: number | null | undefined, currency = 
   const sub = minor % 100;
   const code = (currency || 'PKR').trim().toUpperCase();
 
-  let words = '';
-  let currLabel = '';
-  let subLabel = '';
+  const words = numberToWordsWestern(major);
+  let currLabel = code;
+  let subLabel = 'Cents';
 
   if (code === 'PKR') {
-    words = numberToWordsPakistani(major);
     currLabel = 'Rupees';
     subLabel = 'Paisa';
   } else if (code === 'USD') {
-    words = numberToWordsWestern(major);
     currLabel = 'US Dollars';
-    subLabel = 'Cents';
   } else if (code === 'GBP') {
-    words = numberToWordsWestern(major);
     currLabel = 'British Pounds';
     subLabel = 'Pence';
-  } else {
-    words = numberToWordsWestern(major);
-    currLabel = code;
-    subLabel = 'Cents';
   }
 
   if (sub > 0) {
     const subWords = twoDigitsToWords(sub);
-    return `${currLabel} ${words} and ${subWords} ${subLabel} Only`;
+    return `${words} ${currLabel} And ${subWords} ${subLabel} Only`;
   }
-  return `${currLabel} ${words} Only`;
+  return `${words} ${currLabel} Only`;
 }

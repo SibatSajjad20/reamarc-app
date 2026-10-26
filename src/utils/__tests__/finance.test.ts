@@ -6,9 +6,12 @@ import {
   numberToWordsPakistani,
   amountInWords,
   getCurrencySymbol,
+  formatMajorGrouped,
+  parseMajorGrouped,
 } from '../money';
 import { userCan } from '../../hooks/usePermissions';
 import { validateFinanceProofFile, FINANCE_PROOF_MAX_BYTES } from '../financeProof';
+import { resolveInvoiceStatus } from '../../components/finance/financeUi';
 
 describe('Finance Money & Conversion Utilities', () => {
   it('converts major units to minor integer paisa/cents accurately', () => {
@@ -48,15 +51,24 @@ describe('Finance Money & Conversion Utilities', () => {
     expect(numberToWordsPakistani(0)).toBe('Zero');
   });
 
-  it('formats amount in words with proper suffix and paisa/cents', () => {
-    const pkrWords = amountInWords(12000000, 'PKR');
-    expect(pkrWords).toBe('Rupees One Lakh Twenty Thousand Only');
+  it('formats amount in words with western thousands and currency suffix', () => {
+    const pkrWords = amountInWords(19350000, 'PKR');
+    expect(pkrWords).toBe('One Hundred Ninety Three Thousand And Five Hundred Rupees Only');
+
+    expect(amountInWords(12000000, 'PKR')).toBe('One Hundred Twenty Thousand Rupees Only');
 
     const usdWords = amountInWords(500000, 'USD');
-    expect(usdWords).toBe('US Dollars Five Thousand Only');
+    expect(usdWords).toBe('Five Thousand US Dollars Only');
 
     const gbpWords = amountInWords(350000, 'GBP');
-    expect(gbpWords).toBe('British Pounds Three Thousand Five Hundred Only');
+    expect(gbpWords).toBe('Three Thousand And Five Hundred British Pounds Only');
+  });
+
+  it('groups thousand separators in amount fields and parses them back', () => {
+    expect(formatMajorGrouped(120000)).toBe('120,000');
+    expect(formatMajorGrouped('120000.5')).toBe('120,000.5');
+    expect(parseMajorGrouped('120,000')).toBe(120000);
+    expect(parseMajorGrouped('1,250.50')).toBe(1250.5);
   });
 
   it('returns appropriate currency symbols', () => {
@@ -76,11 +88,45 @@ describe('Finance proof upload validation', () => {
     expect(validateFinanceProofFile(huge)).toMatch(/15MB/i);
   });
 
+  it('rejects empty files and mismatched MIME types', () => {
+    const empty = new File([], 'slip.pdf', { type: 'application/pdf' });
+    expect(validateFinanceProofFile(empty)).toMatch(/empty/i);
+
+    const exeAsPdf = new File([new Uint8Array([1, 2, 3])], 'slip.pdf', { type: 'application/x-msdownload' });
+    expect(validateFinanceProofFile(exeAsPdf)).toMatch(/Allowed file types/i);
+  });
+
   it('accepts a PDF or JPEG under the size cap', () => {
     const pdf = new File([new Uint8Array([1, 2, 3])], 'slip.pdf', { type: 'application/pdf' });
     expect(validateFinanceProofFile(pdf)).toBeNull();
     const jpg = new File([new Uint8Array([1, 2, 3])], 'slip.JPG', { type: 'image/jpeg' });
     expect(validateFinanceProofFile(jpg)).toBeNull();
+  });
+});
+
+describe('Invoice status resolution', () => {
+  it('marks past-due open invoices as overdue and keeps on-hold invoices off that bucket', () => {
+    expect(
+      resolveInvoiceStatus({
+        status: 'issued',
+        balance_due: 1000,
+        due_date: '2000-01-01',
+      }),
+    ).toBe('overdue');
+    expect(
+      resolveInvoiceStatus({
+        status: 'void',
+        balance_due: 1000,
+        due_date: '2000-01-01',
+      }),
+    ).toBe('void');
+    expect(
+      resolveInvoiceStatus({
+        status: 'deleted',
+        balance_due: 1000,
+        due_date: '2000-01-01',
+      }),
+    ).toBe('deleted');
   });
 });
 

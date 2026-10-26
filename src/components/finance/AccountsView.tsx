@@ -1,41 +1,57 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  Wallet,
-  Building2,
   ArrowRightLeft,
-  ArrowUpRight,
-  ArrowDownLeft,
   Plus,
   Sliders,
-  Calendar,
-  Search,
-  Filter,
   CheckCircle2,
   AlertCircle,
-  FileText,
-  Upload,
+  Paperclip,
   X,
   RefreshCw,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
-import { formatMinorMoney, majorToMinor } from '../../utils/money';
+import { formatMinorMoney, majorToMinor, parseMajorGrouped } from '../../utils/money';
 import type { FinanceAccount, FinanceLedgerEntry } from '../../types/finance';
 import { CustomSelect } from '../ui/CustomSelect';
-import { ACCOUNT_OPTIONS, BANK_OPTIONS } from './financeUi';
-import { FINANCE_PROOF_ACCEPT } from '../../utils/financeProof';
+import { Button } from '../ui/button';
+import { ACCOUNT_OPTIONS, AmountInput, BANK_OPTIONS, FinanceProofSlot } from './financeUi';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { validateFinanceProofFile } from '../../utils/financeProof';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
+import { useCacheInvalidation } from '../../utils/cacheBus';
+import { KpiRowSkeleton, TableSkeletonRows } from '../ui/Skeletons';
+import { NEUTRAL_METADATA_BADGE_CLASS } from '../../utils/badgeStyles';
+import { openFileAttachment } from '../../utils/fileUrl';
 
 export const AccountsView: React.FC = () => {
-  const [accounts, setAccounts] = useState<FinanceAccount[]>([]);
-  const [ledger, setLedger] = useState<FinanceLedgerEntry[]>([]);
-  const [totalEntries, setTotalEntries] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // Filters for ledger
   const [accountFilter, setAccountFilter] = useState<string>('all');
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState<string>('');
   const [dateTo, setDateTo] = useState<string>('');
+
+  const ledgerParams = useMemo(
+    () => ({
+      account: accountFilter !== 'all' ? accountFilter : undefined,
+      source_type: sourceTypeFilter !== 'all' ? sourceTypeFilter : undefined,
+      date_from: dateFrom || undefined,
+      date_to: dateTo || undefined,
+      limit: 100,
+    }),
+    [accountFilter, sourceTypeFilter, dateFrom, dateTo],
+  );
+
+  const cachedAccounts = financeService.getCachedAccounts();
+  const cachedLedger = financeService.getCachedLedger(ledgerParams);
+  const hasCache = Boolean(cachedAccounts);
+
+  const [accounts, setAccounts] = useState<FinanceAccount[]>(() => cachedAccounts?.data || []);
+  const [ledger, setLedger] = useState<FinanceLedgerEntry[]>(() => cachedLedger?.data.items || []);
+  const [totalEntries, setTotalEntries] = useState(() => cachedLedger?.data.total || 0);
+  const [loading, setLoading] = useState(!hasCache);
+  const [refreshing, setRefreshing] = useState(false);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadReqIdRef = useRef(0);
+  useModuleLoadGate(loading);
 
   // Modals
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
@@ -78,34 +94,57 @@ export const AccountsView: React.FC = () => {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+    const reqId = ++loadReqIdRef.current;
+    const cachedAccs = financeService.getCachedAccounts();
+    const cachedLedg = financeService.getCachedLedger(ledgerParams);
+    const silent = Boolean(opts?.silent) || Boolean(cachedAccs || cachedLedg);
+
+    if ((cachedAccs || cachedLedg) && !opts?.silent) {
+      if (cachedAccs) setAccounts(cachedAccs.data);
+      if (cachedLedg) {
+        setLedger(cachedLedg.data.items || []);
+        setTotalEntries(cachedLedg.data.total || 0);
+      }
+      setLoading(false);
+    } else if (!silent) {
+      setLoading(true);
+    }
+
     try {
       setRefreshing(true);
       const [accs, ledg] = await Promise.all([
-        financeService.getAccounts(),
-        financeService.getLedger({
-          account: accountFilter !== 'all' ? accountFilter : undefined,
-          source_type: sourceTypeFilter !== 'all' ? sourceTypeFilter : undefined,
-          date_from: dateFrom || undefined,
-          date_to: dateTo || undefined,
-          limit: 100,
-        }),
+        financeService.getAccounts({ signal: controller.signal }),
+        financeService.getLedger(ledgerParams, { signal: controller.signal }),
       ]);
+      if (reqId !== loadReqIdRef.current) return;
       setAccounts(accs);
       setLedger(ledg.items || []);
       setTotalEntries(ledg.total || 0);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== loadReqIdRef.current) return;
       console.error('Failed to load accounts/ledger:', err);
       showNotification('error', err.message || 'Failed to load accounts data');
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (reqId === loadReqIdRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  };
+  }, [ledgerParams]);
 
   useEffect(() => {
-    fetchData();
-  }, [accountFilter, sourceTypeFilter, dateFrom, dateTo]);
+    void fetchData();
+    return () => loadAbortRef.current?.abort();
+  }, [fetchData]);
+
+  useCacheInvalidation(['finance'], () => {
+    void fetchData({ silent: true });
+  });
 
   // Calculations
   const cashAccount = accounts.find((a) => a.code === 'cash');
@@ -120,7 +159,7 @@ export const AccountsView: React.FC = () => {
     e.preventDefault();
     setTransferError(null);
 
-    const numAmount = parseFloat(transferAmount);
+    const numAmount = parseMajorGrouped(transferAmount);
     if (isNaN(numAmount) || numAmount <= 0) {
       setTransferError('Please enter a valid transfer amount greater than 0');
       return;
@@ -173,7 +212,7 @@ export const AccountsView: React.FC = () => {
     e.preventDefault();
     setOpeningError(null);
 
-    const numAmount = parseFloat(openingAmount);
+    const numAmount = parseMajorGrouped(openingAmount);
     if (isNaN(numAmount) || numAmount <= 0) {
       setOpeningError('Please enter a valid amount greater than 0');
       return;
@@ -205,7 +244,7 @@ export const AccountsView: React.FC = () => {
     e.preventDefault();
     setAdjError(null);
 
-    const numAmount = parseFloat(adjAmount);
+    const numAmount = parseMajorGrouped(adjAmount);
     if (isNaN(numAmount) || numAmount <= 0) {
       setAdjError('Please enter a valid amount greater than 0');
       return;
@@ -289,185 +328,96 @@ export const AccountsView: React.FC = () => {
       {/* Header & Quick Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-fg dark:text-white flex items-center gap-2">
-            <Wallet className="w-6 h-6 text-accent-text" />
-            Accounts & Money Movements
-          </h2>
-          <p className="text-sm text-fg-muted dark:text-fg-muted">
-            Real-time balances calculated from append-only ledger entries across Cash and Bank accounts.
+          <h2 className="text-h2 font-semibold text-fg">Accounts</h2>
+          <p className="text-caption text-fg-muted mt-0.5">
+            Cash, ABL, and Meezan balances from the ledger
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={fetchData}
-            disabled={refreshing}
-            className="p-2 border border-border dark:border-border rounded-lg text-fg-2 dark:text-fg-muted hover:bg-canvas dark:hover:bg-hover transition"
-            title="Refresh Balances"
-          >
+          <Button type="button" variant="ghost" size="icon-sm" onClick={() => void fetchData()} disabled={refreshing} aria-label="Refresh">
             <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
-          </button>
-
-          <button
-            onClick={() => setIsTransferModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3.5 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-sm font-medium transition"
-          >
-            <ArrowRightLeft className="w-4 h-4" />
-            Transfer Cash to Bank
-          </button>
-
-          <button
-            onClick={() => setIsOpeningModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 border border-border dark:border-border bg-surface dark:bg-surface hover:bg-canvas dark:hover:bg-hover text-fg-2 dark:text-fg-2 rounded-lg text-sm font-medium transition"
-          >
-            <Plus className="w-4 h-4" />
-            Opening Balance
-          </button>
-
-          <button
-            onClick={() => setIsAdjustmentModalOpen(true)}
-            className="inline-flex items-center gap-2 px-3 py-2 border border-border dark:border-border bg-surface dark:bg-surface hover:bg-canvas dark:hover:bg-hover text-fg-2 dark:text-fg-2 rounded-lg text-sm font-medium transition"
-          >
-            <Sliders className="w-4 h-4" />
+          </Button>
+          <Button type="button" size="sm" icon={ArrowRightLeft} onClick={() => setIsTransferModalOpen(true)}>
+            Transfer cash to bank
+          </Button>
+          <Button type="button" variant="secondary" size="sm" icon={Plus} onClick={() => setIsOpeningModalOpen(true)}>
+            Opening balance
+          </Button>
+          <Button type="button" variant="secondary" size="sm" icon={Sliders} onClick={() => setIsAdjustmentModalOpen(true)}>
             Adjustment
-          </button>
+          </Button>
         </div>
       </div>
 
-      {/* Account Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        {/* Cash in Hand */}
-        <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-5 relative overflow-hidden group hover:border-emerald-300 dark:hover:border-emerald-700 transition">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 to-teal-500" />
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
-              <Wallet className="w-5 h-5" />
+      {loading ? (
+        <KpiRowSkeleton count={3} className="md:grid-cols-3 lg:grid-cols-3" />
+      ) : (
+      <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {[
+          {
+            title: 'Cash in Hand',
+            badge: 'Cash',
+            detail: 'Office clearing account',
+            extra: (
+              <button
+                type="button"
+                onClick={() => setIsTransferModalOpen(true)}
+                className="text-caption text-accent-text hover:underline"
+              >
+                Transfer to bank
+              </button>
+            ),
+            balance: cashAccount?.balance || 0,
+          },
+          {
+            title: 'Allied Bank (ABL)',
+            badge: 'ABL',
+            detail: `Acc ${ablAccount?.account_number || '—'}`,
+            extra: <span className="font-numeric text-caption text-fg-muted truncate">{ablAccount?.iban || '—'}</span>,
+            balance: ablAccount?.balance || 0,
+          },
+          {
+            title: 'Meezan Bank',
+            badge: 'Meezan',
+            detail: `Acc ${meezanAccount?.account_number || '—'}`,
+            extra: <span className="font-numeric text-caption text-fg-muted truncate">{meezanAccount?.iban || '—'}</span>,
+            balance: meezanAccount?.balance || 0,
+          },
+        ].map((card) => (
+          <div key={card.title} className="bg-surface border border-border rounded-lg p-4">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-ui font-semibold text-fg">{card.title}</h3>
+              <span className={NEUTRAL_METADATA_BADGE_CLASS}>{card.badge}</span>
             </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
-              Active Drawer
-            </span>
-          </div>
-
-          <div className="mt-4">
-            <h3 className="text-base font-bold text-fg dark:text-white">Cash in Hand</h3>
-            <p className="text-xs text-fg-muted dark:text-fg-muted mt-0.5">Physical office register & clearing</p>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-border dark:border-border">
-            <p className="text-xs text-fg-muted dark:text-fg-muted uppercase tracking-wider font-semibold">Available Balance</p>
-            <p className="text-2xl font-semibold text-fg dark:text-white mt-1">
-              {formatMinorMoney(cashAccount?.balance || 0, 'PKR')}
+            <p className="text-caption text-fg-muted mt-1">{card.detail}</p>
+            <p className="text-h2 font-semibold font-numeric text-fg mt-3">
+              {formatMinorMoney(card.balance, 'PKR')}
             </p>
+            <div className="mt-3 pt-3 border-t border-border">{card.extra}</div>
           </div>
-
-          <div className="mt-4 flex items-center justify-between text-xs text-fg-muted dark:text-fg-muted bg-canvas dark:bg-canvas/40 p-2.5 rounded-lg">
-            <span>Transferable to bank</span>
-            <button
-              onClick={() => setIsTransferModalOpen(true)}
-              className="text-accent-text dark:text-primary-400 hover:underline font-medium inline-flex items-center gap-1"
-            >
-              Deposit <ArrowUpRight className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-
-        {/* Allied Bank Limited */}
-        <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-5 relative overflow-hidden group hover:border-blue-300 dark:hover:border-blue-700 transition">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-blue-500 to-indigo-600" />
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 rounded-lg bg-blue-50 dark:bg-blue-950/60 flex items-center justify-center text-blue-600 dark:text-blue-400">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60">
-              ABL Account
-            </span>
-          </div>
-
-          <div className="mt-4">
-            <h3 className="text-base font-bold text-fg dark:text-white">Allied Bank Limited (ABL)</h3>
-            <p className="text-xs text-fg-muted dark:text-fg-muted font-mono mt-0.5">
-              Acc: {ablAccount?.account_number || '0010086701850017'}
-            </p>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-border dark:border-border">
-            <p className="text-xs text-fg-muted dark:text-fg-muted uppercase tracking-wider font-semibold">Ledger Balance</p>
-            <p className="text-2xl font-semibold text-fg dark:text-white mt-1">
-              {formatMinorMoney(ablAccount?.balance || 0, 'PKR')}
-            </p>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-xs text-fg-muted dark:text-fg-muted bg-canvas dark:bg-canvas/40 p-2.5 rounded-lg">
-            <span>IBAN:</span>
-            <span className="font-mono text-fg-2 dark:text-fg-muted truncate max-w-[170px]" title={ablAccount?.iban || 'PK08ABPA0010086701850017'}>
-              {ablAccount?.iban || 'PK08ABPA0010086701850017'}
-            </span>
-          </div>
-        </div>
-
-        {/* Meezan Bank */}
-        <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-5 relative overflow-hidden group hover:border-amber-300 dark:hover:border-amber-700 transition">
-          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
-          <div className="flex items-start justify-between">
-            <div className="w-10 h-10 rounded-lg bg-amber-50 dark:bg-amber-950/60 flex items-center justify-center text-amber-600 dark:text-amber-400">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
-              Meezan Account
-            </span>
-          </div>
-
-          <div className="mt-4">
-            <h3 className="text-base font-bold text-fg dark:text-white">Meezan Bank Limited</h3>
-            <p className="text-xs text-fg-muted dark:text-fg-muted font-mono mt-0.5">
-              Acc: {meezanAccount?.account_number || '02070105658422'}
-            </p>
-          </div>
-
-          <div className="mt-4 pt-3 border-t border-border dark:border-border">
-            <p className="text-xs text-fg-muted dark:text-fg-muted uppercase tracking-wider font-semibold">Ledger Balance</p>
-            <p className="text-2xl font-semibold text-fg dark:text-white mt-1">
-              {formatMinorMoney(meezanAccount?.balance || 0, 'PKR')}
-            </p>
-          </div>
-
-          <div className="mt-4 flex items-center justify-between text-xs text-fg-muted dark:text-fg-muted bg-canvas dark:bg-canvas/40 p-2.5 rounded-lg">
-            <span>IBAN:</span>
-            <span className="font-mono text-fg-2 dark:text-fg-muted truncate max-w-[170px]" title={meezanAccount?.iban || 'PK71MEZN0002070105658422'}>
-              {meezanAccount?.iban || 'PK71MEZN0002070105658422'}
-            </span>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Aggregated Totals Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-slate-900 text-white rounded-2xl p-5">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-lg bg-surface/10 flex items-center justify-center text-primary-300">
-            <Wallet className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-fg-muted uppercase tracking-wider font-semibold">Total Liquid Position</p>
-            <p className="text-2xl font-semibold text-white mt-0.5">
-              {formatMinorMoney(totalLiquidCash, 'PKR')}
-            </p>
-            <p className="text-xs text-fg-muted">Sum of all Cash and Bank Balances</p>
-          </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="bg-surface border border-border rounded-lg p-4">
+          <p className="text-caption text-fg-muted">Total liquid</p>
+          <p className="text-h2 font-semibold font-numeric text-fg mt-1">
+            {formatMinorMoney(totalLiquidCash, 'PKR')}
+          </p>
+          <p className="text-caption text-fg-muted mt-1">Cash + ABL + Meezan</p>
         </div>
-
-        <div className="flex items-center gap-4 border-t sm:border-t-0 sm:border-l border-white/10 pt-4 sm:pt-0 sm:pl-6">
-          <div className="w-12 h-12 rounded-lg bg-surface/10 flex items-center justify-center text-blue-300">
-            <Building2 className="w-6 h-6" />
-          </div>
-          <div>
-            <p className="text-xs text-fg-muted uppercase tracking-wider font-semibold">Total In Banks</p>
-            <p className="text-2xl font-semibold text-white mt-0.5">
-              {formatMinorMoney(totalBankBalance, 'PKR')}
-            </p>
-            <p className="text-xs text-fg-muted">ABL + Meezan verified ledger balances</p>
-          </div>
+        <div className="bg-surface border border-border rounded-lg p-4">
+          <p className="text-caption text-fg-muted">Total in banks</p>
+          <p className="text-h2 font-semibold font-numeric text-fg mt-1">
+            {formatMinorMoney(totalBankBalance, 'PKR')}
+          </p>
+          <p className="text-caption text-fg-muted mt-1">ABL + Meezan</p>
         </div>
       </div>
+      </>
+      )}
 
       {/* Ledger Section */}
       <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border overflow-hidden">
@@ -475,10 +425,7 @@ export const AccountsView: React.FC = () => {
         <div className="p-5 border-b border-border dark:border-border space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h3 className="text-lg font-bold text-fg dark:text-white flex items-center gap-2">
-                <FileText className="w-5 h-5 text-fg-muted" />
-                Append-Only Audit Ledger
-              </h3>
+              <h3 className="text-h3 font-semibold text-fg">Ledger</h3>
               <p className="text-xs text-fg-muted dark:text-fg-muted">
                 Every entry is immutable. Showing {ledger.length} of {totalEntries} transactions.
               </p>
@@ -515,23 +462,23 @@ export const AccountsView: React.FC = () => {
               </div>
 
               {/* Date Filters */}
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-fg-muted dark:text-fg-muted font-medium">From:</span>
-                <input
-                  type="date"
+              <div className="flex items-center gap-1.5 text-xs min-w-[160px]">
+                <span className="text-fg-muted dark:text-fg-muted font-medium shrink-0">From:</span>
+                <CustomDatePicker
                   value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg px-2 py-1 text-xs text-fg dark:text-fg-2 focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  onChange={setDateFrom}
+                  offDayMode="none"
+                  aria-label="Ledger from date"
                 />
               </div>
 
-              <div className="flex items-center gap-1.5 text-xs">
-                <span className="text-fg-muted dark:text-fg-muted font-medium">To:</span>
-                <input
-                  type="date"
+              <div className="flex items-center gap-1.5 text-xs min-w-[160px]">
+                <span className="text-fg-muted dark:text-fg-muted font-medium shrink-0">To:</span>
+                <CustomDatePicker
                   value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="bg-canvas dark:bg-canvas border border-border dark:border-border rounded-lg px-2 py-1 text-xs text-fg dark:text-fg-2 focus:outline-none focus:ring-1 focus-visible:focus-ring"
+                  onChange={setDateTo}
+                  offDayMode="none"
+                  aria-label="Ledger to date"
                 />
               </div>
 
@@ -564,18 +511,15 @@ export const AccountsView: React.FC = () => {
                 <th className="py-3 px-4 text-right">In (Credit)</th>
                 <th className="py-3 px-4 text-right">Out (Debit)</th>
                 <th className="py-3 px-4">Recorded By</th>
+                <th className="py-3 px-4 text-right">Slip</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border dark:divide-border">
               {loading ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-fg-muted dark:text-fg-muted">
-                    Loading ledger entries...
-                  </td>
-                </tr>
+                <TableSkeletonRows rows={8} columns={8} />
               ) : ledger.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-fg-muted dark:text-fg-muted">
+                  <td colSpan={8} className="py-12 text-center text-fg-muted dark:text-fg-muted">
                     No ledger transactions found matching the selected filters.
                   </td>
                 </tr>
@@ -587,7 +531,7 @@ export const AccountsView: React.FC = () => {
                       key={entry.id}
                       className="hover:bg-canvas/80 dark:hover:bg-hover transition-colors"
                     >
-                      <td className="py-3 px-4 text-fg-2 dark:text-fg-muted font-mono text-xs whitespace-nowrap">
+                      <td className="py-3 px-4 text-fg-2 dark:text-fg-muted font-numeric text-xs whitespace-nowrap">
                         {entry.date}
                       </td>
                       <td className="py-3 px-4">
@@ -599,14 +543,33 @@ export const AccountsView: React.FC = () => {
                       <td className="py-3 px-4 text-fg-2 dark:text-fg-muted max-w-xs truncate" title={entry.memo || ''}>
                         {entry.memo || '—'}
                       </td>
-                      <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap font-mono text-xs">
+                      <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400 whitespace-nowrap font-numeric text-xs">
                         {isIn ? `+ ${formatMinorMoney(entry.amount, 'PKR')}` : '—'}
                       </td>
-                      <td className="py-3 px-4 text-right font-medium text-rose-600 dark:text-rose-400 whitespace-nowrap font-mono text-xs">
+                      <td className="py-3 px-4 text-right font-medium text-rose-600 dark:text-rose-400 whitespace-nowrap font-numeric text-xs">
                         {!isIn ? `- ${formatMinorMoney(entry.amount, 'PKR')}` : '—'}
                       </td>
                       <td className="py-3 px-4 text-fg-muted dark:text-fg-muted text-xs whitespace-nowrap">
                         {entry.created_by_name || 'System'}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {entry.slip_file_id ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void openFileAttachment(
+                                financeService.getProofFileUrl(entry.slip_file_id!),
+                                'deposit-slip',
+                              )
+                            }
+                            className="inline-flex h-7 w-7 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition"
+                            title="Open deposit slip"
+                          >
+                            <Paperclip className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <span className="text-fg-faint">—</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -677,15 +640,11 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Amount (PKR) *
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
+                  <AmountInput
                     required
+                    placeholder="0.00"
                     value={transferAmount}
-                    onChange={(e) => setTransferAmount(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-mono font-medium"
+                    onChange={setTransferAmount}
                   />
                 </div>
 
@@ -693,12 +652,12 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Transfer Date *
                   </label>
-                  <input
-                    type="date"
-                    required
+                  <CustomDatePicker
                     value={transferDate}
-                    onChange={(e) => setTransferDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-medium"
+                    onChange={setTransferDate}
+                    clearable={false}
+                    offDayMode="none"
+                    aria-label="Transfer date"
                   />
                 </div>
               </div>
@@ -722,29 +681,22 @@ export const AccountsView: React.FC = () => {
                 <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                   Deposit Slip Scan / Photo
                 </label>
-                <div className="flex items-center gap-2">
-                  <label className="cursor-pointer flex items-center justify-center gap-2 px-3 py-2 border border-dashed border-border-strong dark:border-border-strong rounded-lg text-xs font-medium text-fg-2 dark:text-fg-muted hover:bg-canvas dark:hover:bg-hover transition w-full">
-                    <Upload className="w-4 h-4 text-fg-muted" />
-                    <span>{slipFile ? slipFile.name : 'Select slip image (PNG, JPG, PDF)'}</span>
-                    <input
-                      type="file"
-                      className="hidden"
-                      accept={FINANCE_PROOF_ACCEPT}
-                      onChange={(e) => {
-                        if (e.target.files?.[0]) setSlipFile(e.target.files[0]);
-                      }}
-                    />
-                  </label>
-                  {slipFile && (
-                    <button
-                      type="button"
-                      onClick={() => setSlipFile(null)}
-                      className="p-2 text-fg-muted hover:text-fg-2"
-                    >
-                      <X className="w-4 h-4" />
-                    </button>
-                  )}
-                </div>
+                <FinanceProofSlot
+                  emptyLabel="Select slip image (PNG, JPG, PDF)"
+                  filename={slipFile?.name}
+                  uploading={uploadingSlip}
+                  onFile={(file) => {
+                    const proofError = validateFinanceProofFile(file);
+                    if (proofError) {
+                      setTransferError(proofError);
+                      setSlipFile(null);
+                      return;
+                    }
+                    setTransferError(null);
+                    setSlipFile(file);
+                  }}
+                  onClear={() => setSlipFile(null)}
+                />
               </div>
 
               {/* Notes */}
@@ -772,7 +724,7 @@ export const AccountsView: React.FC = () => {
                 <button
                   type="submit"
                   disabled={transferSubmitting || uploadingSlip}
-                  className="px-4 py-2 bg-primary-600 hover:bg-primary-700 text-white rounded-lg text-xs font-semibold transition disabled:opacity-50"
+                  className="px-4 py-2 bg-accent text-accent-fg hover:bg-accent-hover rounded-lg text-xs font-semibold transition disabled:opacity-50"
                 >
                   {transferSubmitting ? 'Posting Transfer...' : 'Complete Transfer'}
                 </button>
@@ -823,15 +775,11 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Amount (PKR) *
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
+                  <AmountInput
                     required
+                    placeholder="0.00"
                     value={openingAmount}
-                    onChange={(e) => setOpeningAmount(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-mono font-medium"
+                    onChange={setOpeningAmount}
                   />
                 </div>
 
@@ -839,12 +787,12 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     As of Date *
                   </label>
-                  <input
-                    type="date"
-                    required
+                  <CustomDatePicker
                     value={openingDate}
-                    onChange={(e) => setOpeningDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-medium"
+                    onChange={setOpeningDate}
+                    clearable={false}
+                    offDayMode="none"
+                    aria-label="Opening balance date"
                   />
                 </div>
               </div>
@@ -939,15 +887,11 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Amount (PKR) *
                   </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder="0.00"
+                  <AmountInput
                     required
+                    placeholder="0.00"
                     value={adjAmount}
-                    onChange={(e) => setAdjAmount(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-mono font-medium"
+                    onChange={setAdjAmount}
                   />
                 </div>
 
@@ -955,12 +899,12 @@ export const AccountsView: React.FC = () => {
                   <label className="block text-xs font-semibold text-fg-2 dark:text-fg-muted mb-1">
                     Date *
                   </label>
-                  <input
-                    type="date"
-                    required
+                  <CustomDatePicker
                     value={adjDate}
-                    onChange={(e) => setAdjDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-surface dark:bg-canvas border border-border-strong dark:border-border-strong rounded-lg text-xs text-fg dark:text-fg focus:outline-none focus:ring-1 focus-visible:focus-ring font-medium"
+                    onChange={setAdjDate}
+                    clearable={false}
+                    offDayMode="none"
+                    aria-label="Adjustment date"
                   />
                 </div>
               </div>

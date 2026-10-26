@@ -22,7 +22,8 @@ export type InvalidationKey =
   | 'exceptions'
   | 'notifications'
   | 'settings'
-  | 'dashboard';
+  | 'dashboard'
+  | 'finance';
 
 type InvalidationListener = (key: InvalidationKey) => void;
 const listeners = new Set<{ keys: Set<InvalidationKey>; callback: InvalidationListener }>();

@@ -1005,7 +1005,7 @@ function AppInner() {
                 <FinanceContainer />
               </div>
             ) : (
-              <AccessDenied module="Finance" />
+              <AccessDenied module="Accounts" />
             )
           )}
 

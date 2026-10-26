@@ -369,4 +369,24 @@ async def get_ledger_entries(
     total = await coll.count_documents(query)
     cursor = coll.find(query).sort([("date", DESCENDING), ("created_at", DESCENDING)]).skip(skip).limit(limit)
     items = await cursor.to_list(length=limit)
+
+    transfer_ids = list({
+        it.get("source_id")
+        for it in items
+        if it.get("source_type") == "transfer" and it.get("source_id")
+    })
+    if transfer_ids:
+        transfers = await db["finance_transfers"].find(
+            {"company_id": company_id, "id": {"$in": transfer_ids}},
+            {"id": 1, "slip_file_id": 1},
+        ).to_list(length=len(transfer_ids))
+        slip_by_transfer = {
+            t["id"]: t.get("slip_file_id")
+            for t in transfers
+            if t.get("slip_file_id")
+        }
+        for it in items:
+            if it.get("source_type") == "transfer":
+                it["slip_file_id"] = slip_by_transfer.get(it.get("source_id"))
+
     return {"items": items, "total": total}

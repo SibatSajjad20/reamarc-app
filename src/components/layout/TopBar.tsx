@@ -216,6 +216,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           },
         ];
       }
+      case 'finance':
+        return [
+          { label: 'Accounts', onClick: () => onSelectView('finance') },
+          { label: 'Overview', onClick: () => onSelectView('finance') },
+        ];
       case 'website-pipeline': {
         const websiteLabels: Record<string, string> = {
           board: 'Website pipeline',

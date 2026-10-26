@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 VALID_CURRENCIES = ("PKR", "USD", "GBP")
 VALID_METHODS = ("cash", "bank")
 VALID_BANKS = ("abl", "meezan")
-VALID_INVOICE_STATUSES = ("draft", "issued", "partially_paid", "paid", "overdue", "void")
-VALID_RECEIPT_STATUSES = ("posted", "void")
+VALID_INVOICE_STATUSES = ("draft", "issued", "partially_paid", "paid", "overdue", "void", "deleted")
+VALID_RECEIPT_STATUSES = ("posted", "pending", "void", "deleted")
 VALID_LEDGER_SOURCES = ("receipt", "transfer", "opening_balance", "adjustment", "reversal")
 VALID_TERMS_PRESETS = ("Due on receipt", "Net 7", "Net 15", "Net 30", "Custom")
 
@@ -42,7 +42,7 @@ class FinanceSettingsBase(BaseModel):
     default_payment_terms: str = "Due on receipt"
     bank_accounts: List[BankAccountConfig] = Field(default_factory=list)
     signature_labels: List[str] = Field(
-        default_factory=lambda: ["Account Officer", "Account Manager", "General Manager"]
+        default_factory=lambda: ["Account Manager", "Stamp", "CEO"]
     )
     notes_template: str = "We greatly appreciate your business and the opportunity to serve you."
     terms_template: str = (
@@ -228,6 +228,9 @@ class InvoiceResponse(BaseModel):
     void_reason: Optional[str] = None
     voided_at: Optional[str] = None
     voided_by: Optional[str] = None
+    deleted_reason: Optional[str] = None
+    deleted_at: Optional[str] = None
+    deleted_by: Optional[str] = None
     is_recurring: bool = False
     recurring_interval: Optional[str] = None
     created_by: Optional[str] = None
@@ -264,6 +267,7 @@ class ReceiptCreate(BaseModel):
     allocations: List[ReceiptAllocation] = Field(default_factory=list)
     proof_file_ids: List[str] = Field(default_factory=list)
     wht_certificate_file_id: Optional[str] = None
+    is_cheque: bool = False
 
     @field_validator("currency")
     @classmethod
@@ -315,7 +319,15 @@ class ReceiptCreate(BaseModel):
 
 
 class ReceiptVoidRequest(BaseModel):
-    reason: str = Field(..., min_length=3, description="Reason for voiding the receipt")
+    reason: str = Field(..., min_length=3, description="Reason for placing the receipt on hold")
+
+
+class ReceiptDeleteRequest(BaseModel):
+    reason: str = Field(..., min_length=3, description="Reason for deleting the receipt (record is retained)")
+
+
+class InvoiceDeleteRequest(BaseModel):
+    reason: str = Field(..., min_length=3, description="Reason for deleting the invoice (record is retained)")
 
 
 class ReceiptResponse(BaseModel):
@@ -340,9 +352,13 @@ class ReceiptResponse(BaseModel):
     proof_file_ids: List[str] = Field(default_factory=list)
     wht_certificate_file_id: Optional[str] = None
     status: str
+    is_cheque: bool = False
     void_reason: Optional[str] = None
     voided_at: Optional[str] = None
     voided_by: Optional[str] = None
+    deleted_reason: Optional[str] = None
+    deleted_at: Optional[str] = None
+    deleted_by: Optional[str] = None
     created_by: Optional[str] = None
     created_by_name: Optional[str] = None
     created_at: str
@@ -370,6 +386,7 @@ class FinanceLedgerEntryResponse(BaseModel):
     source_type: str
     source_id: Optional[str] = None
     memo: Optional[str] = None
+    slip_file_id: Optional[str] = None
     created_by: Optional[str] = None
     created_by_name: Optional[str] = None
     created_at: str

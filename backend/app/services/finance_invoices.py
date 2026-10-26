@@ -235,18 +235,17 @@ async def void_invoice(
     if inv.get("status") == "void":
         return inv
 
-    # Check for active (posted) receipts allocated to this invoice
     active_receipt = await db["receipts"].find_one({
         "company_id": company_id,
-        "status": "posted",
+        "status": {"$in": ["posted", "pending"]},
         "allocations.invoice_id": invoice_id,
     })
     if active_receipt:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"Cannot void invoice {inv.get('number')} because receipt {active_receipt.get('number')} "
-                "is actively allocated to it. You must void the receipt first."
+                f"Cannot place invoice {inv.get('number')} on hold because receipt {active_receipt.get('number')} "
+                "is allocated to it."
             ),
         )
 
@@ -279,6 +278,44 @@ async def void_invoice(
     })
 
     return updated
+
+
+async def delete_invoice(
+    db,
+    company_id: str,
+    invoice_id: str,
+    reason: str,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Soft-delete an invoice while retaining the record for audit."""
+    held = await void_invoice(db, company_id, invoice_id, reason, user_id=user_id, user_name=user_name)
+    now = _now_iso()
+    deleted = await db["invoices"].find_one_and_update(
+        {"company_id": company_id, "id": invoice_id},
+        {
+            "$set": {
+                "status": "deleted",
+                "deleted_reason": reason,
+                "deleted_at": now,
+                "deleted_by": user_id,
+                "updated_at": now,
+            }
+        },
+        return_document=True,
+    )
+    await db["finance_audit"].insert_one({
+        "id": f"aud_{uuid.uuid4().hex[:12]}",
+        "company_id": company_id,
+        "action": "invoice_delete",
+        "entity_type": "invoice",
+        "entity_id": invoice_id,
+        "details": {"reason": reason, "number": (deleted or held or {}).get("number")},
+        "user_id": user_id,
+        "user_name": user_name,
+        "created_at": now,
+    })
+    return deleted or held
 
 
 async def duplicate_invoice(
@@ -336,8 +373,15 @@ async def get_invoices(
             query["due_date"] = {"$lt": today}
         elif s == "unpaid":
             query["status"] = {"$in": ["issued", "partially_paid", "overdue"]}
-        elif s != "all":
+        elif s == "void":
+            query["status"] = "void"
+        elif s in ("all", "with_deleted"):
+            if s == "all":
+                query["status"] = {"$ne": "deleted"}
+        else:
             query["status"] = s
+    else:
+        query["status"] = {"$ne": "deleted"}
 
     if workspace_id:
         query["workspace_id"] = workspace_id
@@ -378,4 +422,9 @@ async def get_invoice_by_share_token(db, share_token: str) -> Optional[Dict[str,
     """Public lookup of an invoice via secret share token."""
     if not share_token or not share_token.strip():
         return None
-    return await db["invoices"].find_one({"share_token": share_token.strip()})
+    inv = await db["invoices"].find_one({"share_token": share_token.strip()})
+    if not inv:
+        return None
+    if inv.get("status") in ("deleted", "draft"):
+        return None
+    return inv
