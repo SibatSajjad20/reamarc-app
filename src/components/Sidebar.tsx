@@ -238,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isManagementRole = isAdmin || isHR || isOperations;
 
   const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
-  const canSeeFinance = !isClient && (isAdmin || isOperations || user?.is_super_admin || perms.canAccessFinance || Boolean(eff?.finance));
+  const canSeeFinance = isAdmin || isOperations;
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

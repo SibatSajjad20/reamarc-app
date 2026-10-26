@@ -138,11 +138,18 @@ describe('Finance Permission Enforcement', () => {
     expect(userCan(adminUser, 'finance', 'manage')).toBe(true);
   });
 
-  it('grants operations view rights on finance by default', () => {
+  it('grants operations full finance access and denies every other non-admin role', () => {
     const opsUser = { role: 'operations', is_active: true };
     expect(userCan(opsUser, 'finance', 'view')).toBe(true);
-    expect(userCan(opsUser, 'finance', 'create')).toBe(false);
-    expect(userCan(opsUser, 'finance', 'manage')).toBe(false);
+    expect(userCan(opsUser, 'finance', 'create')).toBe(true);
+    expect(userCan(opsUser, 'finance', 'manage')).toBe(true);
+
+    const hrUser = {
+      role: 'hr',
+      is_active: true,
+      permissions: { levels: { finance: 'manage' }, modules: { finance: true } },
+    };
+    expect(userCan(hrUser, 'finance', 'view')).toBe(false);
   });
 
   it('denies client and standard team roles finance access by default', () => {

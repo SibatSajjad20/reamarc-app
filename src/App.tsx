@@ -137,7 +137,7 @@ function AppInner() {
 
   const eff = user?.effective_access;
   const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
-  const canSeeFinance = !isClient && (isAdmin || isOperations || user?.is_super_admin || perms.canAccessFinance || Boolean(eff?.finance));
+  const canSeeFinance = isAdmin || isOperations;
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
   const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');

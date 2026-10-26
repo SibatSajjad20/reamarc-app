@@ -23,7 +23,7 @@ export const OPERATIONS_MODULE_LEVELS: Record<string, string> = {
   sales: 'all',
   active_clients: 'manage',
   ads: 'view',
-  finance: 'view',
+  finance: 'manage',
 };
 
 function levelGte(module: string, current: string | undefined, target: string): boolean {
@@ -45,6 +45,9 @@ export function userCan(
   const role = String(user.role || '').toLowerCase();
   if (role === 'admin') return true;
   if (role === 'client') return false;
+  if (module === 'finance') {
+    return role === 'operations' && levelGte('finance', 'manage', minLevel);
+  }
 
   // Company-wide view-only directory: every internal login can open it.
   if (module === 'active_clients') {

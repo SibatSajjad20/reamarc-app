@@ -197,7 +197,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "sales": "all",
         "active_clients": "manage",
         "ads": "view",
-        "finance": "view",
+        "finance": "manage",
     },
     "team_lead": {
         "daily_log": "department",

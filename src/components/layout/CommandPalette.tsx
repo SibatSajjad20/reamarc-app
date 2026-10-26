@@ -171,6 +171,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             {recents.map((viewId) => {
               const meta = pagesMap[viewId];
               if (!meta) return null;
+              if (viewId === 'finance' && !canSeeFinance) return null;
               const Icon = meta.icon;
               return (
                 <CommandItem

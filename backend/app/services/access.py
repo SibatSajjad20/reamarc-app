@@ -447,7 +447,7 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     elif role == "operations":
         levels["active_clients"] = "manage"
         levels["exceptions"] = "all" if (modules["attendance"] or modules["daily_log"]) else "none"
-        levels["finance"] = "view"
+        levels["finance"] = "manage"
     elif role == "hr":
         levels["active_clients"] = "view"
         levels["exceptions"] = "all" if modules["daily_log"] else "none"
@@ -469,9 +469,8 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         levels["exceptions"] = "none"
         levels["finance"] = "none"
 
-    perm_finance = (user.get("permissions") or {}).get("finance")
-    if perm_finance and perm_finance in ("view", "create", "manage", "none"):
-        levels["finance"] = perm_finance
+    if role not in ("admin", "operations"):
+        levels["finance"] = "none"
 
     # Content stages: only when content_calendar is on
     content_stages: List[str] = []
