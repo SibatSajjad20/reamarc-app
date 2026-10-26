@@ -4,7 +4,7 @@ import { workspaceService } from '../../services/workspaceService';
 import { formatMinorMoney } from '../../utils/money';
 import type { Invoice } from '../../types/finance';
 import type { Workspace } from '../../types';
-import { FinanceReportFilters } from './financeUi';
+import { FinanceReportFilters, ReportDownloadButton } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { TableSkeletonRows } from '../ui/Skeletons';
@@ -21,6 +21,7 @@ export const SummaryAccountsView: React.FC = () => {
   const cachedList = financeService.getCachedInvoices(listParams);
   const [invoices, setInvoices] = useState<Invoice[]>(() => cachedList?.data.items || []);
   const [loading, setLoading] = useState(!cachedList);
+  const [downloading, setDownloading] = useState(false);
   const loadAbortRef = useRef<AbortController | null>(null);
   const loadReqIdRef = useRef(0);
   useModuleLoadGate(loading);
@@ -99,6 +100,23 @@ export const SummaryAccountsView: React.FC = () => {
         clientName={clientName}
         onClientName={setClientName}
         clientOptions={workspaces.map((ws) => ({ value: ws.name, label: ws.name }))}
+        actions={
+          <ReportDownloadButton
+            downloading={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              try {
+                await financeService.downloadReport('summary-accounts', {
+                  date_from: dateFrom,
+                  date_to: dateTo,
+                  client_name: clientName || undefined,
+                });
+              } finally {
+                setDownloading(false);
+              }
+            }}
+          />
+        }
       />
 
       <div className="bg-surface rounded-lg border border-border overflow-hidden">

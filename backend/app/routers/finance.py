@@ -6,14 +6,15 @@ Settings, Service catalog, Public share links, and Uploads.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response
 
-from app.core.limiter import limiter
-from app.core.security import get_current_user
+from app.core.limiter import get_client_ip, limiter
+from app.core.rate_limit_store import enforce_shared_rate_limit
 from app.core.tenant import get_tenant_context, tenant_scope
 from app.core.uploads import save_upload_bytes
 from app.database import get_database
@@ -56,10 +57,15 @@ from app.services.finance_receipts import confirm_receipt, delete_receipt, get_r
 from app.services.finance_reports import (
     export_ageing_summary_excel,
     export_ageing_summary_pdf,
+    export_collections_pdf,
+    export_receivables_outstanding_pdf,
+    export_summary_accounts_pdf,
     get_ageing_detail_report,
     get_ageing_summary_report,
     get_client_statement_report,
     get_collections_report,
+    get_receivables_outstanding_report,
+    get_summary_accounts_report,
     get_wht_report,
 )
 from app.services.finance_settings import (
@@ -69,6 +75,7 @@ from app.services.finance_settings import (
     update_finance_settings,
     update_service,
 )
+from app.services.access import normalize_role
 from app.services.permissions import require_permission
 
 logger = logging.getLogger(__name__)
@@ -81,6 +88,126 @@ def _extract_company_id(user: Dict[str, Any]) -> str:
     if ctx and ctx.company_id:
         return ctx.company_id
     return user.get("company_id") or "company_reamarc"
+
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_ALLOWED_REPORT_TYPES = {
+    "ageing-summary",
+    "ageing-detail",
+    "statement",
+    "collections",
+    "receivables",
+    "summary-accounts",
+    "wht",
+}
+_ALLOWED_REPORT_FORMATS = {"json", "pdf", "xlsx"}
+_PDF_REPORT_TYPES = {"ageing-summary", "collections", "receivables", "summary-accounts"}
+_XLSX_REPORT_TYPES = {"ageing-summary"}
+
+
+def _parse_report_date(value: Optional[str], field: str) -> Optional[datetime]:
+    if not value:
+        return None
+    raw = value.strip()
+    if not _DATE_RE.match(raw):
+        raise HTTPException(status_code=400, detail=f"{field} must be YYYY-MM-DD")
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"{field} must be a valid date")
+
+
+def _validate_report_query(
+    report_type: str,
+    fmt: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+    as_of: Optional[str],
+    client_name: Optional[str],
+    currency: Optional[str],
+    method: Optional[str],
+    bank: Optional[str],
+) -> None:
+    if report_type not in _ALLOWED_REPORT_TYPES:
+        raise HTTPException(status_code=400, detail="Unknown report type")
+    if fmt not in _ALLOWED_REPORT_FORMATS:
+        raise HTTPException(status_code=400, detail="format must be json, pdf, or xlsx")
+    if fmt == "pdf" and report_type not in _PDF_REPORT_TYPES:
+        raise HTTPException(status_code=400, detail="PDF export is not available for this report")
+    if fmt == "xlsx" and report_type not in _XLSX_REPORT_TYPES:
+        raise HTTPException(status_code=400, detail="Excel export is not available for this report")
+    start = _parse_report_date(date_from, "date_from")
+    end = _parse_report_date(date_to, "date_to")
+    _parse_report_date(as_of, "as_of")
+    if start and end and start > end:
+        raise HTTPException(status_code=400, detail="date_from cannot be after date_to")
+    if start and end and (end - start).days > 1826:
+        raise HTTPException(status_code=400, detail="Report range cannot exceed 5 years")
+    if client_name and len(client_name.strip()) > 200:
+        raise HTTPException(status_code=400, detail="client_name is too long")
+    if currency and currency.upper() not in ("PKR", "USD", "GBP", "ALL"):
+        raise HTTPException(status_code=400, detail="Invalid currency")
+    if method and method.lower() not in ("all", "cash", "bank", "cheque"):
+        raise HTTPException(status_code=400, detail="Invalid method")
+    if bank and bank.lower() not in ("all", "abl", "meezan"):
+        raise HTTPException(status_code=400, detail="Invalid bank")
+
+
+def _safe_download_filename(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", (name or "report").strip())[:80] or "report"
+    if "." not in cleaned:
+        cleaned += ".bin"
+    return cleaned
+
+
+def _file_download_headers(filename: str, inline: bool = False) -> Dict[str, str]:
+    disposition = "inline" if inline else "attachment"
+    return {
+        "Content-Disposition": f'{disposition}; filename="{_safe_download_filename(filename)}"',
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+    }
+
+
+async def _enforce_report_export_limits(request: Request, user: Dict[str, Any], company_id: str) -> None:
+    uid = str(user.get("id") or user.get("_id") or "anon")
+    ip = get_client_ip(request)
+    await enforce_shared_rate_limit(f"finance-report-user:{uid}", 8, 60)
+    await enforce_shared_rate_limit(f"finance-report-company:{company_id}", 20, 60)
+    await enforce_shared_rate_limit(f"finance-report-ip:{ip}", 10, 60)
+
+
+async def _audit_report_export(
+    db,
+    company_id: str,
+    user: Dict[str, Any],
+    report_type: str,
+    fmt: str,
+    date_from: Optional[str],
+    date_to: Optional[str],
+    as_of: Optional[str],
+) -> None:
+    try:
+        await db["finance_audit"].insert_one({
+            "id": f"aud_{uuid.uuid4().hex[:12]}",
+            "company_id": company_id,
+            "action": "report_export",
+            "entity_type": "report",
+            "entity_id": report_type,
+            "details": {
+                "format": fmt,
+                "date_from": date_from,
+                "date_to": date_to,
+                "as_of": as_of,
+            },
+            "user_id": user.get("id") or user.get("_id"),
+            "user_name": user.get("full_name") or user.get("name"),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+    except Exception:
+        logger.exception("Failed to write finance report export audit")
 
 
 # =========================================================================
@@ -527,38 +654,48 @@ async def make_adjustment_endpoint(
 # =========================================================================
 
 @router.get("/reports/{report_type}")
+@limiter.limit("30/minute")
 async def get_report_endpoint(
+    request: Request,
     report_type: str,
-    as_of: Optional[str] = Query(None),
-    client_name: Optional[str] = Query(None),
-    currency: Optional[str] = Query(None),
-    date_from: Optional[str] = Query(None),
-    date_to: Optional[str] = Query(None),
-    method: Optional[str] = Query(None),
-    bank: Optional[str] = Query(None),
-    format: Optional[str] = Query(None, description="json, pdf, or xlsx"),
+    as_of: Optional[str] = Query(None, max_length=32),
+    client_name: Optional[str] = Query(None, max_length=200),
+    currency: Optional[str] = Query(None, max_length=8),
+    date_from: Optional[str] = Query(None, max_length=32),
+    date_to: Optional[str] = Query(None, max_length=32),
+    method: Optional[str] = Query(None, max_length=16),
+    bank: Optional[str] = Query(None, max_length=16),
+    format: Optional[str] = Query(None, max_length=8, description="json, pdf, or xlsx"),
     current_user: Dict[str, Any] = Depends(require_permission("finance", "view")),
 ):
+    if normalize_role(current_user.get("role")) not in ("admin", "operations"):
+        raise HTTPException(status_code=403, detail="Accounts reports are limited to admin and operations")
+
     db = get_database()
     cid = _extract_company_id(current_user)
-    fmt = (format or "json").lower()
+    fmt = (format or "json").lower().strip()
+    _validate_report_query(report_type, fmt, date_from, date_to, as_of, client_name, currency, method, bank)
+    if fmt in ("pdf", "xlsx"):
+        await _enforce_report_export_limits(request, current_user, cid)
 
     if report_type == "ageing-summary":
         data = await get_ageing_summary_report(db, cid, as_of_date=as_of, client_name=client_name, currency=currency)
         if fmt == "xlsx":
             excel_bytes = export_ageing_summary_excel(data)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
             return Response(
                 content=excel_bytes,
                 media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                headers={"Content-Disposition": f'attachment; filename="ageing_summary_{data["as_of_date"]}.xlsx"'},
+                headers=_file_download_headers(f"ageing_summary_{data['as_of_date']}.xlsx"),
             )
         elif fmt == "pdf":
             settings = await get_or_init_finance_settings(db, cid)
             pdf_bytes = export_ageing_summary_pdf(data, settings)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
             return Response(
                 content=pdf_bytes,
                 media_type="application/pdf",
-                headers={"Content-Disposition": f'inline; filename="ageing_summary_{data["as_of_date"]}.pdf"'},
+                headers=_file_download_headers(f"ageing_summary_{data['as_of_date']}.pdf"),
             )
         return data
 
@@ -581,6 +718,45 @@ async def get_report_endpoint(
         for it in data.get("receipts") or []:
             if isinstance(it, dict):
                 it.pop("_id", None)
+        if fmt == "pdf":
+            settings = await get_or_init_finance_settings(db, cid)
+            pdf_bytes = export_collections_pdf(data, settings)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers=_file_download_headers(f"collections_{data['date_from']}_{data['date_to']}.pdf"),
+            )
+        return data
+
+    elif report_type == "receivables":
+        data = await get_receivables_outstanding_report(
+            db, cid, date_from=date_from, date_to=date_to, client_name=client_name
+        )
+        if fmt == "pdf":
+            settings = await get_or_init_finance_settings(db, cid)
+            pdf_bytes = export_receivables_outstanding_pdf(data, settings)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers=_file_download_headers(f"receivables_{data['date_from']}_{data['date_to']}.pdf"),
+            )
+        return data
+
+    elif report_type == "summary-accounts":
+        data = await get_summary_accounts_report(
+            db, cid, date_from=date_from, date_to=date_to, client_name=client_name
+        )
+        if fmt == "pdf":
+            settings = await get_or_init_finance_settings(db, cid)
+            pdf_bytes = export_summary_accounts_pdf(data, settings)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers=_file_download_headers(f"summary_accounts_{data['date_from']}_{data['date_to']}.pdf"),
+            )
         return data
 
     elif report_type == "wht":
@@ -590,7 +766,7 @@ async def get_report_endpoint(
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Unknown report type '{report_type}'. Available: ageing-summary, ageing-detail, statement, collections, wht",
+            detail="Unknown report type",
         )
 
 

@@ -473,7 +473,32 @@ export const financeService = {
   getReportDownloadUrl(reportType: string, format: 'pdf' | 'xlsx', params: Record<string, string> = {}): string {
     const query = new URLSearchParams(params);
     query.set('format', format);
-    return `/api/v1/finance/reports/${reportType}?${query.toString()}`;
+    return `/finance/reports/${reportType}?${query.toString()}`;
+  },
+
+  async downloadReport(
+    reportType: string,
+    params: Record<string, string | undefined> = {},
+    filename?: string,
+  ): Promise<void> {
+    const query: Record<string, string> = {};
+    for (const [key, value] of Object.entries(params)) {
+      if (value) query[key] = value;
+    }
+    const blob = await apiClient.getBlob(this.getReportDownloadUrl(reportType, 'pdf', query));
+    if (blob.type && blob.type.includes('json')) {
+      throw new Error('Report download was blocked. Try again in a minute.');
+    }
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const from = query.date_from || query.as_of || 'report';
+    const to = query.date_to || '';
+    link.href = url;
+    link.download = filename || `${reportType}_${from}${to ? `_${to}` : ''}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   },
 
   async uploadProofFile(file: File): Promise<{ file_id: string; url: string; filename: string }> {

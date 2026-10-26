@@ -12,6 +12,7 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import HRFlowable, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from app.services import finance_pdf as finance_pdf_mod
 from app.services.finance_pdf import NumberedCanvas, _wordmark_flowable, format_currency_amount
 
 logger = logging.getLogger(__name__)
@@ -421,6 +422,101 @@ async def get_collections_report(
     }
 
 
+async def get_receivables_outstanding_report(
+    db,
+    company_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    client_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Outstanding balances by client for invoices issued in the selected range."""
+    start_date = date_from or "2020-01-01"
+    end_date = date_to or _today_str()
+    query: Dict[str, Any] = {
+        "company_id": company_id,
+        "issue_date": {"$gte": start_date, "$lte": end_date},
+        "status": {"$in": ["issued", "partially_paid", "overdue"]},
+        "balance_due": {"$gt": 0},
+    }
+    if client_name and client_name.strip():
+        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+
+    invoices = await db["invoices"].find(query).to_list(length=1000)
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for inv in invoices:
+        curr = inv.get("currency") or "PKR"
+        name = inv.get("client_name") or "Unknown Client"
+        key = f"{name}::{curr}"
+        row = grouped.get(key)
+        if row:
+            row["total"] += _as_int(inv.get("balance_due"))
+            row["invoice_count"] += 1
+        else:
+            grouped[key] = {
+                "client_name": name,
+                "currency": curr,
+                "total": _as_int(inv.get("balance_due")),
+                "invoice_count": 1,
+            }
+    rows = sorted(grouped.values(), key=lambda r: r["client_name"].lower())
+    totals: Dict[str, int] = {}
+    for row in rows:
+        totals[row["currency"]] = totals.get(row["currency"], 0) + row["total"]
+    return {
+        "date_from": start_date,
+        "date_to": end_date,
+        "rows": rows,
+        "totals": totals,
+    }
+
+
+async def get_summary_accounts_report(
+    db,
+    company_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    client_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Invoice, receipts, and remaining balance by issued invoice in the selected range."""
+    start_date = date_from or "2020-01-01"
+    end_date = date_to or _today_str()
+    query: Dict[str, Any] = {
+        "company_id": company_id,
+        "issue_date": {"$gte": start_date, "$lte": end_date},
+        "status": {"$nin": ["void", "deleted", "draft"]},
+    }
+    if client_name and client_name.strip():
+        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+
+    invoices = await db["invoices"].find(query).sort("issue_date", 1).to_list(length=1000)
+    rows = []
+    totals_by_currency: Dict[str, Dict[str, int]] = {}
+    for inv in invoices:
+        curr = inv.get("currency") or "PKR"
+        invoice_amt = _as_int(inv.get("total"))
+        received = _as_int(inv.get("amount_paid")) + _as_int(inv.get("wht_settled"))
+        due = _as_int(inv.get("balance_due"))
+        rows.append({
+            "issue_date": inv.get("issue_date") or "",
+            "number": inv.get("number") or "",
+            "client_name": inv.get("client_name") or "Unknown Client",
+            "currency": curr,
+            "invoice_amount": invoice_amt,
+            "received": received,
+            "balance_due": due,
+        })
+        bucket = totals_by_currency.setdefault(curr, {"invoice": 0, "received": 0, "due": 0})
+        bucket["invoice"] += invoice_amt
+        bucket["received"] += received
+        bucket["due"] += due
+    return {
+        "date_from": start_date,
+        "date_to": end_date,
+        "rows": rows,
+        "totals": totals_by_currency,
+    }
+
+
 async def get_wht_report(
     db,
     company_id: str,
@@ -775,3 +871,282 @@ def export_ageing_summary_pdf(report: Dict[str, Any], settings: Dict[str, Any]) 
 
     doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_footer, onLaterPages=_footer)
     return buffer.getvalue()
+
+
+def _period_label(date_from: str, date_to: str) -> str:
+    return f"Period {date_from} to {date_to}"
+
+
+def _standard_report_pdf(
+    *,
+    title: str,
+    period_label: str,
+    settings: Dict[str, Any],
+    headers: List[str],
+    col_weights: List[float],
+    rows: List[List[str]],
+    right_align_from: int = 1,
+    kpi_items: Optional[List[tuple]] = None,
+    landscape_page: bool = True,
+) -> bytes:
+    """Letterheaded tabular report with wordmark, period, and confidential footer."""
+    finance_pdf_mod._ensure_pdf_fonts()
+    font_regular = finance_pdf_mod.FONT_REGULAR
+    font_bold = finance_pdf_mod.FONT_BOLD
+    buffer = io.BytesIO()
+    pagesize = landscape(A4) if landscape_page else A4
+    page_w, _page_h = pagesize
+    left = right = 40
+    usable = page_w - left - right
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=pagesize,
+        leftMargin=left,
+        rightMargin=right,
+        topMargin=36,
+        bottomMargin=48,
+    )
+    styles = getSampleStyleSheet()
+    normal = styles["Normal"]
+    muted = colors.HexColor("#71717A")
+    ink = colors.HexColor("#18181B")
+    rule = colors.HexColor("#E4E4E7")
+    hair = colors.HexColor("#A1A1AA")
+
+    company_style = ParagraphStyle(
+        "StdCompany", parent=normal, fontName=font_regular, fontSize=8, leading=11, textColor=muted, alignment=2,
+    )
+    title_style = ParagraphStyle(
+        "StdTitle", parent=normal, fontName=font_bold, fontSize=16, leading=20, textColor=ink,
+    )
+    meta_style = ParagraphStyle(
+        "StdMeta", parent=normal, fontName=font_regular, fontSize=8.5, leading=12, textColor=muted, alignment=2,
+    )
+    th_style = ParagraphStyle(
+        "StdTh", parent=normal, fontName=font_regular, fontSize=7.5, leading=10, textColor=muted,
+    )
+    th_right = ParagraphStyle("StdThRight", parent=th_style, alignment=2)
+    td_style = ParagraphStyle(
+        "StdTd", parent=normal, fontName=font_regular, fontSize=8.5, leading=11, textColor=ink,
+    )
+    td_right = ParagraphStyle("StdTdRight", parent=td_style, alignment=2)
+    kpi_label = ParagraphStyle(
+        "StdKpiLabel", parent=normal, fontName=font_regular, fontSize=7.5, leading=10, textColor=muted,
+    )
+    empty_style = ParagraphStyle("StdEmpty", parent=td_style, textColor=muted, alignment=1)
+
+    story: List[Any] = []
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    header = Table(
+        [[_wordmark_flowable(normal), _ageing_company_block(settings or {}, company_style)]],
+        colWidths=[usable * 0.55, usable * 0.45],
+    )
+    header.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(header)
+    story.append(Spacer(1, 14))
+    story.append(HRFlowable(width="100%", thickness=0.6, color=rule, spaceBefore=0, spaceAfter=14))
+    title_row = Table(
+        [[
+            Paragraph(title, title_style),
+            Paragraph(f"{period_label}<br/><font size='8'>Generated {generated}</font>", meta_style),
+        ]],
+        colWidths=[usable * 0.62, usable * 0.38],
+    )
+    title_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "BOTTOM"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+    story.append(title_row)
+    story.append(Spacer(1, 14))
+
+    if kpi_items:
+        kpi_table_data = [[
+            Paragraph(f"{label}<br/><font color='#18181B' size='11'><b>{value}</b></font>", kpi_label)
+            for label, value in kpi_items
+        ]]
+        kpi_w = usable / max(len(kpi_items), 1)
+        kpi_table = Table(kpi_table_data, colWidths=[kpi_w] * len(kpi_items))
+        kpi_table.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#FAFAFA")),
+            ("BOX", (0, 0), (-1, -1), 0.4, rule),
+            ("LINEAFTER", (0, 0), (-2, -1), 0.4, rule),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(kpi_table)
+        story.append(Spacer(1, 14))
+
+    header_row = []
+    for idx, label in enumerate(headers):
+        style = th_right if idx >= right_align_from else th_style
+        header_row.append(Paragraph(label, style))
+    table_data: List[List[Any]] = [header_row]
+    if not rows:
+        empty = [Paragraph("No activity in this period.", empty_style)] + [""] * (len(headers) - 1)
+        table_data.append(empty)
+    else:
+        for row in rows:
+            cells = []
+            for idx, cell in enumerate(row):
+                style = td_right if idx >= right_align_from else td_style
+                cells.append(Paragraph(str(cell), style))
+            table_data.append(cells)
+
+    weight_sum = sum(col_weights) or 1
+    col_widths = [usable * (w / weight_sum) for w in col_weights]
+    table = Table(table_data, colWidths=col_widths, repeatRows=1)
+    style_cmds = [
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("TOPPADDING", (0, 0), (-1, 0), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 8),
+        ("TOPPADDING", (0, 1), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (0, -1), 0),
+        ("RIGHTPADDING", (0, 0), (0, -1), 8),
+        ("LEFTPADDING", (1, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (1, 0), (-1, -1), 0),
+        ("LINEBELOW", (0, 0), (-1, 0), 1, ink),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.4, rule),
+    ]
+    if not rows:
+        style_cmds.append(("SPAN", (0, 1), (-1, 1)))
+        style_cmds.append(("TOPPADDING", (0, 1), (-1, 1), 18))
+        style_cmds.append(("BOTTOMPADDING", (0, 1), (-1, 1), 18))
+    else:
+        for i in range(1, len(table_data)):
+            if i % 2 == 0:
+                style_cmds.append(("BACKGROUND", (0, i), (-1, i), colors.HexColor("#FAFAFA")))
+        style_cmds.append(("LINEBELOW", (0, -1), (-1, -1), 1, hair))
+    table.setStyle(TableStyle(style_cmds))
+    story.append(table)
+
+    def _footer(canvas, _doc):
+        canvas.saveState()
+        canvas.setStrokeColor(rule)
+        canvas.setLineWidth(0.5)
+        canvas.line(left, 32, page_w - right, 32)
+        canvas.setFont(font_regular, 7)
+        canvas.setFillColor(muted)
+        canvas.drawString(left, 20, "Reamarc Digital Solutions  ·  Confidential")
+        canvas.restoreState()
+
+    doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_footer, onLaterPages=_footer)
+    return buffer.getvalue()
+
+
+def export_receivables_outstanding_pdf(report: Dict[str, Any], settings: Dict[str, Any]) -> bytes:
+    rows = [
+        [r.get("client_name") or "", r.get("currency") or "PKR", str(r.get("invoice_count") or 0),
+         format_currency_amount(_as_int(r.get("total")), r.get("currency") or "PKR")]
+        for r in report.get("rows") or []
+    ]
+    for curr, total in (report.get("totals") or {}).items():
+        rows.append([f"Total {curr}", curr, "", format_currency_amount(_as_int(total), curr)])
+    kpis = [
+        (f"Outstanding {curr}", format_currency_amount(_as_int(total), curr))
+        for curr, total in (report.get("totals") or {}).items()
+    ]
+    return _standard_report_pdf(
+        title="Receivables Outstanding",
+        period_label=_period_label(report.get("date_from") or "", report.get("date_to") or ""),
+        settings=settings,
+        headers=["Client", "Currency", "Open invoices", "Amount due"],
+        col_weights=[0.46, 0.14, 0.16, 0.24],
+        rows=rows,
+        right_align_from=2,
+        kpi_items=kpis or None,
+        landscape_page=False,
+    )
+
+
+def export_collections_pdf(report: Dict[str, Any], settings: Dict[str, Any]) -> bytes:
+    summary = report.get("summary") or {}
+    rows = []
+    for r in report.get("receipts") or []:
+        method = "Cheque" if r.get("is_cheque") else (r.get("method") or "").capitalize()
+        if r.get("bank"):
+            method = f"{method} ({str(r.get('bank')).upper()})"
+        status = "Approved" if r.get("status") == "posted" else (r.get("status") or "").capitalize()
+        rows.append([
+            r.get("date") or "",
+            r.get("number") or "",
+            r.get("client_name") or "",
+            method,
+            status,
+            format_currency_amount(_as_int(r.get("amount_received")), r.get("currency") or "PKR"),
+            format_currency_amount(_as_int(r.get("pkr_amount")), "PKR"),
+        ])
+    kpis = [
+        ("Total collection", format_currency_amount(_as_int(summary.get("total_collected_pkr")), "PKR")),
+        ("Pending cheques", format_currency_amount(_as_int(summary.get("pending_pkr")), "PKR")),
+        ("Cash", format_currency_amount(_as_int(summary.get("cash_pkr")), "PKR")),
+        ("Bank (ABL + Meezan)", format_currency_amount(
+            _as_int(summary.get("abl_pkr")) + _as_int(summary.get("meezan_pkr")), "PKR"
+        )),
+    ]
+    return _standard_report_pdf(
+        title="Collections Report",
+        period_label=_period_label(report.get("date_from") or "", report.get("date_to") or ""),
+        settings=settings,
+        headers=["Date", "Receipt", "Client", "Method", "Status", "Amount", "PKR equivalent"],
+        col_weights=[0.11, 0.13, 0.22, 0.16, 0.10, 0.14, 0.14],
+        rows=rows,
+        right_align_from=5,
+        kpi_items=kpis,
+        landscape_page=True,
+    )
+
+
+def export_summary_accounts_pdf(report: Dict[str, Any], settings: Dict[str, Any]) -> bytes:
+    rows = []
+    for idx, r in enumerate(report.get("rows") or [], start=1):
+        curr = r.get("currency") or "PKR"
+        rows.append([
+            str(idx),
+            r.get("issue_date") or "",
+            r.get("number") or "",
+            r.get("client_name") or "",
+            curr,
+            format_currency_amount(_as_int(r.get("invoice_amount")), curr),
+            format_currency_amount(_as_int(r.get("received")), curr),
+            format_currency_amount(_as_int(r.get("balance_due")), curr),
+        ])
+    for curr, totals in (report.get("totals") or {}).items():
+        rows.append([
+            "",
+            "",
+            "",
+            f"Total {curr}",
+            curr,
+            format_currency_amount(_as_int(totals.get("invoice")), curr),
+            format_currency_amount(_as_int(totals.get("received")), curr),
+            format_currency_amount(_as_int(totals.get("due")), curr),
+        ])
+    kpis = []
+    for curr, totals in (report.get("totals") or {}).items():
+        kpis.append((f"Invoiced {curr}", format_currency_amount(_as_int(totals.get("invoice")), curr)))
+        kpis.append((f"Received {curr}", format_currency_amount(_as_int(totals.get("received")), curr)))
+        kpis.append((f"Due {curr}", format_currency_amount(_as_int(totals.get("due")), curr)))
+    return _standard_report_pdf(
+        title="Summary Accounts",
+        period_label=_period_label(report.get("date_from") or "", report.get("date_to") or ""),
+        settings=settings,
+        headers=["Sr", "Date", "Invoice", "Client", "Curr.", "Invoice amount", "Amount received", "Balance due"],
+        col_weights=[0.06, 0.11, 0.12, 0.22, 0.07, 0.14, 0.14, 0.14],
+        rows=rows,
+        right_align_from=5,
+        kpi_items=kpis[:6] or None,
+        landscape_page=True,
+    )

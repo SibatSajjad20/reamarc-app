@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   TrendingUp,
   AlertCircle,
@@ -12,8 +12,8 @@ import {
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { formatMinorMoney } from '../../utils/money';
-import type { Invoice, FinanceAccount, FinanceLedgerEntry, AgeingSummaryReport, FinanceTab } from '../../types/finance';
-import { FinanceStatusBadge } from './financeUi';
+import type { Invoice, FinanceAccount, FinanceLedgerEntry, AgeingSummaryReport, CollectionsReport, FinanceTab } from '../../types/finance';
+import { FinanceReportFilters, FinanceStatusBadge } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, CardListSkeleton } from '../ui/Skeletons';
@@ -27,16 +27,23 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
   onNavigateTab,
   onEditInvoice,
 }) => {
-  const cachedInvoices = financeService.getCachedInvoices({ limit: 6 });
+  const [dateFrom, setDateFrom] = useState<string>('2026-01-01');
+  const [dateTo, setDateTo] = useState<string>(new Date().toISOString().split('T')[0]);
+  const invoiceParams = useMemo(() => ({ date_from: dateFrom, date_to: dateTo, limit: 6 }), [dateFrom, dateTo]);
+  const ledgerParams = useMemo(() => ({ date_from: dateFrom, date_to: dateTo, limit: 6 }), [dateFrom, dateTo]);
+
+  const cachedInvoices = financeService.getCachedInvoices(invoiceParams);
   const cachedAccounts = financeService.getCachedAccounts();
-  const cachedLedger = financeService.getCachedLedger({ limit: 6 });
-  const cachedAgeing = financeService.getCachedAgeingSummary();
+  const cachedLedger = financeService.getCachedLedger(ledgerParams);
+  const cachedAgeing = financeService.getCachedAgeingSummary(dateTo);
+  const cachedCollections = financeService.getCachedCollections(dateFrom, dateTo);
   const hasCache = Boolean(cachedInvoices || cachedAccounts);
 
   const [invoices, setInvoices] = useState<Invoice[]>(() => cachedInvoices?.data.items || []);
   const [accounts, setAccounts] = useState<FinanceAccount[]>(() => cachedAccounts?.data || []);
   const [ledger, setLedger] = useState<FinanceLedgerEntry[]>(() => cachedLedger?.data.items || []);
   const [ageingReport, setAgeingReport] = useState<AgeingSummaryReport | null>(() => cachedAgeing?.data || null);
+  const [collections, setCollections] = useState<CollectionsReport | null>(() => cachedCollections?.data || null);
   const [loading, setLoading] = useState(!hasCache);
   const loadAbortRef = useRef<AbortController | null>(null);
   const loadReqIdRef = useRef(0);
@@ -48,18 +55,20 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
     const controller = new AbortController();
     loadAbortRef.current = controller;
     const reqId = ++loadReqIdRef.current;
-    const cached = financeService.getCachedInvoices({ limit: 6 }) || financeService.getCachedAccounts();
+    const cached = financeService.getCachedInvoices(invoiceParams) || financeService.getCachedAccounts();
     const silent = Boolean(opts?.silent) || hasLoadedOnceRef.current || Boolean(cached);
 
     if (cached && !opts?.silent) {
-      const inv = financeService.getCachedInvoices({ limit: 6 });
+      const inv = financeService.getCachedInvoices(invoiceParams);
       const accs = financeService.getCachedAccounts();
-      const ledg = financeService.getCachedLedger({ limit: 6 });
-      const ageing = financeService.getCachedAgeingSummary();
+      const ledg = financeService.getCachedLedger(ledgerParams);
+      const ageing = financeService.getCachedAgeingSummary(dateTo);
+      const cols = financeService.getCachedCollections(dateFrom, dateTo);
       if (inv) setInvoices(inv.data.items || []);
       if (accs) setAccounts(accs.data || []);
       if (ledg) setLedger(ledg.data.items || []);
       if (ageing) setAgeingReport(ageing.data);
+      if (cols) setCollections(cols.data);
       setLoading(false);
     } else if (!silent) {
       setLoading(true);
@@ -67,17 +76,19 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
 
     try {
       const signal = controller.signal;
-      const [invRes, accs, ledgRes, ageing] = await Promise.all([
-        financeService.getInvoices({ limit: 6 }, { signal }),
+      const [invRes, accs, ledgRes, ageing, cols] = await Promise.all([
+        financeService.getInvoices(invoiceParams, { signal }),
         financeService.getAccounts({ signal }),
-        financeService.getLedger({ limit: 6 }, { signal }),
-        financeService.getAgeingSummary(undefined, undefined, { signal }).catch(() => null),
+        financeService.getLedger(ledgerParams, { signal }),
+        financeService.getAgeingSummary(dateTo, undefined, { signal }).catch(() => null),
+        financeService.getCollectionsReport(dateFrom, dateTo, undefined, undefined, undefined, { signal }).catch(() => null),
       ]);
       if (reqId !== loadReqIdRef.current) return;
       setInvoices(invRes.items || []);
       setAccounts(accs || []);
       setLedger(ledgRes.items || []);
       if (ageing) setAgeingReport(ageing);
+      if (cols) setCollections(cols);
       hasLoadedOnceRef.current = true;
     } catch (err: any) {
       if (err?.name === 'AbortError' || err?.status === 499) return;
@@ -88,7 +99,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
         setLoading(false);
       }
     }
-  }, []);
+  }, [dateFrom, dateTo, invoiceParams, ledgerParams]);
 
   useEffect(() => {
     void loadOverview();
@@ -103,7 +114,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
   const ablAccount = accounts.find((a) => a.code === 'abl');
   const meezanAccount = accounts.find((a) => a.code === 'meezan');
 
-  const totalLiquid = (cashAccount?.balance || 0) + (ablAccount?.balance || 0) + (meezanAccount?.balance || 0);
+  const totalCollection = collections?.summary?.total_collected_pkr || 0;
 
   // Calculate totals from Ageing summary or invoices
   const pkrSummary = ageingReport?.currencies_summary?.PKR;
@@ -157,6 +168,13 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
         </div>
       </div>
 
+      <FinanceReportFilters
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onDateFrom={setDateFrom}
+        onDateTo={setDateTo}
+      />
+
       {loading ? (
         <>
           <KpiRowSkeleton count={4} />
@@ -173,22 +191,22 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
         <div className="bg-surface dark:bg-surface rounded-2xl border border-border dark:border-border p-5">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-fg-muted dark:text-fg-muted">
-              Total Liquid Cash
+              Total Collection
             </span>
             <div className="w-8 h-8 rounded-lg bg-primary-50 dark:bg-primary-950/60 flex items-center justify-center text-accent-text dark:text-primary-400">
               <Wallet className="w-4 h-4" />
             </div>
           </div>
           <p className="text-h2 font-semibold font-numeric text-fg mt-2">
-            {formatMinorMoney(totalLiquid, 'PKR')}
+            {formatMinorMoney(totalCollection, 'PKR')}
           </p>
           <div className="mt-2 flex items-center justify-between text-xs text-fg-muted">
-            <span>Cash + ABL + Meezan</span>
+            <span>Approved receipts in range</span>
             <button
-              onClick={() => onNavigateTab('accounts')}
+              onClick={() => onNavigateTab('collections')}
               className="text-accent-text hover:underline font-medium inline-flex items-center gap-0.5"
             >
-              Accounts <ArrowRight className="w-3 h-3" />
+              Collections <ArrowRight className="w-3 h-3" />
             </button>
           </div>
         </div>

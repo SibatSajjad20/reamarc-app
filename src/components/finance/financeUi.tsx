@@ -1,5 +1,5 @@
 import React from 'react';
-import { Filter, Upload, X } from 'lucide-react';
+import { Download, Filter, Upload, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { FINANCE_PROOF_ACCEPT } from '../../utils/financeProof';
 import type { Invoice, InvoiceStatus } from '../../types/finance';
@@ -133,6 +133,7 @@ interface FinanceReportFiltersProps {
   clientName?: string;
   onClientName?: (value: string) => void;
   clientOptions?: SelectOption[];
+  actions?: React.ReactNode;
 }
 
 export const FinanceReportFilters: React.FC<FinanceReportFiltersProps> = ({
@@ -143,6 +144,7 @@ export const FinanceReportFilters: React.FC<FinanceReportFiltersProps> = ({
   clientName,
   onClientName,
   clientOptions,
+  actions,
 }) => (
   <div className="flex flex-wrap items-center gap-2">
     <span className="inline-flex items-center gap-1.5 text-caption text-fg-muted shrink-0">
@@ -177,7 +179,23 @@ export const FinanceReportFilters: React.FC<FinanceReportFiltersProps> = ({
         options={[{ value: '', label: 'All clients' }, ...(clientOptions || [])]}
       />
     )}
+    {actions ? <div className="ml-auto flex items-center gap-2">{actions}</div> : null}
   </div>
+);
+
+export const ReportDownloadButton: React.FC<{
+  onClick: () => void | Promise<void>;
+  downloading?: boolean;
+}> = ({ onClick, downloading = false }) => (
+  <button
+    type="button"
+    onClick={() => void onClick()}
+    disabled={downloading}
+    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border-strong bg-surface px-3 text-xs font-semibold text-fg hover:bg-hover disabled:opacity-60"
+  >
+    <Download className="h-3.5 w-3.5" />
+    {downloading ? 'Preparing…' : 'Download report'}
+  </button>
 );
 
 export interface FinanceProofSlotProps {

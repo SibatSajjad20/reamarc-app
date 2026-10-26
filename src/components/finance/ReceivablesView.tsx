@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { financeService } from '../../services/financeService';
 import { formatMinorMoney } from '../../utils/money';
 import type { Invoice } from '../../types/finance';
-import { FinanceReportFilters } from './financeUi';
+import { FinanceReportFilters, ReportDownloadButton } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, TableSkeletonRows } from '../ui/Skeletons';
@@ -23,6 +23,7 @@ export const ReceivablesView: React.FC = () => {
   const cachedList = financeService.getCachedInvoices(listParams);
   const [invoices, setInvoices] = useState<Invoice[]>(() => cachedList?.data.items || []);
   const [loading, setLoading] = useState(!cachedList);
+  const [downloading, setDownloading] = useState(false);
   const loadAbortRef = useRef<AbortController | null>(null);
   const loadReqIdRef = useRef(0);
   useModuleLoadGate(loading);
@@ -101,6 +102,22 @@ export const ReceivablesView: React.FC = () => {
         dateTo={dateTo}
         onDateFrom={setDateFrom}
         onDateTo={setDateTo}
+        actions={
+          <ReportDownloadButton
+            downloading={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              try {
+                await financeService.downloadReport('receivables', {
+                  date_from: dateFrom,
+                  date_to: dateTo,
+                });
+              } finally {
+                setDownloading(false);
+              }
+            }}
+          />
+        }
       />
 
       {loading ? (

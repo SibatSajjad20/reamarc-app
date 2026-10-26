@@ -4,7 +4,7 @@ import { workspaceService } from '../../services/workspaceService';
 import { formatMinorMoney } from '../../utils/money';
 import type { CollectionsReport } from '../../types/finance';
 import type { Workspace } from '../../types';
-import { FinanceReportFilters } from './financeUi';
+import { FinanceReportFilters, ReportDownloadButton } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, TableSkeletonRows } from '../ui/Skeletons';
@@ -18,6 +18,7 @@ export const CollectionsView: React.FC = () => {
   const [data, setData] = useState<CollectionsReport | null>(() => cachedReport?.data || null);
   const [loading, setLoading] = useState(!cachedReport);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
   const loadAbortRef = useRef<AbortController | null>(null);
   const loadReqIdRef = useRef(0);
   useModuleLoadGate(loading);
@@ -94,6 +95,23 @@ export const CollectionsView: React.FC = () => {
         clientName={clientName}
         onClientName={setClientName}
         clientOptions={workspaces.map((ws) => ({ value: ws.name, label: ws.name }))}
+        actions={
+          <ReportDownloadButton
+            downloading={downloading}
+            onClick={async () => {
+              setDownloading(true);
+              try {
+                await financeService.downloadReport('collections', {
+                  date_from: dateFrom,
+                  date_to: dateTo,
+                  client_name: clientName || undefined,
+                });
+              } finally {
+                setDownloading(false);
+              }
+            }}
+          />
+        }
       />
 
       {error && <p className="text-xs text-rose-600">{error}</p>}
