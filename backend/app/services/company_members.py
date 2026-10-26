@@ -231,7 +231,8 @@ async def company_member_users(
     from app.core.tenant import get_global_db, get_tenant_context
 
     ctx = get_tenant_context()
-    cid = ctx.company_id if ctx else getattr(db, "company_id", None)
+    raw_cid = ctx.company_id if ctx else getattr(db, "company_id", None)
+    cid = raw_cid if isinstance(raw_cid, str) and raw_cid else None
     gdb = get_global_db()
     if not cid or gdb is None:
         if db is None:

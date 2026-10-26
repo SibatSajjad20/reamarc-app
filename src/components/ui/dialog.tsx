@@ -45,26 +45,30 @@ export const DialogContent = React.forwardRef<
   return (
     <DialogPortal>
       <DialogOverlay />
-      <DialogPrimitive.Content
-        ref={ref}
-        className={cn(
-          'fixed left-[50%] top-[50%] z-[var(--z-dialog)] w-full translate-x-[-50%] translate-y-[-50%]',
-          'max-h-[calc(100vh-64px)] flex flex-col rounded-lg border border-border bg-surface shadow-lg text-fg outline-none',
-          'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
-          'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
-          maxWidthMap[maxWidth],
-          className
-        )}
-        {...props}
-      >
-        {children}
-        {showClose && (
-          <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm p-1 text-fg-muted hover:text-fg hover:bg-hover transition-colors outline-none focus-visible:shadow-[0_0_0_3px_var(--ring)] cursor-pointer">
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </DialogPrimitive.Close>
-        )}
-      </DialogPrimitive.Content>
+      <div className="fixed inset-0 z-[var(--z-dialog)] overflow-y-auto pointer-events-none">
+        <div className="flex min-h-full items-center justify-center p-8">
+          <DialogPrimitive.Content
+            ref={ref}
+            className={cn(
+              'pointer-events-auto relative w-full',
+              'max-h-[calc(100vh-64px)] flex flex-col rounded-lg border border-border bg-surface shadow-lg text-fg outline-none',
+              'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
+              'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
+              maxWidthMap[maxWidth],
+              className
+            )}
+            {...props}
+          >
+            {children}
+            {showClose && (
+              <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm p-1 text-fg-muted hover:text-fg hover:bg-hover transition-colors outline-none focus-visible:shadow-[0_0_0_3px_var(--ring)] cursor-pointer">
+                <X className="h-4 w-4" />
+                <span className="sr-only">Close</span>
+              </DialogPrimitive.Close>
+            )}
+          </DialogPrimitive.Content>
+        </div>
+      </div>
     </DialogPortal>
   );
 });

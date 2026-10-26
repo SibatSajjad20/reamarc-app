@@ -10,6 +10,7 @@ const MODULE_LEVEL_RANKS: Record<string, Record<string, number>> = {
   sales: { none: 0, own: 1, department: 2, all: 3 },
   active_clients: { none: 0, view: 1, manage: 2 },
   ads: { none: 0, view: 1, manage: 2 },
+  finance: { none: 0, view: 1, create: 2, manage: 3 },
 };
 
 /** Company-wide operations access. Used when /auth/me is missing or incomplete. */
@@ -22,6 +23,7 @@ export const OPERATIONS_MODULE_LEVELS: Record<string, string> = {
   sales: 'all',
   active_clients: 'manage',
   ads: 'view',
+  finance: 'view',
 };
 
 function levelGte(module: string, current: string | undefined, target: string): boolean {
@@ -115,6 +117,7 @@ export function usePermissions() {
     canSeeWonDealApprovals: Boolean(capabilities.approve_won_deal),
     canAccessActiveClients: can('active_clients', 'view'),
     canAccessAds: (modules.ads ?? true) && can('ads', 'view'),
+    canAccessFinance: can('finance', 'view'),
     isContentLead: role === 'admin' || can('content_calendar', 'manage', 'content'),
     isCreativeLead: role === 'admin' || can('content_calendar', 'manage', 'creative'),
     isWebsiteLead: role === 'admin' || can('website', 'manage', 'website'),
