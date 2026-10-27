@@ -61,6 +61,20 @@ class TestFinanceModule(unittest.IsolatedAsyncioTestCase):
 
         await ensure_finance_indexes(self.raw)
 
+        # New companies start with blank bank details; issuing needs them, so give
+        # both test companies their own account details up front.
+        for cid, acct in ((COMPANY_A, "1111222233334444"), (COMPANY_B, "5555666677778888")):
+            await get_or_init_finance_settings(self.raw, cid)
+            await self.raw["finance_settings"].update_one(
+                {"company_id": cid},
+                {"$set": {"bank_accounts": [
+                    {"bank_id": "meezan", "bank_name": "Meezan Bank", "account_title": cid,
+                     "account_number": acct, "iban": f"PK00TEST{acct}", "swift_code": ""},
+                    {"bank_id": "abl", "bank_name": "Allied Bank Limited", "account_title": cid,
+                     "account_number": "", "iban": "", "swift_code": ""},
+                ]}},
+            )
+
         # Set up test app
         self.app = FastAPI()
         self.app.include_router(finance_router.router, prefix="/api/v1")
@@ -93,7 +107,7 @@ class TestFinanceModule(unittest.IsolatedAsyncioTestCase):
             res = await ac.get("/api/v1/finance/settings")
             self.assertEqual(res.status_code, 200, res.text)
             data = res.json()
-            self.assertEqual(data["company_name"], "Reamarc - Digital Solutions")
+            self.assertNotIn("Reamarc", data["company_name"])
             self.assertGreaterEqual(len(data["bank_accounts"]), 2)
             bank_ids = [b["bank_id"] for b in data["bank_accounts"]]
             self.assertIn("meezan", bank_ids)

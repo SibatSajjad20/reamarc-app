@@ -1,6 +1,8 @@
 """PDF generation for Invoices, Receipts, and Reports using ReportLab."""
 from __future__ import annotations
 
+from xml.sax.saxutils import escape
+
 import io
 import math
 from datetime import datetime
@@ -104,7 +106,19 @@ def _stamp_path() -> Optional[Path]:
     return _asset_path("reamarc-stamp.png")
 
 
-def _wordmark_flowable(normal_style: Any) -> Any:
+REAMARC_COMPANY_ID = "company_reamarc"
+
+
+def _is_reamarc(settings: Optional[Dict[str, Any]]) -> bool:
+    """Reamarc's own wordmark/stamp only belong on Reamarc documents."""
+    cid = (settings or {}).get("company_id")
+    return cid in (None, "", REAMARC_COMPANY_ID)
+
+
+def _wordmark_flowable(normal_style: Any, settings: Optional[Dict[str, Any]] = None) -> Any:
+    if not _is_reamarc(settings):
+        name = escape(str((settings or {}).get("company_name") or ""))
+        return Paragraph(f'<font size="16"><b>{name}</b></font>', normal_style)
     path = _wordmark_path()
     if REPORTLAB_AVAILABLE and RLImage is not None and path is not None:
         img = RLImage(str(path), width=176, height=41.8)
@@ -400,14 +414,14 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     story: List[Any] = []
 
     # 1. Header: Logo (left) and Company Info (right)
-    logo_p = _wordmark_flowable(normal)
+    logo_p = _wordmark_flowable(normal, settings)
 
-    comp_name = settings.get("company_name", "Reamarc - Digital Solutions")
-    comp_addr = settings.get("company_address", "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
-    comp_phone = settings.get("company_phone", "+92 3070205555")
-    comp_email = settings.get("company_email", "faizan.khan@reamarc.io")
-    comp_web = settings.get("company_website", "http://reamarc.io")
-    tax_id = settings.get("tax_id", "Govt. UID 9926976-3")
+    comp_name = settings.get("company_name") or ""
+    comp_addr = (settings.get("company_address") or "").replace("\n", "<br/>")
+    comp_phone = settings.get("company_phone") or ""
+    comp_email = settings.get("company_email") or ""
+    comp_web = settings.get("company_website") or ""
+    tax_id = settings.get("tax_id") or ""
 
     comp_info_html = f"<b>{comp_name}</b><br/>{comp_addr}<br/>{comp_phone}<br/>{comp_email}<br/>{comp_web}<br/>{tax_id}"
     comp_p = Paragraph(comp_info_html, style_company_details)
@@ -610,11 +624,11 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
         banks = settings.get("bank_accounts") or []
         pay_to = banks[0] if banks else {}
 
-    bank_name = pay_to.get("bank_name", "Meezan Bank")
-    acc_title = pay_to.get("account_title", "Reamarc")
-    acc_num = pay_to.get("account_number", "08140109366221")
-    iban = pay_to.get("iban", "PK23MEZN0008140109366221")
-    swift = pay_to.get("swift_code", "MEZNPKKAGRD")
+    bank_name = pay_to.get("bank_name") or ""
+    acc_title = pay_to.get("account_title") or ""
+    acc_num = pay_to.get("account_number") or ""
+    iban = pay_to.get("iban") or ""
+    swift = pay_to.get("swift_code") or ""
 
     bank_html = f"<b>Please make payment to:</b><br/>" \
                 f"Bank Name: {bank_name}<br/>" \
@@ -637,7 +651,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     story.append(Spacer(1, 25))
 
     # 6. Signatures: Account Manager | circular stamp (no caption) | CEO
-    stamp_path = _stamp_path()
+    stamp_path = _stamp_path() if _is_reamarc(settings) else None
     if REPORTLAB_AVAILABLE and RLImage is not None and stamp_path is not None and stamp_path.suffix.lower() in {".png", ".jpg", ".jpeg"}:
         stamp_cell = RLImage(str(stamp_path), width=78, height=78)
         stamp_cell.hAlign = "CENTER"
@@ -766,14 +780,14 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
     story: List[Any] = []
 
     # 1. Header
-    logo_p = _wordmark_flowable(normal)
+    logo_p = _wordmark_flowable(normal, settings)
 
-    comp_name = settings.get("company_name", "Reamarc - Digital Solutions")
-    comp_addr = settings.get("company_address", "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
-    comp_phone = settings.get("company_phone", "+92 3070205555")
-    comp_email = settings.get("company_email", "faizan.khan@reamarc.io")
-    comp_web = settings.get("company_website", "http://reamarc.io")
-    tax_id = settings.get("tax_id", "Govt. UID 9926976-3")
+    comp_name = settings.get("company_name") or ""
+    comp_addr = (settings.get("company_address") or "").replace("\n", "<br/>")
+    comp_phone = settings.get("company_phone") or ""
+    comp_email = settings.get("company_email") or ""
+    comp_web = settings.get("company_website") or ""
+    tax_id = settings.get("tax_id") or ""
 
     comp_info_html = f"<b>{comp_name}</b><br/>{comp_addr}<br/>{comp_phone}<br/>{comp_email}<br/>{comp_web}<br/>{tax_id}"
     comp_p = Paragraph(comp_info_html, style_company_details)

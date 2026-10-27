@@ -238,6 +238,15 @@ export const financeService = {
     return res;
   },
 
+  async regenerateInvoiceShareLink(id: string): Promise<{ id: string; share_token: string }> {
+    const res = await apiClient.post<{ id: string; share_token: string }>(
+      `/finance/invoices/${id}/share-link/regenerate`
+    );
+    invoicesCache.clear();
+    emitInvalidation(['finance']);
+    return res;
+  },
+
   getInvoicePdfUrl(id: string): string {
     return `/api/v1/finance/invoices/${id}/pdf`;
   },

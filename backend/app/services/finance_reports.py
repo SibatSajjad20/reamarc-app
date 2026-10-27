@@ -1,6 +1,8 @@
 """Receivables reports service: Ageing Summary, Ageing Detail, Client Statement, Collections, and WHT Reports."""
 from __future__ import annotations
 
+import re
+
 import io
 import logging
 from datetime import datetime, timezone
@@ -16,6 +18,21 @@ from app.services import finance_pdf as finance_pdf_mod
 from app.services.finance_pdf import NumberedCanvas, _wordmark_flowable, format_currency_amount
 
 logger = logging.getLogger(__name__)
+
+
+
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def spreadsheet_safe(value: Any) -> Any:
+    """Neutralise spreadsheet formula injection (OWASP CSV injection) in exported text cells."""
+    if isinstance(value, str) and value and value.startswith(_FORMULA_PREFIXES) and value.strip() not in ("-", "--"):
+        return "'" + value
+    return value
+
+
+def _safe_append(ws: Any, row: List[Any]) -> None:
+    ws.append([spreadsheet_safe(v) for v in row])
 
 
 def _today_str() -> str:
@@ -77,7 +94,7 @@ async def get_ageing_summary_report(
         "status": {"$in": ["issued", "partially_paid", "overdue", "paid"]},
     }
     if client_name:
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
     if currency and currency.upper() != "ALL":
         query["currency"] = currency.upper().strip()
 
@@ -176,7 +193,7 @@ async def get_ageing_detail_report(
         "status": {"$in": ["issued", "partially_paid", "overdue", "paid"]},
     }
     if client_name:
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
     if currency and currency.upper() != "ALL":
         query["currency"] = currency.upper().strip()
 
@@ -264,7 +281,7 @@ async def get_client_statement_report(
     # 1. Calculate Opening Balance before start_date
     prior_inv_cursor = db["invoices"].find({
         "company_id": company_id,
-        "client_name": {"$regex": f"^{client_name}$", "$options": "i"},
+        "client_name": {"$regex": f"^{re.escape(client_name.strip())}$", "$options": "i"},
         "currency": curr,
         "issue_date": {"$lt": start_date},
         "status": {"$in": ["issued", "partially_paid", "overdue", "paid"]},
@@ -274,7 +291,7 @@ async def get_client_statement_report(
 
     prior_rcpt_cursor = db["receipts"].find({
         "company_id": company_id,
-        "client_name": {"$regex": f"^{client_name}$", "$options": "i"},
+        "client_name": {"$regex": f"^{re.escape(client_name.strip())}$", "$options": "i"},
         "currency": curr,
         "date": {"$lt": start_date},
         "status": "posted",
@@ -286,7 +303,7 @@ async def get_client_statement_report(
     # 2. Collect Invoices and Receipts in Date Range
     period_invoices_cursor = db["invoices"].find({
         "company_id": company_id,
-        "client_name": {"$regex": f"^{client_name}$", "$options": "i"},
+        "client_name": {"$regex": f"^{re.escape(client_name.strip())}$", "$options": "i"},
         "currency": curr,
         "issue_date": {"$gte": start_date, "$lte": end_date},
         "status": {"$in": ["issued", "partially_paid", "overdue", "paid"]},
@@ -295,7 +312,7 @@ async def get_client_statement_report(
 
     period_receipts_cursor = db["receipts"].find({
         "company_id": company_id,
-        "client_name": {"$regex": f"^{client_name}$", "$options": "i"},
+        "client_name": {"$regex": f"^{re.escape(client_name.strip())}$", "$options": "i"},
         "currency": curr,
         "date": {"$gte": start_date, "$lte": end_date},
         "status": "posted",
@@ -368,7 +385,7 @@ async def get_collections_report(
     if bank and bank.lower() != "all":
         query["bank"] = bank.lower().strip()
     if client_name and client_name.strip():
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
 
     cursor = db["receipts"].find(query).sort("date", -1)
     raw_receipts = await cursor.to_list(length=1000)
@@ -439,7 +456,7 @@ async def get_receivables_outstanding_report(
         "balance_due": {"$gt": 0},
     }
     if client_name and client_name.strip():
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
 
     invoices = await db["invoices"].find(query).to_list(length=1000)
     grouped: Dict[str, Dict[str, Any]] = {}
@@ -486,7 +503,7 @@ async def get_summary_accounts_report(
         "status": {"$nin": ["void", "deleted", "draft"]},
     }
     if client_name and client_name.strip():
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
 
     invoices = await db["invoices"].find(query).sort("issue_date", 1).to_list(length=1000)
     rows = []
@@ -535,7 +552,7 @@ async def get_wht_report(
         "status": {"$in": ["posted", "pending"]},
     }
     if client_name:
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
 
     cursor = db["receipts"].find(query).sort("date", -1)
     records = await cursor.to_list(length=500)
@@ -595,13 +612,13 @@ def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
     bold_font = Font(name="Calibri", size=10, bold=True)
     num_fmt = "#,##0"
 
-    ws.append([f"Receivables Ageing Summary (As of {report.get('as_of_date')})"])
+    _safe_append(ws, [f"Receivables Ageing Summary (As of {report.get('as_of_date')})"])
     ws.merge_cells("A1:G1")
     ws["A1"].font = Font(name="Calibri", size=14, bold=True, color="2B2D42")
-    ws.append([])
+    _safe_append(ws, [])
 
     headers = ["Client Name", "Currency", "Current", "1-30 Days", "31-60 Days", "61-90 Days", "90+ Days", "Total"]
-    ws.append(headers)
+    _safe_append(ws, headers)
     for col_idx in range(1, len(headers) + 1):
         cell = ws.cell(row=3, column=col_idx)
         cell.font = header_font
@@ -610,7 +627,7 @@ def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
 
     row_num = 4
     for r in report.get("rows", []):
-        ws.append([
+        _safe_append(ws, [
             r["client_name"],
             r["currency"],
             r["current"] / 100.0,
@@ -625,10 +642,10 @@ def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
         row_num += 1
 
     # Totals per currency
-    ws.append([])
+    _safe_append(ws, [])
     row_num += 1
     for curr, totals in report.get("currencies_summary", {}).items():
-        ws.append([
+        _safe_append(ws, [
             f"TOTAL {curr}",
             curr,
             totals["current"] / 100.0,
@@ -658,11 +675,11 @@ def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
 
 
 def _ageing_company_block(settings: Dict[str, Any], style: Any) -> Any:
-    addr = (settings.get("company_address") or "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK").replace("\n", "<br/>")
-    phone = settings.get("company_phone") or "+92 3070205555"
-    email = settings.get("company_email") or "faizan.khan@reamarc.io"
-    web = settings.get("company_website") or "http://reamarc.io"
-    tax_id = settings.get("tax_id") or "Govt. UID 9926976-3"
+    addr = (settings.get("company_address") or "").replace("\n", "<br/>")
+    phone = settings.get("company_phone") or ""
+    email = settings.get("company_email") or ""
+    web = settings.get("company_website") or ""
+    tax_id = settings.get("tax_id") or ""
     return Paragraph(f"{addr}<br/>{phone}<br/>{email}<br/>{web}<br/>{tax_id}", style)
 
 
@@ -743,7 +760,7 @@ def export_ageing_summary_pdf(report: Dict[str, Any], settings: Dict[str, Any]) 
     summaries = report.get("currencies_summary") or {}
 
     header = Table(
-        [[_wordmark_flowable(normal), _ageing_company_block(settings or {}, company_style)]],
+        [[_wordmark_flowable(normal, settings or {}), _ageing_company_block(settings or {}, company_style)]],
         colWidths=[usable * 0.55, usable * 0.45],
     )
     header.setStyle(TableStyle([
@@ -866,7 +883,7 @@ def export_ageing_summary_pdf(report: Dict[str, Any], settings: Dict[str, Any]) 
         canvas.line(left, 32, page_w - right, 32)
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(muted)
-        canvas.drawString(left, 20, "Reamarc Digital Solutions  ·  Confidential")
+        canvas.drawString(left, 20, f"{(settings or {}).get('company_name') or ''}  ·  Confidential".strip(" ·"))
         canvas.restoreState()
 
     doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_footer, onLaterPages=_footer)
@@ -938,7 +955,7 @@ def _standard_report_pdf(
     story: List[Any] = []
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     header = Table(
-        [[_wordmark_flowable(normal), _ageing_company_block(settings or {}, company_style)]],
+        [[_wordmark_flowable(normal, settings or {}), _ageing_company_block(settings or {}, company_style)]],
         colWidths=[usable * 0.55, usable * 0.45],
     )
     header.setStyle(TableStyle([
@@ -1039,7 +1056,7 @@ def _standard_report_pdf(
         canvas.line(left, 32, page_w - right, 32)
         canvas.setFont(font_regular, 7)
         canvas.setFillColor(muted)
-        canvas.drawString(left, 20, "Reamarc Digital Solutions  ·  Confidential")
+        canvas.drawString(left, 20, f"{(settings or {}).get('company_name') or ''}  ·  Confidential".strip(" ·"))
         canvas.restoreState()
 
     doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_footer, onLaterPages=_footer)

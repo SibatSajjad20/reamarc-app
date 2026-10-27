@@ -1,6 +1,8 @@
 """Receipt recording, invoice allocation, ledger posting, and void reversals."""
 from __future__ import annotations
 
+import re
+
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -423,14 +425,14 @@ async def get_receipts(
         query["workspace_id"] = workspace_id
 
     if client_name:
-        query["client_name"] = {"$regex": client_name.strip(), "$options": "i"}
+        query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
 
     if search and search.strip():
         q = search.strip()
         query["$or"] = [
-            {"number": {"$regex": q, "$options": "i"}},
-            {"client_name": {"$regex": q, "$options": "i"}},
-            {"reference_number": {"$regex": q, "$options": "i"}},
+            {"number": {"$regex": re.escape(q), "$options": "i"}},
+            {"client_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"reference_number": {"$regex": re.escape(q), "$options": "i"}},
         ]
 
     total = await coll.count_documents(query)

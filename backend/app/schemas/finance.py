@@ -19,11 +19,15 @@ VALID_RECEIPT_STATUSES = ("posted", "pending", "void", "deleted")
 VALID_LEDGER_SOURCES = ("receipt", "transfer", "opening_balance", "adjustment", "reversal")
 VALID_TERMS_PRESETS = ("Due on receipt", "Net 7", "Net 15", "Net 30", "Custom")
 
+# Sanity caps so absurd values return a clean 422 instead of overflowing Mongo's 8-byte ints.
+MAX_QUANTITY = 1_000_000
+MAX_MINOR_AMOUNT = 100_000_000_000_000  # 1 trillion in major units (paisa/cents)
+
 
 class BankAccountConfig(BaseModel):
     bank_id: str = Field(..., description="'abl' or 'meezan'")
     bank_name: str = Field(..., description="e.g. Meezan Bank, Allied Bank Limited")
-    account_title: str = Field(default="Reamarc")
+    account_title: str = Field(default="")
     account_number: str = Field(default="")
     iban: str = Field(default="")
     swift_code: str = Field(default="")
@@ -31,12 +35,13 @@ class BankAccountConfig(BaseModel):
 
 
 class FinanceSettingsBase(BaseModel):
-    company_name: str = "Reamarc - Digital Solutions"
-    company_address: str = "3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK"
-    company_phone: str = "+92 3070205555"
-    company_email: str = "faizan.khan@reamarc.io"
-    company_website: str = "http://reamarc.io"
-    tax_id: str = "Govt. UID 9926976-3"
+    # New companies start blank; each company fills in its own letterhead and bank details.
+    company_name: str = ""
+    company_address: str = ""
+    company_phone: str = ""
+    company_email: str = ""
+    company_website: str = ""
+    tax_id: str = ""
     invoice_prefix: str = "INV-"
     receipt_prefix: str = "RCT-"
     default_payment_terms: str = "Due on receipt"
@@ -75,7 +80,7 @@ class FinanceSettingsResponse(FinanceSettingsBase):
 
 class FinanceServiceCreate(BaseModel):
     name: str = Field(..., min_length=1)
-    default_rate: int = Field(default=0, ge=0, description="Rate in minor units (paisa)")
+    default_rate: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Rate in minor units (paisa)")
     currency: str = Field(default="PKR")
     description: Optional[str] = ""
     is_active: bool = True
@@ -91,7 +96,7 @@ class FinanceServiceCreate(BaseModel):
 
 class FinanceServiceUpdate(BaseModel):
     name: Optional[str] = None
-    default_rate: Optional[int] = Field(default=None, ge=0)
+    default_rate: Optional[int] = Field(default=None, ge=0, le=MAX_MINOR_AMOUNT)
     currency: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
@@ -123,13 +128,16 @@ class InvoiceLineItem(BaseModel):
     serial: int = Field(default=1, ge=1)
     service_id: Optional[str] = None
     description: str = Field(..., min_length=1)
-    quantity: float = Field(default=1.0, gt=0)
-    rate: int = Field(..., ge=0, description="Unit rate in minor units")
-    amount: int = Field(default=0, ge=0, description="Total line amount in minor units")
+    quantity: float = Field(default=1.0, gt=0, le=MAX_QUANTITY)
+    rate: int = Field(..., ge=0, le=MAX_MINOR_AMOUNT, description="Unit rate in minor units")
+    amount: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Total line amount in minor units")
 
     @model_validator(mode="after")
     def compute_amount(self) -> InvoiceLineItem:
-        self.amount = int(round(self.quantity * self.rate))
+        amount = int(round(self.quantity * self.rate))
+        if amount > MAX_MINOR_AMOUNT:
+            raise ValueError("Line amount is too large")
+        self.amount = amount
         return self
 
 
@@ -152,7 +160,7 @@ class InvoiceCreate(BaseModel):
     currency: str = "PKR"
     line_items: List[InvoiceLineItem] = Field(..., min_length=1)
     discount_type: Literal["amount", "percent"] = "amount"
-    discount_value: int = Field(default=0, ge=0, description="Amount in minor units or percent integer (0-100)")
+    discount_value: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Amount in minor units or percent integer (0-100)")
     notes: Optional[str] = None
     terms_text: Optional[str] = None
     pay_to_bank: Optional[Dict[str, Any]] = None
@@ -186,7 +194,7 @@ class InvoiceUpdate(BaseModel):
     currency: Optional[str] = None
     line_items: Optional[List[InvoiceLineItem]] = None
     discount_type: Optional[Literal["amount", "percent"]] = None
-    discount_value: Optional[int] = Field(default=None, ge=0)
+    discount_value: Optional[int] = Field(default=None, ge=0, le=MAX_MINOR_AMOUNT)
     notes: Optional[str] = None
     terms_text: Optional[str] = None
     pay_to_bank: Optional[Dict[str, Any]] = None
@@ -242,8 +250,8 @@ class InvoiceResponse(BaseModel):
 class ReceiptAllocation(BaseModel):
     invoice_id: str
     invoice_number: Optional[str] = None
-    amount: int = Field(default=0, ge=0, description="Amount received allocated in invoice currency")
-    wht: int = Field(default=0, ge=0, description="WHT withheld allocated in invoice currency")
+    amount: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Amount received allocated in invoice currency")
+    wht: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="WHT withheld allocated in invoice currency")
 
     @model_validator(mode="after")
     def validate_non_zero(self) -> ReceiptAllocation:
@@ -257,12 +265,12 @@ class ReceiptCreate(BaseModel):
     client_name: str = Field(..., min_length=1)
     date: str = Field(..., description="YYYY-MM-DD")
     currency: str = "PKR"
-    amount_received: int = Field(default=0, ge=0, description="Minor units received in invoice currency")
-    wht_amount: int = Field(default=0, ge=0, description="Minor units WHT withheld in invoice currency")
+    amount_received: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Minor units received in invoice currency")
+    wht_amount: int = Field(default=0, ge=0, le=MAX_MINOR_AMOUNT, description="Minor units WHT withheld in invoice currency")
     method: Literal["cash", "bank"]
     bank: Optional[str] = Field(default=None, description="'abl' or 'meezan'")
     reference_number: Optional[str] = Field(default=None, description="Required for bank transfer / cheque")
-    exchange_rate: Optional[float] = Field(default=None, gt=0, description="Required if currency is USD or GBP")
+    exchange_rate: Optional[float] = Field(default=None, gt=0, le=100_000, description="Required if currency is USD or GBP")
     memo: Optional[str] = None
     allocations: List[ReceiptAllocation] = Field(default_factory=list)
     proof_file_ids: List[str] = Field(default_factory=list)
@@ -395,7 +403,7 @@ class FinanceLedgerEntryResponse(BaseModel):
 class FinanceTransferCreate(BaseModel):
     from_account: Literal["cash"] = "cash"
     to_account: Literal["abl", "meezan"]
-    amount: int = Field(..., gt=0, description="PKR paisa to transfer from cash to bank")
+    amount: int = Field(..., gt=0, le=MAX_MINOR_AMOUNT, description="PKR paisa to transfer from cash to bank")
     date: str = Field(..., description="YYYY-MM-DD")
     deposit_slip_reference: Optional[str] = None
     slip_file_id: Optional[str] = None
@@ -426,7 +434,7 @@ class FinanceTransferResponse(BaseModel):
 
 class FinanceOpeningBalanceCreate(BaseModel):
     account_code: Literal["cash", "abl", "meezan"]
-    amount: int = Field(..., ge=0, description="PKR paisa opening balance")
+    amount: int = Field(..., ge=0, le=MAX_MINOR_AMOUNT, description="PKR paisa opening balance")
     date: str = Field(..., description="YYYY-MM-DD")
     memo: Optional[str] = "Opening Balance"
 
@@ -434,7 +442,7 @@ class FinanceOpeningBalanceCreate(BaseModel):
 class FinanceAdjustmentCreate(BaseModel):
     account_code: Literal["cash", "abl", "meezan"]
     direction: Literal["in", "out"]
-    amount: int = Field(..., gt=0, description="PKR paisa adjustment amount")
+    amount: int = Field(..., gt=0, le=MAX_MINOR_AMOUNT, description="PKR paisa adjustment amount")
     date: str = Field(..., description="YYYY-MM-DD")
     memo: str = Field(..., min_length=3)
     reason: str = Field(..., min_length=3)

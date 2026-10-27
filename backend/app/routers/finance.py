@@ -42,6 +42,7 @@ from app.services.finance_invoices import (
     get_invoice_by_share_token,
     get_invoices,
     issue_invoice,
+    regenerate_share_token,
     update_invoice_draft,
     void_invoice,
 )
@@ -232,7 +233,13 @@ async def update_settings_endpoint(
 ):
     db = get_database()
     cid = _extract_company_id(current_user)
-    updated = await update_finance_settings(db, cid, payload)
+    updated = await update_finance_settings(
+        db,
+        cid,
+        payload,
+        user_id=current_user.get("id"),
+        user_name=current_user.get("full_name") or current_user.get("name"),
+    )
     updated.pop("_id", None)
     return updated
 
@@ -402,6 +409,21 @@ async def delete_invoice_endpoint(
     deleted = await delete_invoice(db, cid, invoice_id, reason=payload.reason, user_id=uid, user_name=uname)
     deleted.pop("_id", None)
     return deleted
+
+
+@router.post("/invoices/{invoice_id}/share-link/regenerate")
+async def regenerate_invoice_share_link_endpoint(
+    invoice_id: str,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "manage")),
+):
+    """Issue a new public link for the invoice; the previous link stops working."""
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    updated = await regenerate_share_token(db, cid, invoice_id, user_id=uid, user_name=uname)
+    updated.pop("_id", None)
+    return {"id": updated.get("id"), "share_token": updated.get("share_token")}
 
 
 @router.post("/invoices/{invoice_id}/duplicate")

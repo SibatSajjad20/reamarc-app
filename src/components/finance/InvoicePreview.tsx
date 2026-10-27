@@ -15,6 +15,7 @@ interface InvoicePreviewProps {
     balance_due?: number;
   };
   companySettings?: {
+    company_id?: string;
     company_name?: string;
     company_address?: string;
     company_phone?: string;
@@ -49,20 +50,22 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
   const items = invoice.line_items || [];
   const status = (invoice.status || 'draft').toLowerCase();
 
-  const compAddr =
-    companySettings?.company_address ||
-    '3rd Floor, Bldg. A-26, Business Bay, Sector-F, DHA-1\nPunjab PK';
-  const compPhone = companySettings?.company_phone || '+92 3070205555';
-  const compEmail = companySettings?.company_email || 'faizan.khan@reamarc.io';
-  const compWeb = companySettings?.company_website || 'http://reamarc.io';
-  const taxId = companySettings?.tax_id || 'Govt. UID 9926976-3';
+  const compName = companySettings?.company_name || '';
+  const compAddr = companySettings?.company_address || '';
+  const compPhone = companySettings?.company_phone || '';
+  const compEmail = companySettings?.company_email || '';
+  const compWeb = companySettings?.company_website || '';
+  const taxId = companySettings?.tax_id || '';
+  // Reamarc's wordmark and stamp only belong on Reamarc's own invoices.
+  const settingsCompanyId = companySettings?.company_id || invoice.company_id;
+  const isReamarc = !settingsCompanyId || settingsCompanyId === 'company_reamarc';
 
   const defaultBank = companySettings?.bank_accounts?.[0] || {
-    bank_name: 'Meezan Bank',
-    account_title: 'Reamarc',
-    account_number: '08140109366221',
-    iban: 'PK23MEZN0008140109366221',
-    swift_code: 'MEZNPKKAGRD',
+    bank_name: '',
+    account_title: '',
+    account_number: '',
+    iban: '',
+    swift_code: '',
   };
   const payToBank = invoice.pay_to_bank || defaultBank;
   const signatures = [
@@ -90,12 +93,16 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
       )}
 
       <header className="flex items-start justify-between gap-8">
-        <img
-          src="/assets/reamarc-wordmark.png?v=5"
-          alt="Reamarc Digital Solutions"
-          className="h-12 w-auto shrink-0"
-          draggable={false}
-        />
+        {isReamarc ? (
+          <img
+            src="/assets/reamarc-wordmark.png?v=5"
+            alt="Reamarc Digital Solutions"
+            className="h-12 w-auto shrink-0"
+            draggable={false}
+          />
+        ) : (
+          <p className="text-xl font-bold text-zinc-900 shrink-0">{compName}</p>
+        )}
         <div className="text-right text-[11px] leading-[1.55] text-zinc-600 shrink-0">
           <p className="whitespace-pre-line">{compAddr}</p>
           <p>{compPhone}</p>
@@ -249,11 +256,15 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
         {signatures.map((sig) => (
           <div key={sig.id} className="text-center">
             {sig.id === 'stamp' ? (
+              !isReamarc ? (
+                <div className="mx-auto h-[78px] w-[78px]" />
+              ) : (
               <img
                 src="/assets/reamarc-stamp.png?v=4"
                 alt="Reamarc stamp"
                 className="mx-auto h-[78px] w-[78px] object-contain"
               />
+              )
             ) : (
               <>
                 <div className="mx-auto mb-2 h-px w-[70%] bg-zinc-300" />

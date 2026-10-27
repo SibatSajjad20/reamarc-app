@@ -4,6 +4,7 @@ import {
   Search,
   Download,
   Share2,
+  RefreshCw,
   Check,
   Eye,
   CreditCard,
@@ -199,6 +200,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setTimeout(() => setCopiedToken(null), 2500);
   };
 
+  const handleRegenerateLink = async (inv: Invoice) => {
+    if (!window.confirm(`Create a new public link for ${inv.number || 'this invoice'}? The old link will stop working.`)) return;
+    try {
+      const res = await financeService.regenerateInvoiceShareLink(inv.id);
+      handleCopyLink(res.share_token);
+      fetchInvoices();
+    } catch (err: any) {
+      setActionError(err?.message || 'Could not regenerate the link');
+    }
+  };
+
   const handleShareWhatsApp = (inv: Invoice) => {
     const text = encodeURIComponent(
       `Hello ${inv.client_name},\nHere is your invoice ${inv.number} for ${formatMinorMoney(
@@ -391,7 +403,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         <button
                           type="button"
                           onClick={() => handleCopyLink(inv.share_token)}
-                          disabled={!inv.share_token || inv.status === 'deleted'}
+                          disabled={!inv.share_token || inv.status === 'deleted' || inv.status === 'void'}
                           className="inline-flex h-8 w-8 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition disabled:invisible"
                           title="Copy public link"
                         >
@@ -400,6 +412,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           ) : (
                             <Share2 className="w-4 h-4" />
                           )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleRegenerateLink(inv)}
+                          disabled={inv.status === 'deleted' || inv.status === 'draft'}
+                          className="inline-flex h-8 w-8 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition disabled:invisible"
+                          title="Regenerate public link (old link stops working)"
+                        >
+                          <RefreshCw className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

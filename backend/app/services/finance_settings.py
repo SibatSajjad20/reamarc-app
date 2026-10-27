@@ -41,26 +41,37 @@ DEFAULT_SERVICES_LIST = [
     "Professional Video Shoots + Photography Shoots",
 ]
 
+# New companies get bank slots with no account details; invoices cannot be issued
+# until the company enters its own (see has_bank_details / issue_invoice).
 DEFAULT_BANK_ACCOUNTS = [
-    BankAccountConfig(
-        bank_id="meezan",
-        bank_name="Meezan Bank",
-        account_title="Reamarc",
-        account_number="08140109366221",
-        iban="PK23MEZN0008140109366221",
-        swift_code="MEZNPKKAGRD",
-        branch="Sector-F, DHA-1, Islamabad",
-    ),
-    BankAccountConfig(
-        bank_id="abl",
-        bank_name="Allied Bank Limited",
-        account_title="Reamarc",
-        account_number="0010000000000000",
-        iban="PK00ABPA0000000000000000",
-        swift_code="ABPAPKKAAXXX",
-        branch="Main Branch, Islamabad",
-    ),
+    BankAccountConfig(bank_id="meezan", bank_name="Meezan Bank"),
+    BankAccountConfig(bank_id="abl", bank_name="Allied Bank Limited"),
 ]
+
+BANK_DETAILS_REQUIRED_MESSAGE = (
+    "Add your bank account number or IBAN in Finance settings before issuing invoices."
+)
+
+
+def has_bank_details(settings: Optional[Dict[str, Any]]) -> bool:
+    for b in (settings or {}).get("bank_accounts") or []:
+        if not isinstance(b, dict):
+            continue
+        if str(b.get("account_number") or "").strip() or str(b.get("iban") or "").strip():
+            return True
+    return False
+
+
+async def _company_display_name(db, company_id: str) -> str:
+    try:
+        from app.core.tenant import get_global_db
+
+        gdb = get_global_db()
+        src = gdb if gdb is not None else db
+        doc = await src["companies"].find_one({"id": company_id}, {"name": 1})
+        return str((doc or {}).get("name") or "").strip()
+    except Exception:
+        return ""
 
 
 async def ensure_finance_indexes(db) -> None:
@@ -127,6 +138,7 @@ async def get_or_init_finance_settings(db, company_id: str) -> Dict[str, Any]:
         return doc
 
     base = FinanceSettingsBase(
+        company_name=await _company_display_name(db, company_id),
         bank_accounts=DEFAULT_BANK_ACCOUNTS,
     )
     doc = base.model_dump()
@@ -148,17 +160,39 @@ async def get_or_init_finance_settings(db, company_id: str) -> Dict[str, Any]:
 
 
 async def update_finance_settings(
-    db, company_id: str, payload: FinanceSettingsUpdate
+    db,
+    company_id: str,
+    payload: FinanceSettingsUpdate,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Update company finance settings."""
-    await get_or_init_finance_settings(db, company_id)
+    """Update company finance settings, recording old and new values in finance_audit."""
+    before = await get_or_init_finance_settings(db, company_id)
     coll = db["finance_settings"]
     update_data = {k: v for k, v in payload.model_dump().items() if v is not None}
     if not update_data:
         return await coll.find_one({"company_id": company_id})
 
-    update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+    changes = {
+        k: {"old": before.get(k), "new": v}
+        for k, v in update_data.items()
+        if before.get(k) != v
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    update_data["updated_at"] = now
     await coll.update_one({"company_id": company_id}, {"$set": update_data})
+    if changes:
+        await db["finance_audit"].insert_one({
+            "id": f"aud_{uuid.uuid4().hex[:12]}",
+            "company_id": company_id,
+            "action": "settings_bank_update" if "bank_accounts" in changes else "settings_update",
+            "entity_type": "finance_settings",
+            "entity_id": before.get("id"),
+            "details": {"changes": changes},
+            "user_id": user_id,
+            "user_name": user_name,
+            "created_at": now,
+        })
     return await coll.find_one({"company_id": company_id})
 
 
@@ -184,8 +218,8 @@ async def seed_default_accounts(db, company_id: str) -> None:
             "code": "abl",
             "name": "Allied Bank Limited",
             "bank_name": "Allied Bank Limited",
-            "account_number": "0010000000000000",
-            "iban": "PK00ABPA0000000000000000",
+            "account_number": "",
+            "iban": "",
             "currency": "PKR",
             "is_system": True,
             "created_at": datetime.now(timezone.utc).isoformat(),
@@ -196,8 +230,8 @@ async def seed_default_accounts(db, company_id: str) -> None:
             "code": "meezan",
             "name": "Meezan Bank",
             "bank_name": "Meezan Bank",
-            "account_number": "08140109366221",
-            "iban": "PK23MEZN0008140109366221",
+            "account_number": "",
+            "iban": "",
             "currency": "PKR",
             "is_system": True,
             "created_at": datetime.now(timezone.utc).isoformat(),

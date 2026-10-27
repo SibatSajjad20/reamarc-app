@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import re
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -12,7 +14,11 @@ from app.core.uploads import save_upload_bytes
 from app.schemas.finance import InvoiceCreate, InvoiceResponse, InvoiceUpdate
 from app.services.finance_numbering import get_next_number
 from app.services.finance_pdf import generate_invoice_pdf
-from app.services.finance_settings import get_or_init_finance_settings
+from app.services.finance_settings import (
+    BANK_DETAILS_REQUIRED_MESSAGE,
+    get_or_init_finance_settings,
+    has_bank_details,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,11 +138,33 @@ async def update_invoice_draft(
     update_dict["balance_due"] = financials["total"] - (existing.get("amount_paid", 0) + existing.get("wht_settled", 0))
     update_dict["updated_at"] = _now_iso()
 
+    changes = {}
+    for k, v in update_dict.items():
+        if k == "updated_at":
+            continue
+        old = existing.get(k)
+        new = [it.model_dump() if hasattr(it, "model_dump") else it for it in v] if isinstance(v, list) else (
+            v.model_dump() if hasattr(v, "model_dump") else v
+        )
+        if old != new:
+            changes[k] = {"old": old, "new": new}
+
     result = await coll.find_one_and_update(
         {"company_id": company_id, "id": invoice_id},
         {"$set": update_dict},
         return_document=True,
     )
+    if changes:
+        await db["finance_audit"].insert_one({
+            "id": f"aud_{uuid.uuid4().hex[:12]}",
+            "company_id": company_id,
+            "action": "invoice_update",
+            "entity_type": "invoice",
+            "entity_id": invoice_id,
+            "details": {"changes": changes},
+            "user_id": user_id,
+            "created_at": update_dict.get("updated_at") or _now_iso(),
+        })
     return result
 
 
@@ -161,8 +189,11 @@ async def issue_invoice(
     if curr_status in ("issued", "paid", "partially_paid", "overdue"):
         return inv
 
-    # Reserve official sequential number
     settings = await get_or_init_finance_settings(db, company_id)
+    if not has_bank_details(settings):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=BANK_DETAILS_REQUIRED_MESSAGE)
+
+    # Reserve official sequential number
     prefix = settings.get("invoice_prefix", "INV-")
     issue_year = datetime.strptime(inv.get("issue_date") or _today_str(), "%Y-%m-%d").year
     official_num = await get_next_number(db, company_id, "invoice", prefix=prefix, year=issue_year)
@@ -183,7 +214,8 @@ async def issue_invoice(
     inv_copy.update(update_fields)
     try:
         pdf_bytes = generate_invoice_pdf(inv_copy, settings)
-        rel_key = f"finance/invoices/{company_id}/{official_num}.pdf"
+        # Random component so stored PDFs cannot be fetched by guessing invoice numbers.
+        rel_key = f"finance/invoices/{company_id}/{secrets.token_hex(12)}_{official_num}.pdf"
         file_id = await save_upload_bytes(
             db,
             relative_key=rel_key,
@@ -389,9 +421,9 @@ async def get_invoices(
     if search and search.strip():
         q = search.strip()
         query["$or"] = [
-            {"number": {"$regex": q, "$options": "i"}},
-            {"client_name": {"$regex": q, "$options": "i"}},
-            {"reference": {"$regex": q, "$options": "i"}},
+            {"number": {"$regex": re.escape(q), "$options": "i"}},
+            {"client_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"reference": {"$regex": re.escape(q), "$options": "i"}},
         ]
 
     if date_from or date_to:
@@ -425,6 +457,37 @@ async def get_invoice_by_share_token(db, share_token: str) -> Optional[Dict[str,
     inv = await db["invoices"].find_one({"share_token": share_token.strip()})
     if not inv:
         return None
-    if inv.get("status") in ("deleted", "draft"):
+    if inv.get("status") in ("deleted", "draft", "void"):
         return None
     return inv
+
+
+async def regenerate_share_token(
+    db,
+    company_id: str,
+    invoice_id: str,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Replace an invoice's public share token; the old link stops working immediately."""
+    now = _now_iso()
+    new_token = f"inv_tok_{secrets.token_hex(16)}"
+    updated = await db["invoices"].find_one_and_update(
+        {"company_id": company_id, "id": invoice_id, "status": {"$ne": "deleted"}},
+        {"$set": {"share_token": new_token, "share_token_rotated_at": now, "updated_at": now}},
+        return_document=True,
+    )
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+    await db["finance_audit"].insert_one({
+        "id": f"aud_{uuid.uuid4().hex[:12]}",
+        "company_id": company_id,
+        "action": "invoice_share_link_regenerate",
+        "entity_type": "invoice",
+        "entity_id": invoice_id,
+        "details": {"number": updated.get("number")},
+        "user_id": user_id,
+        "user_name": user_name,
+        "created_at": now,
+    })
+    return updated

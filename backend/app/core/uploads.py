@@ -603,6 +603,28 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
             detail="Requested file not found.",
         )
 
+    if relative.startswith("finance/"):
+        # Invoices, payment/deposit slips and WHT certificates: finance access only,
+        # and only inside the company the file belongs to.
+        from app.services.permissions import effective_access, level_gte
+
+        parts = relative.split("/")
+        key_cid = parts[2] if len(parts) >= 4 else None
+        meta = await get_upload_authz(db, file_path)
+        file_cid = meta.company_id or key_cid
+        lvl = effective_access(current_user)["levels"].get("finance", "none")
+        if (
+            not file_cid
+            or (key_cid and meta.company_id and key_cid != meta.company_id)
+            or not _file_company_allowed(caller_cid, file_cid)
+            or not level_gte("finance", lvl, "view")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Requested file not found.",
+            )
+        return
+
     meta = await get_upload_authz(db, file_path)
     if relative.startswith("deliverables/") or relative.startswith("proposals/"):
         if not _file_company_allowed(caller_cid, meta.company_id):
