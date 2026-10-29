@@ -299,6 +299,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
         localStorage.removeItem('reamarc_last_brand');
+        // Do NOT clear reamarc-theme — browser theme must survive sign-out for login/loader.
         // One navigation to this host's login AFTER the logout response (cookies cleared).
         const loginUrl = `${window.location.origin}/login`;
         window.location.replace(loginUrl);

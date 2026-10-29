@@ -8,7 +8,27 @@
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
   <link rel="apple-touch-icon" href="/worklane-mark.png" />
   <title>Worklane</title>
-  <script src="/theme-init.js"></script>
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('reamarc-theme');
+        var p = raw === 'light' || raw === 'dark' || raw === 'system' ? raw : null;
+        var dark =
+          p === 'dark' ||
+          ((p === null || p === 'system') &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var theme = dark ? 'dark' : 'light';
+        var root = document.documentElement;
+        root.classList.remove('light', 'dark');
+        root.classList.add(theme);
+        root.style.colorScheme = theme;
+        if (document.body) {
+          document.body.classList.remove('light', 'dark');
+          document.body.classList.add(theme);
+        }
+      } catch (e) {}
+    })();
+  </script>
   <style>
     /* Neutral first-paint loader (no brand name). Removed when React mounts. */
     #boot-splash {
@@ -21,7 +41,7 @@
       justify-content: center;
       gap: 20px;
       background: #FAF9FD;
-      color-scheme: light dark;
+      /* color-scheme set on <html> by theme bootstrap */
     }
     html.dark #boot-splash {
       background: #0A0B10;

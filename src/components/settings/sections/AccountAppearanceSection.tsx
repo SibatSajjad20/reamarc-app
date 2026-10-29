@@ -1,6 +1,7 @@
 import React from 'react';
 import { Sun, Moon, Monitor } from 'lucide-react';
 import type { ThemePreference } from '@/types';
+import { persistThemePreference } from '@/utils/themePreference';
 import { SettingsCard } from '../SettingsCard';
 import { cn } from '@/lib/utils';
 
@@ -35,10 +36,11 @@ export const AccountAppearanceSection: React.FC<AccountAppearanceSectionProps> =
   ];
 
   const handleSelect = (pref: ThemePreference) => {
+    // Always persist immediately so the choice survives a fast logout reload.
+    persistThemePreference(pref);
     if (onSelectThemePreference) {
       onSelectThemePreference(pref);
     } else {
-      localStorage.setItem('reamarc-theme', pref);
       window.dispatchEvent(new Event('storage'));
     }
   };

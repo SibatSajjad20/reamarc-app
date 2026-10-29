@@ -46,6 +46,12 @@ import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AccessDenied } from './components/ui/AccessDenied';
 import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
 import { isOwnerLegacyPath, ownerPathToCompaniesPath } from './utils/companiesRoutes';
+import {
+  applyResolvedTheme,
+  persistThemePreference,
+  readThemePreference,
+  resolveTheme,
+} from './utils/themePreference';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -601,39 +607,30 @@ function AppInner() {
     })();
   }, []);
 
-  // Theme Mode State ('dark' | 'light' | 'system')
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
-    const saved = localStorage.getItem('reamarc-theme') as ThemePreference | null;
-    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+  // Theme Mode State ('dark' | 'light' | 'system') — key reamarc-theme survives logout.
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(() => {
+    return readThemePreference() ?? 'system';
   });
 
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem('reamarc-theme');
-    if (saved === 'dark' || saved === 'light') return saved;
-    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      return 'dark';
-    }
-    return 'light';
-  });
+  const [theme, setTheme] = useState<ThemeMode>(() => resolveTheme(readThemePreference()));
+
+  const setThemePreference = useCallback((pref: ThemePreference) => {
+    // Write + apply synchronously so a fast sign-out still keeps the choice across reload.
+    persistThemePreference(pref);
+    setTheme(resolveTheme(pref));
+    setThemePreferenceState(pref);
+  }, []);
 
   useEffect(() => {
     const updateTheme = () => {
-      let isDark = false;
-      if (themePreference === 'dark') {
-        isDark = true;
-      } else if (themePreference === 'light') {
-        isDark = false;
-      } else {
-        isDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-      }
-      const newTheme: ThemeMode = isDark ? 'dark' : 'light';
+      const newTheme = resolveTheme(themePreference);
       setTheme(newTheme);
-      document.documentElement.classList.remove('dark', 'light');
-      document.documentElement.classList.add(newTheme);
-      document.documentElement.style.colorScheme = newTheme;
-      document.body.classList.remove('dark', 'light');
-      document.body.classList.add(newTheme);
-      localStorage.setItem('reamarc-theme', themePreference);
+      applyResolvedTheme(newTheme);
+      try {
+        localStorage.setItem('reamarc-theme', themePreference);
+      } catch {
+        /* storage blocked */
+      }
     };
 
     updateTheme();
@@ -647,9 +644,7 @@ function AppInner() {
   }, [themePreference]);
 
   const handleToggleTheme = () => {
-    setThemePreference(() => {
-      return theme === 'dark' ? 'light' : 'dark';
-    });
+    setThemePreference(theme === 'dark' ? 'light' : 'dark');
   };
 
   const handleOpenCreateWorkspace = useCallback(() => {
