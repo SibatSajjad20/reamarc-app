@@ -144,6 +144,12 @@ function writeLastBrand(c: { name?: string; display_name?: string | null; brand_
   } catch {}
 }
 
+/** Tab title for a logged-in / switching company. */
+export function operationsHubDocumentTitle(companyName: string | null | undefined): string {
+  const n = String(companyName || '').trim();
+  return n ? `${n} · Operations Hub` : 'Worklane';
+}
+
 export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, pendingBrand } = useAuth();
 
@@ -161,32 +167,27 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     applyAccent(accentColor);
     if (user?.company && !pendingBrand) writeLastBrand(user.company);
 
-    // Dynamic Document Title — only after a real logged-in company (never from stale lastBrand).
-    if (user?.company && companyName && companyName !== 'Worklane') {
-      const currentTitle = document.title;
-      if (
-        !currentTitle ||
-        currentTitle === 'Worklane' ||
-        currentTitle.includes('Reamarc') ||
-        currentTitle === 'Vite + React + TS'
-      ) {
-        document.title = `${companyName} · Operations Hub`;
-      }
+    // Always follow the active (or in-flight switch) company — including vercel.app
+    // where there is no host change. Do not gate on the previous title (that left
+    // "Company A · Operations Hub" stuck after switching to B).
+    const liveCompany = Boolean(pendingBrand || user?.company);
+    if (liveCompany && companyName && companyName !== 'Worklane') {
+      document.title = operationsHubDocumentTitle(companyName);
     }
 
-    // Dynamic Favicon: company logo when logged in; neutral W otherwise.
     const iconLinks = Array.from(
       document.querySelectorAll<HTMLLinkElement>("link[rel*='icon'], link[rel='apple-touch-icon']"),
     );
-    if (user && logoUrl) {
+    if (liveCompany) {
+      const href = logoUrl || '/favicon.png';
       if (iconLinks.length === 0) {
         const link = document.createElement('link');
         link.rel = 'icon';
-        link.href = logoUrl;
+        link.href = href;
         document.head.appendChild(link);
       } else {
         iconLinks.forEach((el) => {
-          el.href = logoUrl;
+          el.href = href;
         });
       }
     } else if (!user) {

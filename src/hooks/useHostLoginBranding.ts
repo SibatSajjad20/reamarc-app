@@ -1,9 +1,18 @@
 import { useEffect, useState } from 'react';
 import { companySlugFromHost, isWorklaneHost } from '../utils/worklaneHost';
 
+/** reamarc-app.vercel.app (and any non-Worklane host) keeps Reamarc login branding. */
 export const PLATFORM_LOGIN_BRAND = {
   displayName: 'Reamarc',
   logoUrl: null as string | null,
+  accentColor: '#4F46E5',
+} as const;
+
+/** Apex / www oneworklane.com — product login branding (not a company tenant). */
+export const WORKLANE_LOGIN_BRAND = {
+  displayName: 'oneworklane',
+  /** Chip wordmark reads on both light and dark login backgrounds. */
+  logoUrl: '/oneworklane-wordmark-chip.png' as string | null,
   accentColor: '#4F46E5',
 } as const;
 
@@ -25,6 +34,26 @@ export function shouldLoadHostLoginBranding(hostname: string | null | undefined)
   return Boolean(isWorklaneHost(hostname) && companySlugFromHost(hostname));
 }
 
+/** Apex/www Worklane → oneworklane; vercel.app / other → Reamarc. */
+export function platformLoginBrandForHost(hostname: string | null | undefined): {
+  displayName: string;
+  logoUrl: string | null;
+  accentColor: string;
+} {
+  if (isWorklaneHost(hostname) && !companySlugFromHost(hostname)) {
+    return {
+      displayName: WORKLANE_LOGIN_BRAND.displayName,
+      logoUrl: WORKLANE_LOGIN_BRAND.logoUrl,
+      accentColor: WORKLANE_LOGIN_BRAND.accentColor,
+    };
+  }
+  return {
+    displayName: PLATFORM_LOGIN_BRAND.displayName,
+    logoUrl: PLATFORM_LOGIN_BRAND.logoUrl,
+    accentColor: PLATFORM_LOGIN_BRAND.accentColor,
+  };
+}
+
 function titleCaseSlug(slug: string): string {
   return slug
     .split('-')
@@ -34,7 +63,8 @@ function titleCaseSlug(slug: string): string {
 }
 
 /**
- * Apex + vercel.app → platform Reamarc branding immediately.
+ * Apex/www Worklane → oneworklane branding immediately.
+ * vercel.app → Reamarc branding immediately.
  * `<slug>.oneworklane.com` → loading skeleton, then company branding (never flash Reamarc).
  */
 export function useHostLoginBranding(
@@ -43,25 +73,27 @@ export function useHostLoginBranding(
 ): HostLoginBrandingState {
   const slug = companySlugFromHost(hostname);
   const needsTenant = Boolean(isWorklaneHost(hostname) && slug);
+  const platform = platformLoginBrandForHost(hostname);
 
   const [state, setState] = useState<HostLoginBrandingState>(() =>
     needsTenant
       ? { status: 'loading', displayName: null, logoUrl: null, accentColor: null }
       : {
           status: 'platform',
-          displayName: PLATFORM_LOGIN_BRAND.displayName,
-          logoUrl: PLATFORM_LOGIN_BRAND.logoUrl,
-          accentColor: PLATFORM_LOGIN_BRAND.accentColor,
+          displayName: platform.displayName,
+          logoUrl: platform.logoUrl,
+          accentColor: platform.accentColor,
         },
   );
 
   useEffect(() => {
     if (!needsTenant || !slug) {
+      const p = platformLoginBrandForHost(hostname);
       setState({
         status: 'platform',
-        displayName: PLATFORM_LOGIN_BRAND.displayName,
-        logoUrl: PLATFORM_LOGIN_BRAND.logoUrl,
-        accentColor: PLATFORM_LOGIN_BRAND.accentColor,
+        displayName: p.displayName,
+        logoUrl: p.logoUrl,
+        accentColor: p.accentColor,
       });
       return;
     }
@@ -79,7 +111,6 @@ export function useHostLoginBranding(
         const data = (await res.json()) as PublicCompanyBrandingResponse;
         if (cancelled) return;
         if (!data.exists) {
-          // Unknown slug — main.tsx also redirects; stay neutral with slug label.
           setState({
             status: 'fallback',
             displayName: titleCaseSlug(slug),
@@ -96,7 +127,6 @@ export function useHostLoginBranding(
         });
       } catch {
         if (cancelled) return;
-        // Never flash Reamarc on a company subdomain.
         setState({
           status: 'fallback',
           displayName: titleCaseSlug(slug),
@@ -109,7 +139,7 @@ export function useHostLoginBranding(
     return () => {
       cancelled = true;
     };
-  }, [needsTenant, slug, fetchImpl]);
+  }, [needsTenant, slug, fetchImpl, hostname]);
 
   return state;
 }
@@ -137,17 +167,19 @@ export function applyLoginDocumentBrand(opts: {
   }
 
   if (opts.logoUrl && !opts.loading) {
+    // Prefer W mark for tab icon when the "logo" is a wide wordmark chip.
+    const isWordmark = /oneworklane-wordmark/i.test(opts.logoUrl);
+    const href = isWordmark ? '/worklane-mark.png' : opts.logoUrl;
     iconLinks.forEach((el) => {
-      el.href = opts.logoUrl!;
+      el.href = href;
     });
     if (iconLinks.length === 0) {
       const link = document.createElement('link');
       link.rel = 'icon';
-      link.href = opts.logoUrl;
+      link.href = href;
       document.head.appendChild(link);
     }
   } else if (!opts.loading && !opts.logoUrl) {
-    // Company with no logo (or apex platform): keep neutral W, never the old Reamarc R.
     iconLinks.forEach((el) => {
       el.href = '/worklane-mark.png';
     });

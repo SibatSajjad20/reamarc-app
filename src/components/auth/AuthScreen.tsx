@@ -245,7 +245,7 @@ export const AuthScreen: React.FC = () => {
         />
       </div>
 
-      {/* Top Header: Logo + Brand Name (tenant on subdomain; Reamarc on apex/vercel) */}
+      {/* Top Header: Logo + Brand Name (company on subdomain; oneworklane on apex; Reamarc on vercel) */}
       <header className="relative z-10 flex items-center justify-between w-full">
         <div className="flex items-center gap-3 min-h-9">
           {brandLoading ? (
@@ -253,6 +253,13 @@ export const AuthScreen: React.FC = () => {
               <div className="w-9 h-9 rounded-[10px] bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
               <div className="h-4 w-24 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
             </>
+          ) : brandLogo && /oneworklane-wordmark/i.test(brandLogo) ? (
+            <img
+              src={brandLogo}
+              alt={brandName || 'oneworklane'}
+              className="h-11 w-auto max-w-[min(280px,70vw)] object-contain select-none"
+              referrerPolicy="no-referrer"
+            />
           ) : brandLogo ? (
             <>
               <img
