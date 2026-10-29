@@ -106,6 +106,47 @@ def _set_auth_cookies(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         **cookie_opts,
     )
+    # Drop any leftover host-only copies so the browser keeps one Domain cookie.
+    if cookie_domain:
+        host_only = {k: v for k, v in cookie_opts.items() if k != "domain"}
+        response.delete_cookie("access_token", path="/", **host_only)
+        response.delete_cookie("refresh_token", path="/", **host_only)
+
+
+def _clear_auth_cookies(response: Response, request: Optional[Request] = None) -> None:
+    """Expire access/refresh cookies for BOTH host-only and Domain=.oneworklane.com.
+
+    Login sets Domain via ``_cookie_domain_for_request`` (``.oneworklane.com``).
+    Older sessions (or a missing COOKIE_DOMAIN env on logout) may leave host-only
+    cookies. Deleting only one variant leaves the other → "sign out doesn't work"
+    because the next /auth/me still sees a session cookie.
+    """
+    is_prod = settings.IS_PRODUCTION
+    # Match the SameSite/Secure used when the cookie was set (Lax on Worklane).
+    domain_for_req = _cookie_domain_for_request(request)
+    explicit = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
+    domains: list[Optional[str]] = [None]  # host-only
+    for d in (domain_for_req, explicit):
+        if d and d not in domains:
+            domains.append(d)
+
+    for domain in domains:
+        use_lax = bool(domain) or not is_prod
+        opts = dict(
+            path="/",
+            httponly=True,
+            samesite="lax" if use_lax else "none",
+            secure=True if is_prod else settings.COOKIE_SECURE,
+        )
+        if domain:
+            opts["domain"] = domain
+        response.delete_cookie("access_token", **opts)
+        response.delete_cookie("refresh_token", **opts)
+        # Also clear with the alternate SameSite in case an older build set SameSite=None.
+        alt = dict(opts)
+        alt["samesite"] = "none" if opts["samesite"] == "lax" else "lax"
+        response.delete_cookie("access_token", **alt)
+        response.delete_cookie("refresh_token", **alt)
 
 
 def _issue_token_pair(claims: dict, session_id: str) -> tuple[str, str]:
@@ -801,17 +842,7 @@ async def logout(request: Request, response: Response):
             )
             invalidate_auth_cache(user_id=user_id)
 
-    is_prod = settings.IS_PRODUCTION
-    cookie_opts = dict(
-        httponly=True,
-        samesite="none" if is_prod else "lax",
-        secure=True if is_prod else settings.COOKIE_SECURE
-    )
-    cookie_domain = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
-    if cookie_domain:
-        cookie_opts["domain"] = cookie_domain
-    response.delete_cookie("access_token", **cookie_opts)
-    response.delete_cookie("refresh_token", **cookie_opts)
+    _clear_auth_cookies(response, request)
     return {"message": "Successfully logged out."}
 
 

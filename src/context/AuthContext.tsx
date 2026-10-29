@@ -299,12 +299,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
         localStorage.removeItem('reamarc_last_brand');
-        const clean = `${window.location.origin}/`;
-        if (window.location.href !== clean) {
-          window.location.replace(clean);
-        } else {
-          window.history.replaceState(null, '', '/');
-        }
+        // One navigation to this host's login AFTER the logout response (cookies cleared).
+        const loginUrl = `${window.location.origin}/login`;
+        window.location.replace(loginUrl);
       }
     }
   };
