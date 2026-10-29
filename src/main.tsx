@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { resetStaleClientStorage } from './utils/storageReset'
+import { redirectUnknownWorklaneSubdomain } from './utils/worklaneHost'
 import '@fontsource-variable/geist';
 import '@fontsource-variable/geist-mono';
 import './index.css'
@@ -32,15 +33,21 @@ const isGallery =
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('ui-gallery');
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <LucideProvider strokeWidth={1.5} size={16} absoluteStrokeWidth={false}>
-      <TooltipProvider>
-        <ConfirmProvider>
-          {isGallery ? <PrimitivesGallery /> : <App />}
-        </ConfirmProvider>
-      </TooltipProvider>
-    </LucideProvider>
-  </StrictMode>,
-)
+function mount() {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <LucideProvider strokeWidth={1.5} size={16} absoluteStrokeWidth={false}>
+        <TooltipProvider>
+          <ConfirmProvider>
+            {isGallery ? <PrimitivesGallery /> : <App />}
+          </ConfirmProvider>
+        </TooltipProvider>
+      </LucideProvider>
+    </StrictMode>,
+  );
+}
 
+// Unknown company subdomains (hello.oneworklane.com) → apex. Fail-open on API errors.
+void redirectUnknownWorklaneSubdomain().then((redirected) => {
+  if (!redirected) mount();
+});

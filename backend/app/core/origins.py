@@ -90,3 +90,20 @@ def public_invoice_url(settings_obj, share_token: str) -> str:
     token = str(share_token or "").strip()
     api = effective_api_url(settings_obj)
     return f"{api}/api/v1/finance/public/invoice/{token}"
+
+
+def request_public_hosts(request) -> list[str]:
+    """Browser-facing hosts for this request, most preferred first.
+
+    When Vercel rewrites ``dataviz.oneworklane.com/api`` → ``api.oneworklane.com``,
+    ``Host`` is the API host; ``X-Forwarded-Host`` still carries the company
+    subdomain. Prefer forwarded hosts so subdomain→company selection works.
+    """
+    hosts: list[str] = []
+    for header in ("x-forwarded-host", "x-original-host", "host"):
+        raw = (request.headers.get(header) or "").split(",")[0].strip()
+        h = raw.split(":")[0].strip().lower().rstrip(".")
+        if h and h not in hosts:
+            hosts.append(h)
+    return hosts
+

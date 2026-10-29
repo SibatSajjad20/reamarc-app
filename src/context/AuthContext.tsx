@@ -4,7 +4,12 @@ import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 import { clearAllAppCaches } from '../utils/cacheBus';
-import { companySlugFromHost } from '../utils/worklaneHost';
+import {
+  companyMatchesHostSlug,
+  companySlugFromHost,
+  isWorklaneHost,
+  worklaneCompanyHostRedirectUrl,
+} from '../utils/worklaneHost';
 
 /** Back-off between /auth/me retries while the server wakes up (about 67 s plus request time). */
 /** Longest the startup spinner may show while the server is slow. */
@@ -66,6 +71,36 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 /** Keep login/upload avatar_url when getMe omits the field; honor an explicit null. */
+
+/** Full-page navigate to active company subdomain on Worklane ( Domains share cookie). */
+function redirectToWorklaneCompanyHost(userLike: {
+  company?: { slug?: string | null } | null;
+  companies?: Array<{ id?: string; slug?: string | null }> | null;
+  company_id?: string | null;
+} | null | undefined, pathnameFallback = '/dashboard'): void {
+  if (typeof window === 'undefined' || !userLike) return;
+  if (!isWorklaneHost(window.location.hostname)) return;
+  const fromList = (userLike.companies || []).find((c) => c.id === userLike.company_id);
+  const slug =
+    (userLike.company && userLike.company.slug) ||
+    (fromList && fromList.slug) ||
+    null;
+  const path =
+    window.location.pathname && window.location.pathname !== '/'
+      ? window.location.pathname
+      : pathnameFallback;
+  const url = worklaneCompanyHostRedirectUrl(
+    window.location.hostname,
+    slug,
+    path,
+    window.location.search,
+    window.location.hash,
+  );
+  if (url) {
+    window.location.replace(url);
+  }
+}
+
 export function keepAvatarUrl<T extends { avatar_url?: string | null }>(
   previous: T | null | undefined,
   next: T,
@@ -222,14 +257,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // login is required. Keep the login payload even if a parallel 401 refresh
     // races, so the screen does not bounce back to the form.
     setUser(res.user);
+    let finalUser = res.user;
     try {
       const currentUser = await authService.getMe();
       setUser((prev) => keepAvatarUrl(prev, currentUser));
+      finalUser = currentUser;
     } catch {
       setUser(res.user);
     }
     setIsLoading(false);
     closeAuthModal();
+    // Apex login → https://<slug>.oneworklane.com ( Domains cookie; vercel.app untouched).
+    redirectToWorklaneCompanyHost(finalUser, `/${initialView}`);
   };
 
   const logout = async () => {
@@ -314,6 +353,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch {}
       // Hold the overlay until the new logo is in the browser cache, so the sidebar never flashes a fallback.
       await preloadImage(finalUser?.company?.logo_url);
+      // Company switch → new subdomain ( Domains cookie; no re-login). No slug → stay.
+      redirectToWorklaneCompanyHost(finalUser, '/dashboard');
     } finally {
       setIsLoading(false);
       setPendingBrand(null);
@@ -357,21 +398,57 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   }, [user?.company_id, switchCompany]);
 
-  // Auto-switch when the host is <slug>.oneworklane.com and the user is a member.
-  // Non-members keep their current company (company picker still works). Never trust the
-  // subdomain alone — membership comes from the server-provided companies list.
+  // Worklane host routing ( Domains cookie carries session; vercel.app untouched):
+  // - apex + logged in → active company subdomain (apex = login / picker only)
+  // - <slug> + member of that company → switch if needed
+  // - <slug> + NOT a member → own company subdomain (avoid redirect loops)
+  // - company with no slug → stay on apex
   useEffect(() => {
     if (!user) return;
     try {
-      const slug = companySlugFromHost(window.location.hostname);
-      if (!slug) return;
+      if (!isWorklaneHost(window.location.hostname)) return;
+      const hostSlug = companySlugFromHost(window.location.hostname);
       const list = user.companies || [];
-      const match = list.find((c) => (c.slug || '').toLowerCase() === slug);
-      if (!match?.id) return;
-      if (match.id === user.company_id) return;
-      void switchCompany(match.id);
+      const active =
+        list.find((c) => c.id === user.company_id) ||
+        (user.company ? { id: user.company_id, slug: user.company.slug } : null);
+
+      if (!hostSlug) {
+        // Apex (or www): send logged-in users to their company subdomain when slug exists.
+        redirectToWorklaneCompanyHost(user, window.location.pathname || '/dashboard');
+        return;
+      }
+
+      // Exact company.slug only (never display_name — e.g. "DataViz Technologies").
+      const match = list.find((c) => companyMatchesHostSlug(c, hostSlug));
+      if (match?.id) {
+        if (match.id !== user.company_id) {
+          void switchCompany(match.id);
+        }
+        return;
+      }
+
+      // Non-member on someone else's (or unknown-to-membership) subdomain →
+      // fall back to own company subdomain; if own company has no slug, apex.
+      const before = window.location.href;
+      redirectToWorklaneCompanyHost(
+        user,
+        window.location.pathname && window.location.pathname !== '/'
+          ? window.location.pathname
+          : '/dashboard',
+      );
+      if (window.location.href === before) {
+        // No own slug → apex (login/picker). Path preserved.
+        const path =
+          window.location.pathname && window.location.pathname !== '/'
+            ? window.location.pathname
+            : '';
+        window.location.replace(
+          `https://oneworklane.com${path}${window.location.search}${window.location.hash}`,
+        );
+      }
     } catch {}
-  }, [user?.company_id, user?.companies, switchCompany]);
+  }, [user?.company_id, user?.companies, user?.company?.slug, switchCompany]);
 
   return (
     <AuthContext.Provider

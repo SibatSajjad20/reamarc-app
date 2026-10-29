@@ -52,14 +52,46 @@ def _wants_json_tokens(request: Request, device_uuid: Optional[str] = None) -> b
     return (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile"
 
 
-def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+def _cookie_domain_for_request(request: Optional[Request] = None) -> str:
+    """Cookie Domain for Worklane hosts so apex/subdomains share one first-party session.
+
+    - Explicit COOKIE_DOMAIN env wins when set.
+    - Else, if the browser-facing host is oneworklane.com / *.oneworklane.com,
+      use ``.oneworklane.com`` (safe: all those hosts are ours; isolation is membership).
+    - vercel.app and other hosts stay host-only (no Domain) so they keep working.
+    """
+    explicit = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
+    if explicit:
+        return explicit
+    if request is None:
+        return ""
+    try:
+        from app.core.origins import request_public_hosts
+        base = (getattr(settings, "APP_BASE_DOMAIN", None) or "oneworklane.com").strip().lower().rstrip(".")
+        for host in request_public_hosts(request):
+            if host == base or host.endswith(f".{base}"):
+                return f".{base}"
+    except Exception:
+        return ""
+    return ""
+
+
+def _set_auth_cookies(
+    response: Response,
+    access_token: str,
+    refresh_token: str,
+    request: Optional[Request] = None,
+) -> None:
     is_prod = settings.IS_PRODUCTION
+    # Same-site subdomains (*.oneworklane.com) work with Lax; None kept in prod for
+    # any remaining cross-origin tooling. Prefer Lax when we know it's Worklane.
+    cookie_domain = _cookie_domain_for_request(request)
+    use_lax = bool(cookie_domain) or not is_prod
     cookie_opts = dict(
         httponly=True,
-        samesite="none" if is_prod else "lax",
-        secure=True if is_prod else settings.COOKIE_SECURE
+        samesite="lax" if use_lax else "none",
+        secure=True if is_prod else settings.COOKIE_SECURE,
     )
-    cookie_domain = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
     if cookie_domain:
         cookie_opts["domain"] = cookie_domain
     response.set_cookie(
@@ -366,7 +398,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
         # Setting cookies for mobile pollutes Android's cookie jar and can trip CSRF on later logins.
-        _set_auth_cookies(response, access_token, refresh_token)
+        _set_auth_cookies(response, access_token, refresh_token, request)
 
     return _token_payload(access_token, refresh_token, user_doc, wants_json)
 
@@ -560,7 +592,7 @@ async def refresh_token(request: Request, response: Response):
 
     wants_json = _wants_json_tokens(request)
     if not wants_json:
-        _set_auth_cookies(response, new_access_token, new_refresh_token)
+        _set_auth_cookies(response, new_access_token, new_refresh_token, request)
 
     return _token_payload(new_access_token, new_refresh_token, user_doc, wants_json)
 
@@ -913,7 +945,7 @@ async def switch_company(
 
     wants_json = _wants_json_tokens(request)
     if not wants_json:
-        _set_auth_cookies(response, access_token, refresh_token)
+        _set_auth_cookies(response, access_token, refresh_token, request)
 
     return _token_payload(access_token, refresh_token, actor_doc, wants_json)
 

@@ -544,3 +544,233 @@ async def test_apex_login_and_switch_with_worklane_origin_cookies():
         for k, v in original.items():
             object.__setattr__(settings, k, v)
         _AUTH_CACHE.clear()
+
+
+def test_company_slug_helpers_reserved_and_format():
+    from app.core.company_slug import (
+        is_reserved_slug,
+        is_valid_slug_format,
+        normalize_slug,
+        slugify_from_name,
+        validate_slug_or_raise,
+    )
+
+    assert is_valid_slug_format("dataviz")
+    assert is_valid_slug_format("acme-co")
+    # normalize_slug lowercases before format check
+    assert is_valid_slug_format("DataViz")
+    assert normalize_slug("DataViz") == "dataviz"
+    assert not is_valid_slug_format("a")
+    assert is_reserved_slug("www")
+    assert is_reserved_slug("api")
+    assert is_reserved_slug("admin")
+    assert is_reserved_slug("mail")
+    assert not is_reserved_slug("dataviz")
+    assert not is_reserved_slug("reamarc")  # home tenant may own this
+    assert slugify_from_name("DataViz Technologies") == "dataviz-technologies"
+    try:
+        validate_slug_or_raise("www")
+        assert False, "expected reserved"
+    except ValueError:
+        pass
+
+
+@pytest.mark.asyncio
+async def test_resolve_uses_x_forwarded_host_when_host_is_api():
+    """Vercel rewrite sets Host=api.oneworklane.com; company is in X-Forwarded-Host."""
+    from app.core import tenant as tenant_mod
+
+    gdb = MagicMock()
+
+    async def find_one(query, *args, **kwargs):
+        # slug query for dataviz
+        if query.get("slug") == "dataviz":
+            return {"id": "co_dataviz"}
+        return None
+
+    gdb.companies.find_one = AsyncMock(side_effect=find_one)
+
+    req = MagicMock()
+    req.headers = {
+        "host": "api.oneworklane.com",
+        "x-forwarded-host": "dataviz.oneworklane.com",
+    }
+    with patch.object(tenant_mod, "get_global_db", return_value=gdb):
+        with patch.object(tenant_mod.settings, "APP_BASE_DOMAIN", "oneworklane.com"):
+            cid = await tenant_mod.resolve_company_from_host(req)
+    assert cid == "co_dataviz"
+
+
+@pytest.mark.asyncio
+async def test_resolve_returns_none_when_slug_missing_no_name_fallback():
+    """Long display names must NOT map host dataviz → company without slug=dataviz."""
+    from app.core import tenant as tenant_mod
+
+    gdb = MagicMock()
+    gdb.companies.find_one = AsyncMock(return_value=None)  # exact slug miss
+
+    req = MagicMock()
+    req.headers = {"host": "dataviz.oneworklane.com"}
+    with patch.object(tenant_mod, "get_global_db", return_value=gdb):
+        with patch.object(tenant_mod.settings, "APP_BASE_DOMAIN", "oneworklane.com"):
+            cid = await tenant_mod.resolve_company_from_host(req)
+    assert cid is None
+    # Only find_one (custom_domain + slug) — never scan all companies by name
+    assert gdb.companies.find_one.await_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_login_on_dataviz_via_forwarded_host_selects_dataviz_not_reamarc():
+    """End-to-end: Host=api + X-Forwarded-Host=dataviz + slug=dataviz → DataViz."""
+    import uuid
+    from datetime import datetime, timezone
+    import httpx
+    from app.main import app
+    from app.config import settings
+    from app.database import connect_to_mongo, db_instance
+    from app.core.security import get_password_hash, _AUTH_CACHE
+
+    run_id = uuid.uuid4().hex[:8]
+    cid_r = f"ow_r_{run_id}"
+    cid_d = f"ow_d_{run_id}"
+    uid = f"ow_u_{run_id}"
+    email = f"ow_{run_id}@example.com"
+    password = "SecretPassword123!"
+    original = {
+        "MULTI_COMPANY_ENABLED": settings.MULTI_COMPANY_ENABLED,
+        "IS_PRODUCTION": settings.IS_PRODUCTION,
+        "CORS_ORIGINS": list(settings.CORS_ORIGINS),
+        "COOKIE_DOMAIN": getattr(settings, "COOKIE_DOMAIN", ""),
+        "APP_BASE_DOMAIN": getattr(settings, "APP_BASE_DOMAIN", "oneworklane.com"),
+    }
+    await connect_to_mongo()
+    gdb = db_instance.db
+    _AUTH_CACHE.clear()
+    object.__setattr__(settings, "MULTI_COMPANY_ENABLED", True)
+    object.__setattr__(settings, "IS_PRODUCTION", True)
+    object.__setattr__(settings, "CORS_ORIGINS", ["https://reamarc-app.vercel.app"])
+    object.__setattr__(settings, "COOKIE_DOMAIN", "")  # auto Domain=.oneworklane.com
+    object.__setattr__(settings, "APP_BASE_DOMAIN", "oneworklane.com")
+    now = datetime.now(timezone.utc)
+    try:
+        await gdb.companies.insert_many([
+            {"id": cid_r, "name": "Reamarc", "slug": "reamarc", "status": "active", "token_version": 0, "created_at": now},
+            # Exact slug required (display name alone never matches host)
+            {"id": cid_d, "name": "DataViz Technologies", "display_name": "DataViz Technologies",
+             "slug": "dataviz", "status": "active", "token_version": 0, "created_at": now},
+        ])
+        await gdb.users.insert_one({
+            "id": uid, "email": email, "full_name": "Admin",
+            "hashed_password": get_password_hash(password),
+            "role": "admin", "company_id": cid_r, "last_company_id": cid_r,
+            "is_active": True, "token_version": 0, "session_epoch": 0, "refresh_jtis": [],
+            "created_at": now.isoformat(), "updated_at": now.isoformat(),
+        })
+        await gdb.company_memberships.insert_many([
+            {"id": f"m_r_{run_id}", "user_id": uid, "company_id": cid_r, "role": "admin", "status": "active", "is_primary": True, "token_version": 0, "access": {}},
+            {"id": f"m_d_{run_id}", "user_id": uid, "company_id": cid_d, "role": "admin", "status": "active", "is_primary": False, "token_version": 0, "access": {}},
+        ])
+        await gdb.rate_limit_counters.delete_many({"key": {"$regex": email}})
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://api.oneworklane.com") as client:
+            # Simulate Vercel rewrite from dataviz.oneworklane.com
+            headers = {
+                "Origin": "https://dataviz.oneworklane.com",
+                "Host": "api.oneworklane.com",
+                "X-Forwarded-Host": "dataviz.oneworklane.com",
+                "X-Requested-With": "XMLHttpRequest",
+            }
+            login = await client.post("/api/v1/auth/login", json={"email": email, "password": password}, headers=headers)
+            assert login.status_code == 200, login.text
+            assert login.json()["user"]["company_id"] == cid_d, login.json()["user"]
+            # Cookie Domain=.oneworklane.com for cross-subdomain first-party session
+            set_cookie = ",".join(login.headers.get_list("set-cookie"))
+            assert "Domain=.oneworklane.com" in set_cookie or "domain=.oneworklane.com" in set_cookie.lower(), set_cookie
+
+            # reamarc subdomain still selects Reamarc
+            headers_r = {
+                "Origin": "https://reamarc.oneworklane.com",
+                "Host": "api.oneworklane.com",
+                "X-Forwarded-Host": "reamarc.oneworklane.com",
+                "X-Requested-With": "XMLHttpRequest",
+            }
+            login_r = await client.post("/api/v1/auth/login", json={"email": email, "password": password}, headers=headers_r)
+            assert login_r.status_code == 200, login_r.text
+            assert login_r.json()["user"]["company_id"] == cid_r
+
+            # vercel.app host-only cookie (no .oneworklane.com Domain)
+            headers_v = {
+                "Origin": "https://reamarc-app.vercel.app",
+                "Host": "reamarc-app.vercel.app",
+                "X-Requested-With": "XMLHttpRequest",
+            }
+            login_v = await client.post("/api/v1/auth/login", json={"email": email, "password": password}, headers=headers_v)
+            assert login_v.status_code == 200, login_v.text
+            sc_v = ",".join(login_v.headers.get_list("set-cookie"))
+            assert "oneworklane.com" not in sc_v.lower(), sc_v
+    finally:
+        await gdb.companies.delete_many({"id": {"$in": [cid_r, cid_d]}})
+        await gdb.users.delete_many({"id": uid})
+        await gdb.company_memberships.delete_many({"user_id": uid})
+        for k, v in original.items():
+            object.__setattr__(settings, k, v)
+        _AUTH_CACHE.clear()
+
+
+@pytest.mark.asyncio
+async def test_public_company_slug_exists_boolean_only():
+    """Unknown subdomain probe: boolean only — reserved/invalid → false."""
+    from app.core.company_slug import slug_exists
+
+    gdb = MagicMock()
+    gdb.companies.find_one = AsyncMock(return_value={"_id": "x"})
+    assert await slug_exists(gdb, "dataviz") is True
+    # Projection must never need name fields for the check
+    assert gdb.companies.find_one.await_args.args[1] == {"_id": 1}
+
+    gdb.companies.find_one = AsyncMock(return_value=None)
+    assert await slug_exists(gdb, "hello") is False
+    assert await slug_exists(gdb, "www") is False
+    assert await slug_exists(gdb, "api") is False
+    assert await slug_exists(gdb, "ADMIN") is False
+    assert await slug_exists(gdb, "mail") is False
+    assert await slug_exists(gdb, "Bad Slug") is False
+    assert await slug_exists(None, "dataviz") is False
+
+
+def test_worklane_host_redirect_matrix_documented():
+    """Document apex→subdomain / switch / no-slug / vercel no-op (mirrors FE helpers)."""
+    # Pure Python mirror of worklaneCompanyHostRedirectUrl rules
+    base = "oneworklane.com"
+    reserved = {"www", "api", "app", "admin", "mail"}
+
+    def company_slug_from_host(host: str):
+        h = host.split(":")[0].lower().rstrip(".")
+        if h == base or not h.endswith(f".{base}"):
+            return None
+        rest = h[: -(len(base) + 1)]
+        if not rest or "." in rest or rest in reserved:
+            return None
+        return rest
+
+    def redirect(host: str, slug: str | None, path="/dashboard"):
+        if host != base and not host.endswith(f".{base}"):
+            return None  # vercel.app
+        if host.endswith(".vercel.app"):
+            return None
+        s = (slug or "").strip().lower()
+        if not s or s in reserved:
+            return None
+        cur = company_slug_from_host(host)
+        if cur == s:
+            return None
+        path_part = path if path and path != "/" else ""
+        return f"https://{s}.{base}{path_part}"
+
+    assert redirect("oneworklane.com", "dataviz") == "https://dataviz.oneworklane.com/dashboard"
+    assert redirect("dataviz.oneworklane.com", "dataviz") is None
+    assert redirect("reamarc.oneworklane.com", "dataviz") == "https://dataviz.oneworklane.com/dashboard"
+    assert redirect("oneworklane.com", "") is None
+    assert redirect("oneworklane.com", None) is None
+    assert redirect("reamarc-app.vercel.app", "dataviz") is None

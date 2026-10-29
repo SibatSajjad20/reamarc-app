@@ -97,7 +97,15 @@ const getBaseUrl = (): string => {
   const browserHost =
     typeof window !== 'undefined' ? String(window.location?.hostname || '') : '';
 
-  // Explicit env always wins (local overrides, staging, etc.).
+  // Worklane browser hosts: ALWAYS same-origin `/api/v1` (Vercel rewrites to the
+  // API). Calling api.oneworklane.com cross-origin makes the session cookie
+  // third-party; Chrome Incognito blocks it → login loop. Set VITE_API_DIRECT=1
+  // only for deliberate cross-origin debugging.
+  if (typeof window !== 'undefined' && isWorklaneHost(browserHost) && !forceDirect) {
+    return '/api/v1';
+  }
+
+  // Explicit env (local overrides, staging). Ignored for Worklane browsers above.
   if (envUrl) {
     return normalizeApiBase(envUrl);
   }
@@ -107,16 +115,8 @@ const getBaseUrl = (): string => {
     return '/api/v1';
   }
 
-  // Worklane production hosts call the API subdomain directly so auth cookies
-  // stay on api.oneworklane.com across company subdomains (dataviz., etc.).
-  // The legacy vercel.app address keeps same-origin `/api/v1` (Vercel rewrite).
-  if (typeof window !== 'undefined' && isWorklaneHost(browserHost)) {
-    return WORKLANE_API_BASE;
-  }
-
   // Browser production on non-Worklane hosts (e.g. reamarc-app.vercel.app):
-  // same-origin `/api/v1` so Vercel rewrites to Render and cookies stay first-party.
-  // Set VITE_API_DIRECT=1 with VITE_API_URL to call the backend URL instead.
+  // same-origin `/api/v1` so Vercel rewrites and cookies stay first-party.
   if (typeof window !== 'undefined' && !forceDirect) {
     return '/api/v1';
   }

@@ -134,7 +134,7 @@ def _validate_iana_timezone(value: Optional[str]) -> Optional[str]:
 
 class CompanyCreateRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
-    slug: str = Field(..., min_length=2, max_length=50)
+    slug: Optional[str] = Field(None, min_length=2, max_length=50)
     plan: Optional[Any] = None
     timezone: str = Field("Asia/Karachi", min_length=2, max_length=64)
     accent_color: str = Field("#6847E0", pattern=r"^#(?:[0-9a-fA-F]{3}){1,2}$")
@@ -250,20 +250,28 @@ async def create_company(
     """Provision a new tenant company, initial workspace, and admin user."""
     gdb = get_global_db()
 
-    slug_clean = body.slug.strip().lower()
-    if not re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug_clean):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid slug format. Use lowercase letters, numbers, and hyphens.",
-        )
-
-    # Slug uniqueness check
-    existing_slug = await gdb.companies.find_one({"slug": slug_clean})
-    if existing_slug:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Company slug '{slug_clean}' is already in use.",
-        )
+    from app.core.company_slug import (
+        ensure_unique_slug,
+        slugify_from_name,
+        validate_slug_or_raise,
+    )
+    raw_slug = (body.slug or "").strip().lower()
+    try:
+        if raw_slug:
+            slug_clean = validate_slug_or_raise(raw_slug)
+            existing_slug = await gdb.companies.find_one({"slug": slug_clean})
+            if existing_slug:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Company slug '{slug_clean}' is already in use.",
+                )
+        else:
+            # Auto-generate from company name when owner leaves short-name blank
+            slug_clean = await ensure_unique_slug(gdb, slugify_from_name(body.name))
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     # Admin email uniqueness check
     email_clean = str(body.admin_email).strip().lower()
@@ -425,12 +433,11 @@ async def update_company(
     if body.name is not None:
         update_fields["name"] = body.name.strip()
     if body.slug is not None:
-        slug_clean = body.slug.strip().lower()
-        if not re.match(r"^[a-z0-9]+(?:-[a-z0-9]+)*$", slug_clean):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid slug format.",
-            )
+        from app.core.company_slug import validate_slug_or_raise
+        try:
+            slug_clean = validate_slug_or_raise(body.slug)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
         slug_dup = await gdb.companies.find_one({"slug": slug_clean, "id": {"$ne": company_id}})
         if slug_dup:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Slug already in use.")

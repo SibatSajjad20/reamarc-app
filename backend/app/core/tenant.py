@@ -637,33 +637,40 @@ async def resolve_company_from_host(request: Request) -> Optional[str]:
 
     Subdomain resolution is restricted to `<slug>.{APP_BASE_DOMAIN}` (default
     oneworklane.com). Apex, www, api and reserved labels are ignored. Lookalike
-    hosts such as evil-oneworklane.com never match. Callers MUST still enforce
-    membership before selecting the company for a user — this helper only maps
-    host → company id and does not authorize access.
+    hosts such as evil-oneworklane.com never match. When the request was
+    rewritten (Vercel → api.oneworklane.com), ``X-Forwarded-Host`` is preferred
+    so ``dataviz.oneworklane.com`` still maps to DataViz. Callers MUST still
+    enforce membership before selecting the company for a user.
     """
-    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
-    if not host:
+    from app.core.origins import parse_company_slug_from_host, request_public_hosts
+
+    hosts = request_public_hosts(request)
+    if not hosts:
         return None
     gdb = get_global_db()
     if gdb is None:
         return None
     try:
-        from app.core.origins import parse_company_slug_from_host
         base = getattr(settings, "APP_BASE_DOMAIN", "oneworklane.com") or "oneworklane.com"
         base = base.strip().lower().rstrip(".")
         # Platform hosts are never a tenant custom_domain (blocks misconfigured
         # custom_domain=oneworklane.com from stealing apex logins).
         platform_hosts = {base, f"www.{base}", f"api.{base}", f"app.{base}"}
-        if host not in platform_hosts:
-            by_domain = await gdb.companies.find_one(
-                {"custom_domain": host, "status": {"$ne": "suspended"}},
-                {"id": 1},
-            )
-            if by_domain and by_domain.get("id"):
-                return str(by_domain["id"])
 
-        slug = parse_company_slug_from_host(host, base_domain=base)
-        if slug:
+        for host in hosts:
+            if host not in platform_hosts:
+                by_domain = await gdb.companies.find_one(
+                    {"custom_domain": host, "status": {"$ne": "suspended"}},
+                    {"id": 1},
+                )
+                if by_domain and by_domain.get("id"):
+                    return str(by_domain["id"])
+
+            slug = parse_company_slug_from_host(host, base_domain=base)
+            if not slug:
+                continue
+            # Exact slug only (lowercase). Never match display_name / name —
+            # "DataViz Technologies" must not map from host "dataviz".
             by_slug = await gdb.companies.find_one(
                 {"slug": slug, "status": {"$ne": "suspended"}},
                 {"id": 1},
