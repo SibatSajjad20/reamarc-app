@@ -1074,6 +1074,8 @@ def build_booking_confirmation_html(
     company: Optional[str] = None,
     brand_name: Optional[str] = None,
     reamarc: bool = True,
+    logo_url: Optional[str] = None,
+    accent_color: Optional[str] = None,
 ) -> str:
     """Render a branded HTML booking confirmation. Meeting links are sent later on WhatsApp."""
     event_name = html_escape.escape(str(meeting_info.get("event_name") or "Digital Services Consultancy Session"))
@@ -1094,8 +1096,6 @@ def build_booking_confirmation_html(
     mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
     office_address = html_escape.escape(str(meeting_info.get("office_address") or office_fallback))
     office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or map_fallback))
-    footer_brand = html_escape.escape(brand_name or ("Reamarc AI" if reamarc else "Notifications"))
-
     if meeting_mode == "in_person":
         location_row = f"""<div style="margin-bottom: 8px;">
           <span style="color: #64748b; display: inline-block; width: 100px;">Location:</span>
@@ -1149,6 +1149,16 @@ def build_booking_confirmation_html(
         else ""
     )
 
+    from app.services.email_service import _header_brand_html
+
+    header_brand_name = html_escape.escape(brand_name or ("Reamarc" if reamarc else "Notifications"))
+    accent = html_escape.escape(accent_color or ("#6847E0" if reamarc else "#2563eb"))
+    header_brand = _header_brand_html(
+        header_brand_name,
+        logo_url,
+        subtitle="&#10003; Session Confirmed",
+    )
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1160,11 +1170,9 @@ def build_booking_confirmation_html(
   <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
 
     <!-- Header Banner -->
-    <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%); padding: 32px 24px; text-align: left;">
-      <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 20px; margin-bottom: 10px;">
-        &#10003; Session Confirmed
-      </span>
-      <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.3;">
+    <div style="background: linear-gradient(135deg, {accent} 0%, {accent} 100%); padding: 32px 24px; text-align: left;">
+      {header_brand}
+      <h1 style="color: #ffffff; margin: 16px 0 0 0; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.3;">
         You're Scheduled!
       </h1>
       <p style="color: #dbeafe; margin: 6px 0 0 0; font-size: 13px;">
@@ -1220,7 +1228,10 @@ def build_booking_confirmation_html(
 
     <!-- Footer -->
     <div style="background-color: #f1f5f9; padding: 18px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-      <p style="margin: 0;">{footer_brand if not reamarc else "Reamarc AI &bull; Strategy &amp; Digital Solutions"}</p>
+      <p style="margin: 0;">
+        <img src="https://oneworklane.com/worklane-mark.png" alt="oneworklane" width="16" height="16" style="display: inline-block; vertical-align: middle; width: 16px; height: 16px; margin: 0 6px 0 0; border: 0;" />
+        <span style="vertical-align: middle;">Sent by oneworklane &middot; Operations Hub</span>
+      </p>
       <p style="margin: 4px 0 0 0; color: #94a3b8;">Questions or need to reschedule? Simply reply directly to this email.</p>
     </div>
 
@@ -1311,6 +1322,12 @@ def build_host_booking_notification_html(
       </div>
 
     </div>
+    <div style="background-color: #f1f5f9; padding: 16px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
+      <p style="margin: 0;">
+        <img src="https://oneworklane.com/worklane-mark.png" alt="oneworklane" width="16" height="16" style="display: inline-block; vertical-align: middle; width: 16px; height: 16px; margin: 0 6px 0 0; border: 0;" />
+        <span style="vertical-align: middle;">Sent by oneworklane &middot; Operations Hub</span>
+      </p>
+    </div>
   </div>
 </body>
 </html>"""
@@ -1342,6 +1359,8 @@ async def send_booking_confirmation_emails(
     if attendee_email:
         try:
             brand_ctx = await scheduler_brand_context()
+            from app.services.email_service import resolve_sender_identity
+            identity = await resolve_sender_identity()
             attendee_html = build_booking_confirmation_html(
                 attendee_name=attendee_name,
                 meeting_info=meeting_info,
@@ -1349,8 +1368,10 @@ async def send_booking_confirmation_emails(
                 ics_download_url=ics_download_url,
                 note=note,
                 company=company,
-                brand_name=brand_ctx["brand"],
+                brand_name=brand_ctx["brand"] or identity.get("company_name"),
                 reamarc=brand_ctx["reamarc"],
+                logo_url=identity.get("logo_url"),
+                accent_color=identity.get("accent_color"),
             )
             event_title = meeting_info.get("event_name", "Consultancy Session")
             host_name = meeting_info.get("host_name") or (

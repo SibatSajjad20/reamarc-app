@@ -510,11 +510,12 @@ class TestEmailBranding(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreaterEqual(len(captured), 5)
         for item in captured:
-            self.assertEqual(item["from_name"], "DataViz")
+            self.assertEqual(item["from_name"], "DataViz via oneworklane")
             self.assertEqual(item["reply_to"], "ops@dataviz.test")
             blob = f"{item['subject']}\n{item['html']}"
             _assert_clean(self, blob)
             self.assertIn("DataViz", item["from_name"])
+            self.assertIn("via oneworklane", item["from_name"])
         _assert_clean(self, reminder_html)
         self.assertIn("DataViz", assign_html)
         self.assertIn("https://cdn.example/dv.png", assign_html)

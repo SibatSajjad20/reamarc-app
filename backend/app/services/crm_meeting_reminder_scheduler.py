@@ -48,20 +48,18 @@ def build_meeting_reminder_10m_html(
     office_address = html_escape.escape(str(meeting_info.get("office_address") or office_fallback))
     office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or map_fallback))
 
-    branded = bool(identity and not identity.get("_reamarc"))
-    brand_footer = "Reamarc AI &bull; Strategy &amp; Digital Solutions"
-    header_bg = "linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%)"
-    logo_html = ""
-    if branded:
-        brand_footer = html_escape.escape(str(identity.get("company_name") or "Notifications"))
-        accent = html_escape.escape(str(identity.get("accent_color") or "#1e3a8a"))
-        header_bg = f"linear-gradient(135deg, {accent} 0%, {accent} 100%)"
-        logo_url = identity.get("logo_url")
-        if logo_url and str(logo_url).startswith("https://"):
-            logo_html = (
-                f'<img src="{html_escape.escape(str(logo_url), quote=True)}" alt="{brand_footer}" '
-                'style="max-height: 36px; max-width: 160px; display: block; margin-bottom: 8px;" />'
-            )
+    from app.services.email_service import _header_brand_html
+
+    company_label = html_escape.escape(
+        str((identity or {}).get("company_name") or ("Reamarc" if (identity is None or identity.get("_reamarc")) else "Notifications"))
+    )
+    accent = html_escape.escape(str((identity or {}).get("accent_color") or "#6847E0"))
+    header_bg = f"linear-gradient(135deg, {accent} 0%, {accent} 100%)"
+    header_brand = _header_brand_html(
+        company_label,
+        (identity or {}).get("logo_url"),
+        subtitle="Starting in 10 Minutes",
+    )
 
     if meeting_mode == "in_person":
         body_intro = "This is a quick reminder that your in-person session is starting in approximately <strong>10 minutes</strong>."
@@ -98,14 +96,9 @@ def build_meeting_reminder_10m_html(
 
     <!-- Header Banner -->
     <div style="background: {header_bg}; padding: 28px 24px; text-align: left;">
-      {logo_html}<span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 20px; margin-bottom: 10px;">
-        Starting in 10 Minutes
-      </span>
-      <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.3;">
-        Your Session Begins Shortly
-      </h1>
-      <p style="color: #dbeafe; margin: 6px 0 0 0; font-size: 13px;">
-        {event_name} with {host_name}
+      {header_brand}
+      <p style="color: #dbeafe; margin: 14px 0 0 0; font-size: 13px;">
+        Your session begins shortly &mdash; {event_name} with {host_name}
       </p>
     </div>
 
@@ -146,7 +139,10 @@ def build_meeting_reminder_10m_html(
 
     <!-- Footer -->
     <div style="background-color: #f1f5f9; padding: 16px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-      <p style="margin: 0;">{brand_footer}</p>
+      <p style="margin: 0;">
+        <img src="https://oneworklane.com/worklane-mark.png" alt="oneworklane" width="16" height="16" style="display: inline-block; vertical-align: middle; width: 16px; height: 16px; margin: 0 6px 0 0; border: 0;" />
+        <span style="vertical-align: middle;">Sent by oneworklane &middot; Operations Hub</span>
+      </p>
       <p style="margin: 4px 0 0 0; color: #94a3b8;">If you are unable to attend, please reply to this email to inform your host.</p>
     </div>
 

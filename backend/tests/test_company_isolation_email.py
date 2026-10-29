@@ -392,7 +392,7 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
                 "user@dataviz.test", "Hello", "<p>Hi</p>", recipient_name="A", company=company
             )
         self.assertTrue(ok)
-        self.assertEqual(captured["kwargs"].get("from_name"), "DataViz")
+        self.assertEqual(captured["kwargs"].get("from_name"), "DataViz via oneworklane")
         self.assertEqual(captured["kwargs"].get("reply_to"), "ops@dataviz.test")
 
     async def test_smtp_from_and_reply_to(self):
@@ -416,9 +416,9 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
             "app.core.tenant.get_global_db", return_value=gdb
         ):
             await EmailService.send_html_email("user@dataviz.test", "Hello", "<p>Hi</p>", company=company)
-        self.assertEqual(captured["from_name"], "DataViz")
+        self.assertEqual(captured["from_name"], "DataViz via oneworklane")
         self.assertEqual(captured["reply_to"], "ops@dataviz.test")
-        self.assertEqual(captured["from_header"], "DataViz <noreply@reamarc.test>")
+        self.assertEqual(captured["from_header"], "DataViz via oneworklane <noreply@reamarc.test>")
 
     def test_from_name_sanitised(self):
         dirty = "DataViz\r\nBcc: evil@x.com <script>"
@@ -442,23 +442,66 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
         brevo.assert_not_called()
 
     async def test_reamarc_snapshot_and_from_name(self):
-        html = _build_password_reset_html("User", "123456")
-        snapshot = _build_password_reset_html("User", "123456", identity={"_reamarc": True, "from_name": settings.SMTP_FROM_NAME})
-        self.assertEqual(html, snapshot)
-        self.assertIn(settings.SMTP_FROM_NAME, html)
+        reamarc_logo = "https://res.cloudinary.com/da3i4l1st/image/upload/v1792423180/companies/company_reamarc/branding/logo_3181e9a36018.png"
+        identity = {
+            "_reamarc": True,
+            "company_name": "Reamarc",
+            "from_name": "Reamarc via oneworklane",
+            "accent_color": "#6847E0",
+            "logo_url": reamarc_logo,
+        }
+        html = _build_password_reset_html("User", "123456", identity=identity)
+        self.assertIn("Reamarc", html)
+        self.assertIn("account on oneworklane", html)
+        self.assertIn("Sent by oneworklane", html)
+        self.assertIn(reamarc_logo, html)
+        self.assertNotIn("rgba(255,255,255", html)  # no logo chip
+        self.assertNotIn(settings.SMTP_FROM_NAME, html)
+        self.assertNotIn("Reamarc AI account", html)
         company = {"id": REAMARC, "name": "Reamarc"}
         captured = {}
 
         async def fake_brevo(*args, **kwargs):
             captured["kwargs"] = kwargs
+            captured["subject"] = args[2] if len(args) > 2 else kwargs.get("subject")
             return True
 
         with _flags(True), tenant_scope(REAMARC), patch(
             "app.services.email_service._company_custom_smtp", new=AsyncMock(return_value=None)
         ), patch("app.services.email_service._send_brevo_http", side_effect=fake_brevo):
             await EmailService.send_password_reset_code("a@reamarc.test", "123456", "User", company=company)
-        self.assertEqual(captured["kwargs"].get("from_name"), settings.SMTP_FROM_NAME)
+        self.assertEqual(captured["kwargs"].get("from_name"), "Reamarc via oneworklane")
         self.assertIsNone(captured["kwargs"].get("reply_to"))
+        self.assertEqual(captured.get("subject"), "123456 is your oneworklane reset code")
+
+    async def test_reamarc_logo_hydrated_like_public_branding(self):
+        """Partial company dict still picks up logo_url from companies doc (same as /public/company-branding)."""
+        reamarc_logo = "https://res.cloudinary.com/da3i4l1st/image/upload/v1792423180/companies/company_reamarc/branding/logo_3181e9a36018.png"
+        full_doc = {
+            "id": REAMARC,
+            "name": "Reamarc",
+            "display_name": "Reamarc",
+            "logo_url": reamarc_logo,
+            "accent_color": "#6847E0",
+        }
+        gdb = MagicMock()
+        gdb.companies.find_one = AsyncMock(return_value=full_doc)
+        with _flags(True), tenant_scope(REAMARC), patch(
+            "app.core.tenant.get_global_db", return_value=gdb
+        ), patch(
+            "app.services.company_branding.get_company_doc", new=AsyncMock(return_value=full_doc)
+        ):
+            identity = await resolve_sender_identity({"id": REAMARC, "name": "Reamarc"})
+        self.assertEqual(identity["logo_url"], reamarc_logo)
+        self.assertEqual(identity["accent_color"], "#6847E0")
+        self.assertEqual(identity["company_name"], "Reamarc")
+        self.assertEqual(identity["from_name"], "Reamarc via oneworklane")
+        html = _build_password_reset_html("User", "482916", identity=identity)
+        self.assertIn(reamarc_logo, html)
+        # Header uses company logo; footer may still show the Worklane W mark.
+        header = html.split("Account Security", 1)[0]
+        self.assertIn(reamarc_logo, header)
+        self.assertNotIn("https://oneworklane.com/worklane-mark.png", header)
 
     async def test_password_reset_dataviz_no_reamarc(self):
         company = {"id": DATAVIZ, "name": "DataViz", "logo_url": "https://cdn.example/dv.png", "accent_color": "#00AA66"}
@@ -466,9 +509,12 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
             identity = await resolve_sender_identity(company)
         html = _build_password_reset_html("User", "999111", identity=identity)
         self.assertIn("DataViz", html)
+        self.assertIn("account on oneworklane", html)
+        self.assertIn("Sent by oneworklane", html)
         self.assertNotIn("Reamarc", html)
-        subject_bit = f"999111 is your {identity['company_name']} password reset code"
-        self.assertIn("DataViz", subject_bit)
+        self.assertEqual(identity["from_name"], "DataViz via oneworklane")
+        subject_bit = "999111 is your oneworklane reset code"
+        self.assertIn("oneworklane", subject_bit)
 
     def test_reminder_html_dataviz_branding(self):
         html = _build_reminder_html(
@@ -481,6 +527,7 @@ class TestEmailIsolation(unittest.IsolatedAsyncioTestCase):
         self.assertIn("DataViz", html)
         self.assertIn("#00AA66", html)
         self.assertIn("https://cdn.example/dv.png", html)
+        self.assertIn("Sent by oneworklane", html)
         self.assertNotIn("Reamarc Workspace", html)
 
     async def test_reply_to_skips_super_admin(self):

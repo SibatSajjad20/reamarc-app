@@ -19,11 +19,41 @@ _SIMPLE_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 logger = logging.getLogger("app.email_service")
 
+# Absolute public URL for the Worklane W mark (frontend public/worklane-mark.png).
+ONEWORKLANE_MARK_URL = "https://oneworklane.com/worklane-mark.png"
+ONEWORKLANE_VIA = "via oneworklane"
+ONEWORKLANE_FOOTER_LABEL = "Sent by oneworklane · Operations Hub"
+
 
 def sanitize_from_name(name: Optional[str]) -> str:
     cleaned = _FROM_NAME_UNSAFE.sub("", str(name or ""))
     cleaned = re.sub(r"\s+", " ", cleaned).strip()[:64]
     return cleaned or (settings.SMTP_FROM_NAME or "Notifications")
+
+
+def format_via_from_name(company_name: Optional[str]) -> str:
+    """Display From name: '<Company> via oneworklane' for every tenant including Reamarc."""
+    base = re.sub(r"\s+", " ", str(company_name or "").strip()) or "Notifications"
+    # Reserve room for " via oneworklane" inside the 64-char sanitize cap.
+    suffix = f" {ONEWORKLANE_VIA}"
+    max_base = max(1, 64 - len(suffix))
+    return sanitize_from_name(f"{base[:max_base]}{suffix}")
+
+
+def _email_footer_html() -> str:
+    """Small Worklane footer with W mark — email-client safe (table + inline styles)."""
+    mark = ONEWORKLANE_MARK_URL
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="background-color: #f4f4f5; border-top: 1px solid #e4e4e7;">'
+        '<tr><td align="center" style="padding: 16px 24px;">'
+        f'<img src="{mark}" alt="oneworklane" width="16" height="16" '
+        'style="display: inline-block; vertical-align: middle; width: 16px; height: 16px; '
+        'margin: 0 6px 0 0; border: 0;" />'
+        f'<span style="font-size: 11px; color: #71717a; vertical-align: middle;">'
+        f'{ONEWORKLANE_FOOTER_LABEL}</span>'
+        '</td></tr></table>'
+    )
 
 
 def _valid_reply_to(raw: Optional[str]) -> Optional[str]:
@@ -55,13 +85,12 @@ def branded_message_html(
 ) -> str:
     """Wrap a short HTML fragment in the same logo/accent/footer shell as log reminders."""
     identity = identity or {}
-    reamarc = bool(identity.get("_reamarc"))
-    brand = str(identity.get("company_name") or identity.get("from_name") or "")
+    brand = str(identity.get("company_name") or "").strip()
     if not brand:
         from app.core.integrations import current_company_id, is_reamarc_company
-        brand = settings.SMTP_FROM_NAME if (reamarc or is_reamarc_company(current_company_id())) else "Notifications"
-    color = str(identity.get("accent_color") or "#4f46e5")
-    logo_html = _logo_block(identity.get("logo_url") if not reamarc else None, brand)
+        brand = "Reamarc" if (identity.get("_reamarc") or is_reamarc_company(current_company_id())) else "Notifications"
+    color = str(identity.get("accent_color") or "#6847E0")
+    header = _header_brand_html(brand, identity.get("logo_url"))
     cta = ""
     if cta_url:
         cta = (
@@ -70,6 +99,7 @@ def branded_message_html(
             f'font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; '
             f'text-decoration: none;">{cta_label}</a></p>'
         )
+    footer = _email_footer_html()
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -79,36 +109,83 @@ def branded_message_html(
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fafafa; margin: 0; padding: 24px 12px; color: #18181b;">
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden;">
     <div style="background: linear-gradient(135deg, {color} 0%, {color} 100%); padding: 28px 24px; text-align: left;">
-      {logo_html}
-      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800;">{brand}</h1>
+      {header}
     </div>
     <div style="padding: 32px 28px; font-size: 14px; line-height: 1.6; color: #52525b;">
       {body_html}
       {cta}
     </div>
-    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
-      <p style="font-size: 11px; color: #71717a; margin: 0;">{brand}</p>
-    </div>
+    {footer}
   </div>
 </body>
 </html>"""
 
 
+
 def _logo_block(logo_url: Optional[str], company_name: str) -> str:
-    if not logo_url or not str(logo_url).startswith("https://"):
-        return ""
-    safe = str(logo_url).replace('"', "")
+    """Company Cloudinary logo (~40px tall, natural ratio), or Worklane W mark when missing.
+
+    Soft translucent chip for contrast on accent headers — not an opaque white box.
+    """
+    from app.services.company_branding import sanitize_logo_url
+
+    url = sanitize_logo_url(logo_url) or ONEWORKLANE_MARK_URL
+    alt = str(company_name or ("oneworklane" if url == ONEWORKLANE_MARK_URL else "Company")).replace('"', "")
+    # height ~40px, width auto capped; rounded corners; works for square + wide logos
+    # No chip/background — logo sits directly on the accent header.
     return (
-        f'<img src="{safe}" alt="{company_name}" '
-        'style="max-height: 36px; max-width: 160px; display: block; margin-bottom: 8px;" />'
+        f'<img src="{url}" alt="{alt}" height="40" '
+        'style="display: block; height: 40px; width: auto; max-width: 180px; '
+        'max-height: 40px; border: 0; border-radius: 8px; object-fit: contain; '
+        'background: transparent;" />'
+    )
+
+
+def _header_brand_html(
+    brand: str,
+    logo_url: Optional[str] = None,
+    *,
+    subtitle: Optional[str] = None,
+) -> str:
+    """Logo + company name row for accent headers (email-client safe table)."""
+    logo = _logo_block(logo_url, brand)
+    sub = ""
+    if subtitle:
+        sub = (
+            f'<p style="color: #e0e7ff; margin: 4px 0 0 0; font-size: 13px; '
+            f'line-height: 1.3;">{subtitle}</p>'
+        )
+    return (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" '
+        'style="border-collapse: collapse;">'
+        "<tr>"
+        f'<td valign="middle" style="width: 1%; padding: 0 14px 0 0;">{logo}</td>'
+        '<td valign="middle" style="padding: 0;">'
+        f'<h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; '
+        f'letter-spacing: -0.025em; line-height: 1.25;">{brand}</h1>'
+        f"{sub}"
+        "</td></tr></table>"
     )
 
 
 async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
-    """Return display identity for outbound mail. Transport address is unchanged."""
+    """Return display identity for outbound mail. Transport address is unchanged.
+
+    From name is always '<Company> via oneworklane' (including Reamarc). Reply-To
+    stays company contact / admin for non-Reamarc tenants and None for Reamarc.
+
+    Logo / accent / display name use the same company-doc fields as
+    GET /public/company-branding (logo_url, accent_color, display_name|name).
+    """
     from app.core.integrations import is_reamarc_company
     from app.core.tenant import get_tenant_context
-    from app.services.company_branding import company_admin_reply_email, get_company_doc
+    from app.services.company_branding import (
+        accent_or_default,
+        brand_name_of,
+        company_admin_reply_email,
+        get_company_doc,
+        sanitize_logo_url,
+    )
 
     cid = None
     if company:
@@ -116,38 +193,48 @@ async def resolve_sender_identity(company: Optional[dict] = None) -> dict:
     if not cid:
         ctx = get_tenant_context()
         cid = ctx.company_id if ctx else None
-    if company is None and cid:
-        company = await get_company_doc(cid)
 
-    if is_reamarc_company(cid):
-        return {
-            "from_name": settings.SMTP_FROM_NAME,
-            "reply_to": None,
-            "company_name": (company or {}).get("name") or settings.SMTP_FROM_NAME,
-            "logo_url": (company or {}).get("logo_url"),
-            "accent_color": (company or {}).get("accent_color") or "#4f46e5",
-            "_reamarc": True,
-        }
-
-    company_name = ""
+    # Hydrate from the global companies doc so partial callers (id+name only)
+    # still get the live logo_url / accent used by /public/company-branding.
+    full = None
+    if cid:
+        try:
+            from app.core.tenant import get_global_db
+            if get_global_db() is not None:
+                full = await get_company_doc(cid)
+        except Exception:
+            # Tests / missing DB: keep the caller-supplied company fields.
+            full = None
+    merged: Dict[str, Any] = dict(full or {})
     if company:
-        company_name = str(company.get("display_name") or company.get("name") or "").strip()
-    if not company_name:
-        company_name = "Notifications"
-    from_name = sanitize_from_name(company_name)
-    reply_to = _valid_reply_to(
-        (company or {}).get("contact_email") or (company or {}).get("support_email")
-    )
-    if not reply_to and cid:
-        reply_to = _valid_reply_to(await company_admin_reply_email(cid))
+        for key, value in company.items():
+            if value is not None:
+                merged[key] = value
+    company = merged or None
+
+    reamarc = is_reamarc_company(cid)
+    company_name = brand_name_of(company) if company else ("Reamarc" if reamarc else "Notifications")
+    if not str(company_name or "").strip():
+        company_name = "Reamarc" if reamarc else "Notifications"
+
+    from_name = format_via_from_name(company_name)
+    reply_to = None
+    if not reamarc:
+        reply_to = _valid_reply_to(
+            (company or {}).get("contact_email") or (company or {}).get("support_email")
+        )
+        if not reply_to and cid:
+            reply_to = _valid_reply_to(await company_admin_reply_email(cid))
+
     return {
         "from_name": from_name,
         "reply_to": reply_to,
-        "company_name": from_name,
-        "logo_url": (company or {}).get("logo_url"),
-        "accent_color": (company or {}).get("accent_color") or "#4f46e5",
-        "_reamarc": False,
+        "company_name": company_name,
+        "logo_url": sanitize_logo_url((company or {}).get("logo_url")),
+        "accent_color": accent_or_default((company or {}).get("accent_color")),
+        "_reamarc": reamarc,
     }
+
 
 
 async def _company_custom_smtp(company: Optional[dict]) -> Optional[dict]:
@@ -226,9 +313,10 @@ def _build_reminder_html(
         brand_name = company_name
     else:
         from app.core.integrations import current_company_id, is_reamarc_company
-        brand_name = settings.SMTP_FROM_NAME if is_reamarc_company(current_company_id()) else "Notifications"
-    color = accent_color or "#4f46e5"
-    logo_html = _logo_block(logo_url, brand_name)
+        brand_name = "Reamarc" if is_reamarc_company(current_company_id()) else "Notifications"
+    color = accent_color or "#6847E0"
+    header = _header_brand_html(brand_name, logo_url, subtitle="Daily Work Log Reminder")
+    footer = _email_footer_html()
     custom_note_block = (
         f"""<div style="background-color: #f4f4f5; border-left: 4px solid {color}; padding: 12px 16px; margin: 16px 0; border-radius: 6px; font-size: 13px; color: #3f3f46;">
             <strong>Admin Note:</strong> {custom_message}
@@ -249,12 +337,7 @@ def _build_reminder_html(
     
     <!-- Header -->
     <div style="background: linear-gradient(135deg, {color} 0%, {color} 100%); padding: 28px 24px; text-align: left;">
-      {logo_html}      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.025em;">
-        {brand_name}
-      </h1>
-      <p style="color: #e0e7ff; margin: 6px 0 0 0; font-size: 13px;">
-        Daily Work Log Reminder
-      </p>
+      {header}
     </div>
 
     <!-- Body Content -->
@@ -289,20 +372,17 @@ def _build_reminder_html(
       </div>
 
       <p style="font-size: 11px; color: #a1a1aa; text-align: center; margin: 24px 0 0 0;">
-        You are receiving this notification as a member of the organization.
+        You are receiving this notification as a member of your {brand_name} account on oneworklane.
       </p>
     </div>
 
     <!-- Footer -->
-    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
-      <p style="font-size: 11px; color: #71717a; margin: 0;">
-        &copy; {datetime.now().year} {brand_name}. All rights reserved.
-      </p>
-    </div>
+    {footer}
 
   </div>
 </body>
 </html>"""
+
 
 
 def _build_password_reset_html(
@@ -310,11 +390,16 @@ def _build_password_reset_html(
     code: str,
     identity: Optional[Dict[str, Any]] = None,
 ) -> str:
-    if identity and not identity.get("_reamarc"):
-        brand = identity.get("company_name") or settings.SMTP_FROM_NAME
-        color = identity.get("accent_color") or "#4f46e5"
-        logo_html = _logo_block(identity.get("logo_url"), brand)
-        return f"""<!DOCTYPE html>
+    identity = identity or {}
+    brand = str(identity.get("company_name") or "").strip()
+    if not brand:
+        brand = "Reamarc" if identity.get("_reamarc") else "Notifications"
+    color = str(identity.get("accent_color") or "#6847E0")
+    header = _header_brand_html(
+        brand, identity.get("logo_url"), subtitle="Account Security &amp; Password Reset"
+    )
+    footer = _email_footer_html()
+    return f"""<!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
@@ -324,20 +409,14 @@ def _build_password_reset_html(
 <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fafafa; margin: 0; padding: 24px 12px; color: #18181b;">
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
     <div style="background: linear-gradient(135deg, {color} 0%, {color} 100%); padding: 28px 24px; text-align: left;">
-      {logo_html}
-      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.025em;">
-        {brand}
-      </h1>
-      <p style="color: #e0e7ff; margin: 6px 0 0 0; font-size: 13px;">
-        Account Security &amp; Password Reset
-      </p>
+      {header}
     </div>
     <div style="padding: 32px 28px;">
       <h2 style="font-size: 16px; font-weight: 700; color: #18181b; margin-top: 0;">
         Hi {recipient_name},
       </h2>
       <p style="font-size: 14px; line-height: 1.6; color: #52525b; margin: 12px 0 20px 0;">
-        We received a request to reset your password for your {brand} account. Use the 6-digit verification code below to set a new password:
+        We received a request to reset your password for your {brand} account on oneworklane. Use the 6-digit verification code below to set a new password:
       </p>
       <div style="background-color: #eef2ff; border: 2px dashed {color}; border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
         <span style="font-size: 11px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 8px;">
@@ -354,78 +433,14 @@ def _build_password_reset_html(
         <strong>Security Notice:</strong> If you did not request a password reset, please ignore this email or reach out to your administrator. Your password will remain unchanged.
       </div>
       <p style="font-size: 11px; color: #a1a1aa; text-align: center; margin: 24px 0 0 0;">
-        This automated security verification was sent by {brand}.
+        This automated security verification was sent for your {brand} account on oneworklane.
       </p>
     </div>
-    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
-      <p style="font-size: 11px; color: #71717a; margin: 0;">
-        &copy; {datetime.now().year} {brand}. All rights reserved.
-      </p>
-    </div>
+    {footer}
   </div>
 </body>
 </html>"""
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Password Reset Verification Code</title>
-</head>
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fafafa; margin: 0; padding: 24px 12px; color: #18181b;">
-  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
-    
-    <!-- Header -->
-    <div style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); padding: 28px 24px; text-align: left;">
-      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.025em;">
-        {settings.SMTP_FROM_NAME}
-      </h1>
-      <p style="color: #e0e7ff; margin: 6px 0 0 0; font-size: 13px;">
-        Account Security &amp; Password Reset
-      </p>
-    </div>
 
-    <!-- Body Content -->
-    <div style="padding: 32px 28px;">
-      <h2 style="font-size: 16px; font-weight: 700; color: #18181b; margin-top: 0;">
-        Hi {recipient_name},
-      </h2>
-      <p style="font-size: 14px; line-height: 1.6; color: #52525b; margin: 12px 0 20px 0;">
-        We received a request to reset your password for your Reamarc AI account. Use the 6-digit verification code below to set a new password:
-      </p>
-
-      <!-- 6-digit OTP Code Box -->
-      <div style="background-color: #eef2ff; border: 2px dashed #6366f1; border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
-        <span style="font-size: 11px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 8px;">
-          Verification Code
-        </span>
-        <span style="font-size: 32px; font-weight: 800; letter-spacing: 0.3em; color: #4f46e5; font-family: 'Courier New', Courier, monospace; display: inline-block;">
-          {code}
-        </span>
-        <p style="font-size: 12px; color: #6366f1; margin: 8px 0 0 0; font-weight: 500;">
-          Expires in 10 minutes (5 attempts maximum)
-        </p>
-      </div>
-
-      <div style="background-color: #f8fafc; border-left: 4px solid #94a3b8; padding: 12px 16px; margin: 20px 0; border-radius: 6px; font-size: 12px; color: #64748b; line-height: 1.5;">
-        <strong>Security Notice:</strong> If you did not request a password reset, please ignore this email or reach out to your administrator. Your password will remain unchanged.
-      </div>
-
-      <p style="font-size: 11px; color: #a1a1aa; text-align: center; margin: 24px 0 0 0;">
-        This automated security verification was sent by {settings.PROJECT_NAME}.
-      </p>
-    </div>
-
-    <!-- Footer -->
-    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
-      <p style="font-size: 11px; color: #71717a; margin: 0;">
-        &copy; {datetime.now().year} {settings.PROJECT_NAME}. All rights reserved.
-      </p>
-    </div>
-
-  </div>
-</body>
-</html>"""
 
 
 async def _send_resend_http(
@@ -656,26 +671,15 @@ class EmailService:
         identity = await resolve_sender_identity(company)
         dates_str = ", ".join(dates)
         subject = f"Reminder: Please submit your Daily Log ({dates_str})"
-        if identity.get("_reamarc"):
-            html = _build_reminder_html(
-                recipient_name=target_name,
-                missing_dates=dates,
-                custom_message=custom_message,
-                action_url=action_url,
-                company_name=(company or {}).get("name"),
-                accent_color=(company or {}).get("accent_color"),
-                logo_url=None,
-            )
-        else:
-            html = _build_reminder_html(
-                recipient_name=target_name,
-                missing_dates=dates,
-                custom_message=custom_message,
-                action_url=action_url,
-                company_name=identity.get("company_name"),
-                accent_color=identity.get("accent_color"),
-                logo_url=identity.get("logo_url"),
-            )
+        html = _build_reminder_html(
+            recipient_name=target_name,
+            missing_dates=dates,
+            custom_message=custom_message,
+            action_url=action_url,
+            company_name=identity.get("company_name"),
+            accent_color=identity.get("accent_color"),
+            logo_url=identity.get("logo_url"),
+        )
         return await _dispatch_outbound(
             target_email,
             target_name,
@@ -700,10 +704,7 @@ class EmailService:
 
         identity = await resolve_sender_identity(company)
         target_name = recipient_name or "User"
-        if identity.get("_reamarc"):
-            subject = f"{code} is your Reamarc AI password reset code"
-        else:
-            subject = f"{code} is your {identity.get('company_name')} password reset code"
+        subject = f"{code} is your oneworklane reset code"
         html = _build_password_reset_html(
             recipient_name=target_name,
             code=code,
