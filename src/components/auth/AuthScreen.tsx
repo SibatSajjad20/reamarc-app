@@ -3,6 +3,10 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { authService } from '../../services/authService';
 import {
+  applyLoginDocumentBrand,
+  useHostLoginBranding,
+} from '../../hooks/useHostLoginBranding';
+import {
   Mail,
   Lock,
   Eye,
@@ -40,6 +44,20 @@ export const AuthScreen: React.FC = () => {
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const [resendCountdown, setResendCountdown] = useState<number>(0);
+
+  const brand = useHostLoginBranding();
+  const brandLoading = brand.status === 'loading';
+  const brandName = brand.displayName || '';
+  const brandLogo = brand.status === 'loading' ? null : brand.logoUrl;
+  const brandAccent = brand.status === 'loading' || !brand.accentColor ? '#4F46E5' : brand.accentColor;
+
+  useEffect(() => {
+    return applyLoginDocumentBrand({
+      displayName: brand.displayName,
+      logoUrl: brand.status === 'company' ? brand.logoUrl : null,
+      loading: brandLoading,
+    });
+  }, [brand, brandLoading]);
 
   // 60s cooldown timer for Resend Code in Step 2
   useEffect(() => {
@@ -227,15 +245,39 @@ export const AuthScreen: React.FC = () => {
         />
       </div>
 
-      {/* Top Header: Logo + Brand Name */}
+      {/* Top Header: Logo + Brand Name (tenant on subdomain; Reamarc on apex/vercel) */}
       <header className="relative z-10 flex items-center justify-between w-full">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-[10px] bg-[#4F46E5] text-white font-bold text-[17px] flex items-center justify-center shadow-xs select-none">
-            R
-          </div>
-          <span className="text-[18px] font-bold tracking-tight text-[#0F172A] dark:text-white">
-            Reamarc
-          </span>
+        <div className="flex items-center gap-3 min-h-9">
+          {brandLoading ? (
+            <>
+              <div className="w-9 h-9 rounded-[10px] bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
+              <div className="h-4 w-24 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
+            </>
+          ) : brandLogo ? (
+            <>
+              <img
+                src={brandLogo}
+                alt=""
+                className="w-9 h-9 rounded-[10px] object-contain bg-white/5 shadow-xs"
+                referrerPolicy="no-referrer"
+              />
+              <span className="text-[18px] font-bold tracking-tight text-[#0F172A] dark:text-white">
+                {brandName}
+              </span>
+            </>
+          ) : (
+            <>
+              <div
+                className="w-9 h-9 rounded-[10px] text-white font-bold text-[17px] flex items-center justify-center shadow-xs select-none"
+                style={{ backgroundColor: brandAccent }}
+              >
+                {(brandName || 'R').charAt(0).toUpperCase()}
+              </div>
+              <span className="text-[18px] font-bold tracking-tight text-[#0F172A] dark:text-white">
+                {brandName || '…'}
+              </span>
+            </>
+          )}
         </div>
       </header>
 
@@ -322,7 +364,8 @@ export const AuthScreen: React.FC = () => {
                         setSuccessMessage(null);
                         setMode('forgot_email');
                       }}
-                      className="text-[13px] font-semibold text-[#4F46E5] hover:text-[#4338CA] dark:text-[#8D7EFF] dark:hover:text-[#A79CFF] transition-colors cursor-pointer disabled:opacity-50"
+                      className="text-[13px] font-semibold hover:opacity-80 transition-colors cursor-pointer disabled:opacity-50"
+                      style={{ color: brandAccent }}
                     >
                       Forgot password?
                     </button>
@@ -392,7 +435,8 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full h-[46px] rounded-[10px] bg-[#4F46E5] hover:bg-[#4338CA] active:bg-[#3730A3] text-white font-semibold text-[15px] transition-all shadow-sm shadow-[#4F46E5]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full h-[46px] rounded-[10px] text-white font-semibold text-[15px] transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: brandAccent, boxShadow: `0 1px 2px ${brandAccent}33` }}
                   >
                     {isSubmitting ? (
                       <>
@@ -407,7 +451,11 @@ export const AuthScreen: React.FC = () => {
 
                 {/* Footer note inside card */}
                 <p className="text-[13px] text-[#64748B] dark:text-slate-400 text-center pt-3">
-                  New to Reamarc? Ask your admin for an invite.
+                  {brandLoading ? (
+                    <span className="inline-block h-3.5 w-56 rounded bg-slate-200 dark:bg-slate-700 animate-pulse align-middle" aria-hidden />
+                  ) : (
+                    <>New to {brandName}? Ask your admin for an invite.</>
+                  )}
                 </p>
               </form>
             </div>
@@ -459,7 +507,8 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full h-[46px] rounded-[10px] bg-[#4F46E5] hover:bg-[#4338CA] active:bg-[#3730A3] text-white font-semibold text-[15px] transition-all shadow-sm shadow-[#4F46E5]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full h-[46px] rounded-[10px] text-white font-semibold text-[15px] transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: brandAccent, boxShadow: `0 1px 2px ${brandAccent}33` }}
                   >
                     {isSubmitting ? (
                       <>
@@ -562,7 +611,8 @@ export const AuthScreen: React.FC = () => {
                   <button
                     type="submit"
                     disabled={isSubmitting || code.trim().length !== 6}
-                    className="w-full h-[46px] rounded-[10px] bg-[#4F46E5] hover:bg-[#4338CA] active:bg-[#3730A3] text-white font-semibold text-[15px] transition-all shadow-sm shadow-[#4F46E5]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full h-[46px] rounded-[10px] text-white font-semibold text-[15px] transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: brandAccent, boxShadow: `0 1px 2px ${brandAccent}33` }}
                   >
                     {isSubmitting ? (
                       <>
@@ -735,7 +785,8 @@ export const AuthScreen: React.FC = () => {
                       newPassword.length < 8 ||
                       newPassword !== confirmPassword
                     }
-                    className="w-full h-[46px] rounded-[10px] bg-[#4F46E5] hover:bg-[#4338CA] active:bg-[#3730A3] text-white font-semibold text-[15px] transition-all shadow-sm shadow-[#4F46E5]/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full h-[46px] rounded-[10px] text-white font-semibold text-[15px] transition-all shadow-sm flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                    style={{ backgroundColor: brandAccent, boxShadow: `0 1px 2px ${brandAccent}33` }}
                   >
                     {isSubmitting ? (
                       <>
@@ -768,7 +819,11 @@ export const AuthScreen: React.FC = () => {
 
       {/* Page Footer */}
       <footer className="relative z-10 flex items-center justify-between w-full text-[13px] text-[#64748B] dark:text-slate-500 pt-4">
-        <span>© 2026 Reamarc</span>
+        {brandLoading ? (
+          <span className="inline-block h-3.5 w-28 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
+        ) : (
+          <span>© 2026 {brandName}</span>
+        )}
         <div className="flex items-center gap-1.5">
           <span className="hover:text-slate-900 dark:hover:text-white cursor-pointer transition-colors">Privacy</span>
           <span>·</span>

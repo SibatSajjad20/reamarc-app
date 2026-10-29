@@ -774,3 +774,105 @@ def test_worklane_host_redirect_matrix_documented():
     assert redirect("oneworklane.com", "") is None
     assert redirect("oneworklane.com", None) is None
     assert redirect("reamarc-app.vercel.app", "dataviz") is None
+
+
+@pytest.mark.asyncio
+async def test_public_company_branding_minimal_fields():
+    """Login branding returns only display_name/logo/accent — never id or lists."""
+    from app.core.company_slug import slug_exists
+    from app.routers.worklane_public import CompanyBrandingPublicResponse
+    from app.services.company_branding import brand_name_of, sanitize_logo_url, accent_or_default
+
+    doc = {
+        "display_name": "DataViz",
+        "name": "DataViz Technologies",
+        "logo_url": "https://res.cloudinary.com/demo/image/upload/v1/dataviz.png",
+        "accent_color": "#00AA66",
+        "id": "secret-id",
+        "contact_email": "secret@x.com",
+    }
+    # Mimic endpoint field selection
+    payload = CompanyBrandingPublicResponse(
+        exists=True,
+        display_name=brand_name_of(doc),
+        logo_url=sanitize_logo_url(doc.get("logo_url")),
+        accent_color=accent_or_default(doc.get("accent_color")),
+    )
+    dump = payload.model_dump()
+    assert dump == {
+        "exists": True,
+        "display_name": "DataViz",
+        "logo_url": "https://res.cloudinary.com/demo/image/upload/v1/dataviz.png",
+        "accent_color": "#00AA66",
+    }
+    assert "id" not in dump
+    assert "contact_email" not in dump
+    assert "name" not in dump  # raw legal name not exposed — display_name only
+
+    # Non-https logo stripped
+    assert sanitize_logo_url("http://evil.example/x.png") is None
+    assert sanitize_logo_url("/relative.png") is None
+
+    gdb = MagicMock()
+    gdb.companies.find_one = AsyncMock(return_value=None)
+    assert await slug_exists(gdb, "hello") is False
+
+
+@pytest.mark.asyncio
+async def test_public_company_branding_endpoint_unknown_and_known():
+    from app.routers import worklane_public as wp
+    from starlette.requests import Request
+
+    gdb = MagicMock()
+
+    async def find_one(query, *args, **kwargs):
+        if query.get("slug") == "dataviz":
+            return {
+                "display_name": "DataViz",
+                "name": "DataViz Technologies",
+                "logo_url": "https://res.cloudinary.com/demo/image/upload/v1/dv.png",
+                "accent_color": "#112233",
+            }
+        return None
+
+    gdb.companies.find_one = AsyncMock(side_effect=find_one)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "https",
+        "path": "/api/v1/public/company-branding",
+        "raw_path": b"/api/v1/public/company-branding",
+        "query_string": b"slug=dataviz",
+        "headers": [],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 443),
+    }
+    req = Request(scope)
+    # Capture response headers via a simple stub
+    class Resp:
+        def __init__(self):
+            self.headers = {}
+
+    with patch.object(wp, "get_global_db", return_value=gdb):
+        # Call underlying logic without slowapi by invoking after unwrap if needed
+        # Direct: patch limiter by calling the non-wrapped coroutine
+        fn = wp.company_branding_public
+        while hasattr(fn, "__wrapped__"):
+            fn = fn.__wrapped__
+        out = await fn(req, Resp(), slug="dataviz")
+        assert out.exists is True
+        assert out.display_name == "DataViz"
+        assert out.logo_url and out.logo_url.startswith("https://")
+        assert out.model_dump().keys() == {"exists", "display_name", "logo_url", "accent_color"}
+
+        out2 = await fn(req, Resp(), slug="hello")
+        assert out2.exists is False
+        assert out2.display_name is None
+        assert out2.logo_url is None
+
+        out3 = await fn(req, Resp(), slug="www")
+        assert out3.exists is False
+
