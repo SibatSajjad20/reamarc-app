@@ -409,9 +409,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!isWorklaneHost(window.location.hostname)) return;
       const hostSlug = companySlugFromHost(window.location.hostname);
       const list = user.companies || [];
-      const active =
-        list.find((c) => c.id === user.company_id) ||
-        (user.company ? { id: user.company_id, slug: user.company.slug } : null);
 
       if (!hostSlug) {
         // Apex (or www): send logged-in users to their company subdomain when slug exists.

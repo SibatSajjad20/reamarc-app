@@ -4,7 +4,7 @@
  * No JWT in localStorage — XSS cannot steal the session that way.
  */
 
-import { WORKLANE_API_BASE, isWorklaneHost } from '../utils/worklaneHost';
+import { isWorklaneHost } from '../utils/worklaneHost';
 
 export class ApiError extends Error {
   public status: number;
