@@ -253,13 +253,27 @@ export const AuthScreen: React.FC = () => {
               <div className="w-9 h-9 rounded-[10px] bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
               <div className="h-4 w-24 rounded bg-slate-200 dark:bg-slate-700 animate-pulse" aria-hidden />
             </>
-          ) : brandLogo && /oneworklane-wordmark/i.test(brandLogo) ? (
-            <img
-              src={brandLogo}
-              alt={brandName || 'oneworklane'}
-              className="h-11 w-auto max-w-[min(280px,70vw)] object-contain select-none"
-              referrerPolicy="no-referrer"
-            />
+          ) : brand.status === 'platform' && brandName === 'oneworklane' ? (
+            <div className="flex items-center gap-2.5 select-none" aria-label="oneworklane">
+              <img
+                src={brandLogo || '/worklane-mark.png'}
+                alt=""
+                width={36}
+                height={36}
+                className="w-9 h-9 object-contain shrink-0"
+                draggable={false}
+                referrerPolicy="no-referrer"
+              />
+              <div className="flex flex-col justify-center min-w-0 leading-none">
+                <span className="text-[18px] font-bold tracking-tight">
+                  <span className="text-[#0B1033] dark:text-[#F8FAFC]">onework</span>
+                  <span className="text-[#1E8BFF]">lane</span>
+                </span>
+                <span className="mt-1.5 text-[9px] font-semibold tracking-[0.2em] uppercase text-slate-400 dark:text-slate-500">
+                  Operations Hub
+                </span>
+              </div>
+            </div>
           ) : brandLogo ? (
             <>
               <img

@@ -11,8 +11,8 @@ export const PLATFORM_LOGIN_BRAND = {
 /** Apex / www oneworklane.com — product login branding (not a company tenant). */
 export const WORKLANE_LOGIN_BRAND = {
   displayName: 'oneworklane',
-  /** Chip wordmark reads on both light and dark login backgrounds. */
-  logoUrl: '/oneworklane-wordmark-chip.png' as string | null,
+  /** W mark only; AuthScreen paints live 'onework'+'lane' text (light/dark). */
+  logoUrl: '/worklane-mark.png' as string | null,
   accentColor: '#4F46E5',
 } as const;
 
@@ -168,8 +168,9 @@ export function applyLoginDocumentBrand(opts: {
 
   if (opts.logoUrl && !opts.loading) {
     // Prefer W mark for tab icon when the "logo" is a wide wordmark chip.
-    const isWordmark = /oneworklane-wordmark/i.test(opts.logoUrl);
-    const href = isWordmark ? '/worklane-mark.png' : opts.logoUrl;
+    // Wide wordmark chips (legacy) → W tab icon; worklane-mark is already the W.
+    const isWideWordmark = /oneworklane-wordmark/i.test(opts.logoUrl);
+    const href = isWideWordmark ? '/worklane-mark.png' : opts.logoUrl;
     iconLinks.forEach((el) => {
       el.href = href;
     });
