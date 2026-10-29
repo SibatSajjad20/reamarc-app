@@ -1334,7 +1334,8 @@ async def send_booking_confirmation_emails(
     from app.services.crm_ingest import SYSTEM_ACTOR, append_activity
     from app.services.email_service import EmailService
 
-    base_url = (settings.APP_FRONTEND_URL or "").rstrip("/")
+    from app.core.origins import effective_frontend_url
+    base_url = effective_frontend_url(settings)
     ics_download_url = f"{base_url}{ics_path}" if base_url else ics_path
 
     # 1. Send Attendee Confirmation Email

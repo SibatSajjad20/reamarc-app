@@ -38,11 +38,11 @@
   "rewrites": [
     {
       "source": "/crm/ingest/:path*",
-      "destination": "https://reamarc-app.onrender.com/crm/ingest/:path*"
+      "destination": "https://api.oneworklane.com/crm/ingest/:path*"
     },
     {
       "source": "/api/v1/:path*",
-      "destination": "https://reamarc-app.onrender.com/api/v1/:path*"
+      "destination": "https://api.oneworklane.com/api/v1/:path*"
     },
     {
       "source": "/review/:token",

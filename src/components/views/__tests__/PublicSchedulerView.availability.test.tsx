@@ -137,6 +137,30 @@ describe('company resolution', () => {
 });
 
 describe('PublicSchedulerView availability (multi-tenant backend)', () => {
+  it('uses the Worklane subdomain slug when path and query are empty', () => {
+    expect(
+      resolveSchedulerCompany({
+        pathname: '/book',
+        search: '',
+        hostname: 'dataviz.oneworklane.com',
+      }),
+    ).toBe('dataviz');
+    expect(
+      resolveSchedulerCompany({
+        pathname: '/book',
+        search: '',
+        hostname: 'www.oneworklane.com',
+      }),
+    ).toBe('reamarc');
+    expect(
+      resolveSchedulerCompany({
+        pathname: '/book',
+        search: '',
+        hostname: 'evil-oneworklane.com',
+      }),
+    ).toBe('reamarc');
+  });
+
   it('shows working-hour slots for a future weekday and shows the booked one disabled', async () => {
     const { container } = render(<PublicSchedulerView />);
     await pickDay(container, '2026-10-28');

@@ -1,4 +1,4 @@
-import { apiClient } from './apiClient';
+import { apiClient, API_BASE_URL } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
 import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import { validateFinanceProofFile } from '../utils/financeProof';
@@ -559,13 +559,15 @@ export const financeService = {
   },
 
   async getPublicInvoice(shareToken: string): Promise<any> {
-    const res = await fetch(`/api/v1/finance/public/invoice/${shareToken}`);
+    const base = (API_BASE_URL || '/api/v1').replace(/\/$/, '');
+    const res = await fetch(`${base}/finance/public/invoice/${encodeURIComponent(shareToken)}`);
     if (!res.ok) throw new Error('Invoice link not found or expired');
     return res.json();
   },
 
   getPublicInvoicePdfUrl(shareToken: string): string {
-    return `/api/v1/finance/public/invoice/${shareToken}/pdf`;
+    const base = (API_BASE_URL || '/api/v1').replace(/\/$/, '');
+    return `${base}/finance/public/invoice/${encodeURIComponent(shareToken)}/pdf`;
   },
 };
 

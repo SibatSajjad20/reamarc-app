@@ -24,6 +24,8 @@ _DEFAULT_PRODUCTION_ORIGINS = [
     "https://reamarc.com",
     "https://www.reamarc.com",
     "https://reamarc-app.vercel.app",
+    "https://oneworklane.com",
+    "https://www.oneworklane.com",
 ]
 
 
@@ -53,6 +55,11 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: str = ""
     CORS_ORIGINS: list[str] = list(_LOCAL_ORIGINS)
+    # Public app / API hosts (Worklane). Used for emails, CORS subdomain regex, cookie domain.
+    APP_BASE_DOMAIN: str = "oneworklane.com"
+    APP_API_URL: str = "https://api.oneworklane.com"
+    # Optional Set-Cookie Domain (e.g. ".oneworklane.com"). Empty = host-only (safer default).
+    COOKIE_DOMAIN: str = ""
 
     # LLM Provider Configuration
     OPENROUTER_API_KEY: str = ""

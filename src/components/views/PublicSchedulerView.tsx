@@ -28,6 +28,7 @@ import { Calendar } from '../ui/calendar';
 import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { API_BASE_URL } from '../../services/apiClient';
+import { companySlugFromHost } from '../../utils/worklaneHost';
 import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
 import {
   validateCompanyName,
@@ -116,7 +117,7 @@ const getApiUrl = (endpoint: string) => {
 export const DEFAULT_SCHEDULER_COMPANY = 'reamarc';
 
 export function resolveSchedulerCompany(
-  loc: { pathname: string; search: string } = window.location
+  loc: { pathname: string; search: string; hostname?: string } = window.location
 ): string {
   const clean = (v: string | null | undefined) => (v || '').trim().replace(/[^a-zA-Z0-9_-]/g, '');
   const params = new URLSearchParams(loc.search || '');
@@ -131,7 +132,12 @@ export function resolveSchedulerCompany(
       fromPath = clean(m[1]);
     }
   }
-  return fromPath || DEFAULT_SCHEDULER_COMPANY;
+  if (fromPath) return fromPath;
+  const host =
+    loc.hostname ||
+    (typeof window !== 'undefined' ? window.location.hostname : '');
+  const fromHost = clean(companySlugFromHost(host));
+  return fromHost || DEFAULT_SCHEDULER_COMPANY;
 }
 
 /** Adds the company to a public scheduler endpoint (a query param, so no CORS preflight). */

@@ -242,7 +242,12 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     logging.getLogger(__name__).exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
     origin = request.headers.get("origin") or ""
     headers = {}
-    if origin and (origin in settings.CORS_ORIGINS or not settings.IS_PRODUCTION):
+    from app.core.origins import is_worklane_origin
+    if origin and (
+        origin in settings.CORS_ORIGINS
+        or is_worklane_origin(origin)
+        or not settings.IS_PRODUCTION
+    ):
         headers["Access-Control-Allow-Origin"] = origin
         headers["Access-Control-Allow-Credentials"] = "true"
     return JSONResponse(
@@ -252,8 +257,10 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-# CORS — production uses explicit allowlist only (no *.vercel.app regex)
+# CORS — production allowlist + strict oneworklane.com subdomain regex (no lookalikes)
 _DEV_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|testserver|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?"
+
+from app.core.origins import WORKLANE_ORIGIN_REGEX, is_worklane_origin
 
 _cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
@@ -262,8 +269,12 @@ _cors_kwargs = dict(
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With", "Range"],
     expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
 )
-if not settings.IS_PRODUCTION:
-    _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
+# Always allow https://<label>.oneworklane.com (and apex) via regex; list covers exact defaults.
+_cors_kwargs["allow_origin_regex"] = (
+    f"(?:{WORKLANE_ORIGIN_REGEX[1:-1]})|(?:{_DEV_ORIGIN_REGEX})"
+    if not settings.IS_PRODUCTION
+    else WORKLANE_ORIGIN_REGEX
+)
 
 from app.services.permissions import operations_view_only_middleware
 
@@ -293,7 +304,7 @@ async def csrf_protection_middleware(request: Request, call_next):
         # 1. Validate Origin when present
         if origin:
             allowed = set(settings.CORS_ORIGINS)
-            is_valid_origin = origin in allowed
+            is_valid_origin = origin in allowed or is_worklane_origin(origin)
             if not is_valid_origin and not settings.IS_PRODUCTION:
                 is_valid_origin = bool(re.fullmatch(_DEV_ORIGIN_REGEX, origin))
             if not is_valid_origin:

@@ -633,7 +633,14 @@ def company_tz(company: Optional[Dict[str, Any]] = None) -> str:
 
 
 async def resolve_company_from_host(request: Request) -> Optional[str]:
-    """Resolve an active company id from Host / custom_domain / slug subdomain."""
+    """Resolve an active company id from Host / custom_domain / Worklane slug subdomain.
+
+    Subdomain resolution is restricted to `<slug>.{APP_BASE_DOMAIN}` (default
+    oneworklane.com). Apex, www, api and reserved labels are ignored. Lookalike
+    hosts such as evil-oneworklane.com never match. Callers MUST still enforce
+    membership before selecting the company for a user — this helper only maps
+    host → company id and does not authorize access.
+    """
     host = (request.headers.get("host") or "").split(":")[0].strip().lower()
     if not host:
         return None
@@ -641,13 +648,21 @@ async def resolve_company_from_host(request: Request) -> Optional[str]:
     if gdb is None:
         return None
     try:
-        by_domain = await gdb.companies.find_one(
-            {"custom_domain": host, "status": {"$ne": "suspended"}},
-            {"id": 1},
-        )
-        if by_domain and by_domain.get("id"):
-            return str(by_domain["id"])
-        slug = host.split(".")[0].strip()
+        from app.core.origins import parse_company_slug_from_host
+        base = getattr(settings, "APP_BASE_DOMAIN", "oneworklane.com") or "oneworklane.com"
+        base = base.strip().lower().rstrip(".")
+        # Platform hosts are never a tenant custom_domain (blocks misconfigured
+        # custom_domain=oneworklane.com from stealing apex logins).
+        platform_hosts = {base, f"www.{base}", f"api.{base}", f"app.{base}"}
+        if host not in platform_hosts:
+            by_domain = await gdb.companies.find_one(
+                {"custom_domain": host, "status": {"$ne": "suspended"}},
+                {"id": 1},
+            )
+            if by_domain and by_domain.get("id"):
+                return str(by_domain["id"])
+
+        slug = parse_company_slug_from_host(host, base_domain=base)
         if slug:
             by_slug = await gdb.companies.find_one(
                 {"slug": slug, "status": {"$ne": "suspended"}},

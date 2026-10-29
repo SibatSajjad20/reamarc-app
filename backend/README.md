@@ -27,7 +27,9 @@ Docs are at `/docs` in development only. They are disabled when `ENVIRONMENT=pro
 - `ENVIRONMENT=production`
 - `SECRET_KEY` — at least 32 random characters
 - `MONGODB_URL` / `MONGODB_DB_NAME`
-- `ALLOWED_ORIGINS` and `APP_FRONTEND_URL` — exact Vercel HTTPS origins
+- `ALLOWED_ORIGINS` and `APP_FRONTEND_URL` — public app origins (production: `APP_FRONTEND_URL=https://oneworklane.com`; Worklane subdomains are allowed via CORS regex; keep `https://reamarc-app.vercel.app` working)
+- `APP_BASE_DOMAIN` / `APP_API_URL` — defaults `oneworklane.com` / `https://api.oneworklane.com`
+- `COOKIE_DOMAIN` — optional (e.g. `.oneworklane.com`); empty = host-only
 - `OFFICE_PUBLIC_IPS` — comma-separated office WAN IPs (**required** in production; empty list refuses to start)
 - `ENCRYPTION_KEY` — Fernet key for ad tokens (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
 

@@ -4,6 +4,8 @@
  * No JWT in localStorage — XSS cannot steal the session that way.
  */
 
+import { WORKLANE_API_BASE, isWorklaneHost } from '../utils/worklaneHost';
+
 export class ApiError extends Error {
   public status: number;
   public details?: any;
@@ -74,6 +76,14 @@ interface RequestOptions extends RequestInit {
   _retried?: boolean;
 }
 
+function normalizeApiBase(url: string): string {
+  let cleaned = url.replace(/\/$/, '');
+  if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
+    cleaned = `${cleaned}/api/v1`;
+  }
+  return cleaned;
+}
+
 const getBaseUrl = (): string => {
   const globalProcess = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined;
   const envUrl = (
@@ -84,29 +94,40 @@ const getBaseUrl = (): string => {
   ).trim();
   const isDev = Boolean((import.meta as any).env?.DEV);
   const forceDirect = String((import.meta as any).env?.VITE_API_DIRECT || '') === '1';
+  const browserHost =
+    typeof window !== 'undefined' ? String(window.location?.hostname || '') : '';
+
+  // Explicit env always wins (local overrides, staging, etc.).
+  if (envUrl) {
+    return normalizeApiBase(envUrl);
+  }
 
   // Vite dev: same-origin `/api` so a phone on an https tunnel still hits this PC.
-  if (isDev && !envUrl) {
+  if (isDev) {
     return '/api/v1';
   }
 
-  // Browser production: same-origin `/api/v1` so Vercel rewrites to Render and
-  // auth cookies are first-party. Set VITE_API_DIRECT=1 to call the env URL instead.
-  if (!isDev && typeof window !== 'undefined' && !forceDirect) {
+  // Worklane production hosts call the API subdomain directly so auth cookies
+  // stay on api.oneworklane.com across company subdomains (dataviz., etc.).
+  // The legacy vercel.app address keeps same-origin `/api/v1` (Vercel rewrite).
+  if (typeof window !== 'undefined' && isWorklaneHost(browserHost)) {
+    return WORKLANE_API_BASE;
+  }
+
+  // Browser production on non-Worklane hosts (e.g. reamarc-app.vercel.app):
+  // same-origin `/api/v1` so Vercel rewrites to Render and cookies stay first-party.
+  // Set VITE_API_DIRECT=1 with VITE_API_URL to call the backend URL instead.
+  if (typeof window !== 'undefined' && !forceDirect) {
     return '/api/v1';
   }
 
-  if (!envUrl && !isDev) {
+  if (!isDev) {
     throw new Error(
       'VITE_API_URL (or NEXT_PUBLIC_API_URL) must be set for production builds. Refusing to default to localhost.'
     );
   }
 
-  let cleaned = (envUrl || 'http://localhost:8000/api/v1').replace(/\/$/, '');
-  if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
-    cleaned = `${cleaned}/api/v1`;
-  }
-  return cleaned;
+  return normalizeApiBase('http://localhost:8000/api/v1');
 };
 
 export const API_BASE_URL = getBaseUrl();

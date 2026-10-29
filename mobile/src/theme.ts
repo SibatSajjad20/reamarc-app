@@ -55,7 +55,7 @@ function resolveApiUrl(): string {
       resolved = envUrl.replace(/localhost|127\.0\.0\.1/i, lan);
     }
     if (!__DEV__ && !/^https:\/\//i.test(resolved)) {
-      return 'https://reamarc-app.onrender.com/api/v1';
+      return 'https://api.oneworklane.com/api/v1';
     }
     return resolved;
   }
@@ -65,7 +65,7 @@ function resolveApiUrl(): string {
     return `http://${lan}:8000/api/v1`;
   }
 
-  return 'https://reamarc-app.onrender.com/api/v1';
+  return 'https://api.oneworklane.com/api/v1';
 }
 
 export const API_URL = resolveApiUrl();

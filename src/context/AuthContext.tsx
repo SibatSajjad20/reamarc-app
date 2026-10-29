@@ -4,6 +4,7 @@ import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 import { clearAllAppCaches } from '../utils/cacheBus';
+import { companySlugFromHost } from '../utils/worklaneHost';
 
 /** Back-off between /auth/me retries while the server wakes up (about 67 s plus request time). */
 /** Longest the startup spinner may show while the server is slow. */
@@ -355,6 +356,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch {}
   }, [user?.company_id, switchCompany]);
+
+  // Auto-switch when the host is <slug>.oneworklane.com and the user is a member.
+  // Non-members keep their current company (company picker still works). Never trust the
+  // subdomain alone — membership comes from the server-provided companies list.
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const slug = companySlugFromHost(window.location.hostname);
+      if (!slug) return;
+      const list = user.companies || [];
+      const match = list.find((c) => (c.slug || '').toLowerCase() === slug);
+      if (!match?.id) return;
+      if (match.id === user.company_id) return;
+      void switchCompany(match.id);
+    } catch {}
+  }, [user?.company_id, user?.companies, switchCompany]);
 
   return (
     <AuthContext.Provider

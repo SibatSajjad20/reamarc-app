@@ -59,6 +59,9 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         samesite="none" if is_prod else "lax",
         secure=True if is_prod else settings.COOKIE_SECURE
     )
+    cookie_domain = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
+    if cookie_domain:
+        cookie_opts["domain"] = cookie_domain
     response.set_cookie(
         key="access_token",
         value=access_token,
@@ -222,12 +225,30 @@ async def login(request: Request, user_in: UserLogin, response: Response):
                 detail="None of your companies are active.",
             )
 
-        # Select target membership: last_company_id if active, else first active
+        # Prefer company implied by Host subdomain when the user is a member.
+        # Never trust the subdomain alone — membership is required. Otherwise
+        # fall back to last_company_id, then the first active membership.
         last_cid = user_doc.get("last_company_id")
         target_membership = None
-        if last_cid:
+        try:
+            from app.core.tenant import resolve_company_from_host
+            host_cid = await resolve_company_from_host(request)
+            if host_cid:
+                for m in active_memberships:
+                    if m.get("company_id") == host_cid:
+                        target_membership = m
+                        break
+        except Exception:
+            target_membership = None
+        if not target_membership and last_cid:
             for m in active_memberships:
                 if m.get("company_id") == last_cid:
+                    target_membership = m
+                    break
+        if not target_membership:
+            # Prefer the membership marked primary (normal "home" company), else first.
+            for m in active_memberships:
+                if m.get("is_primary"):
                     target_membership = m
                     break
         if not target_membership:
@@ -247,6 +268,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
                 "name": c["name"],
                 "display_name": c_brand,
                 "brand_name": c_brand,
+                "slug": c.get("slug"),
                 "logo_url": c_logo,
                 "role": m.get("role", "team_member"),
                 "accent_color": c.get("accent_color", "#6847E0"),
@@ -580,6 +602,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
                     "name": c["name"],
                     "display_name": c_brand,
                     "brand_name": c_brand,
+                    "slug": c.get("slug"),
                     "logo_url": c_logo,
                     "role": m.get("role", "team_member"),
                     "accent_color": c.get("accent_color", "#6847E0"),
@@ -752,6 +775,9 @@ async def logout(request: Request, response: Response):
         samesite="none" if is_prod else "lax",
         secure=True if is_prod else settings.COOKIE_SECURE
     )
+    cookie_domain = (getattr(settings, "COOKIE_DOMAIN", None) or "").strip()
+    if cookie_domain:
+        cookie_opts["domain"] = cookie_domain
     response.delete_cookie("access_token", **cookie_opts)
     response.delete_cookie("refresh_token", **cookie_opts)
     return {"message": "Successfully logged out."}
@@ -852,6 +878,7 @@ async def switch_company(
                 "name": c["name"],
                 "display_name": c_brand,
                 "brand_name": c_brand,
+                "slug": c.get("slug"),
                 "logo_url": c_logo,
                 "role": m.get("role", "team_member"),
                 "accent_color": c.get("accent_color", "#6847E0"),

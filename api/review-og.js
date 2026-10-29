@@ -7,11 +7,11 @@ import {
 } from "./review-og-lib.mjs";
 
 const FETCH_MS = 4000;
-const API_ORIGIN = process.env.REVIEW_API_ORIGIN || "https://reamarc-app.onrender.com";
+const API_ORIGIN = process.env.REVIEW_API_ORIGIN || "https://api.oneworklane.com";
 
 function requestOrigin(req) {
   const proto = String(req.headers["x-forwarded-proto"] || "https").split(",")[0].trim();
-  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "reamarc-app.vercel.app")
+  const host = String(req.headers["x-forwarded-host"] || req.headers.host || "oneworklane.com")
     .split(",")[0]
     .trim();
   return `${proto}://${host}`;

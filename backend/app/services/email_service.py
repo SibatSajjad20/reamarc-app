@@ -219,7 +219,8 @@ def _build_reminder_html(
     accent_color: Optional[str] = None,
     logo_url: Optional[str] = None,
 ) -> str:
-    app_url = action_url or f"{settings.APP_FRONTEND_URL}/daily-log"
+    from app.core.origins import effective_frontend_url
+    app_url = action_url or f"{effective_frontend_url(settings)}/daily-log"
     missing_dates_formatted = ", ".join(missing_dates) if missing_dates else "today"
     if company_name:
         brand_name = company_name

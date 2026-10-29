@@ -17,6 +17,7 @@ from app.core.limiter import get_client_ip, limiter
 from app.core.rate_limit_store import enforce_shared_rate_limit
 from app.core.tenant import get_tenant_context, tenant_scope
 from app.core.uploads import save_upload_bytes
+from app.config import settings as app_settings
 from app.database import get_database
 from app.schemas.finance import (
     FinanceAdjustmentCreate,
@@ -428,7 +429,13 @@ async def regenerate_invoice_share_link_endpoint(
     uname = current_user.get("full_name") or current_user.get("name")
     updated = await regenerate_share_token(db, cid, invoice_id, user_id=uid, user_name=uname)
     updated.pop("_id", None)
-    return {"id": updated.get("id"), "share_token": updated.get("share_token")}
+    from app.core.origins import public_invoice_url
+    token = updated.get("share_token") or ""
+    return {
+        "id": updated.get("id"),
+        "share_token": token,
+        "share_url": public_invoice_url(app_settings, token),
+    }
 
 
 @router.post("/invoices/{invoice_id}/duplicate")

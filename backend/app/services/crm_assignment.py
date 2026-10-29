@@ -333,7 +333,8 @@ async def notify_users(
         from app.services.email_service import EmailService
 
         users = await _load_users(ids)
-        crm_url = f"{settings.APP_FRONTEND_URL.rstrip('/')}/crm"
+        from app.core.origins import effective_frontend_url
+        crm_url = f"{effective_frontend_url(settings)}/crm"
         html = await _email_html(body, crm_url)
         for uid in ids:
             email = (users.get(uid) or {}).get("email")

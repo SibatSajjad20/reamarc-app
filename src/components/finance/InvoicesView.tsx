@@ -23,6 +23,7 @@ import { Button } from '../ui/button';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, TableSkeletonRows, DrawerSkeleton } from '../ui/Skeletons';
+import { publicInvoiceUrl } from '../../utils/worklaneHost';
 
 interface InvoicesViewProps {
   onCreateNew: () => void;
@@ -194,7 +195,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
   const handleCopyLink = (token?: string | null) => {
     if (!token) return;
-    const url = `${window.location.origin}/api/v1/finance/public/invoice/${token}`;
+    const url = publicInvoiceUrl(token);
     navigator.clipboard.writeText(url);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2500);
@@ -216,9 +217,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       `Hello ${inv.client_name},\nHere is your invoice ${inv.number} for ${formatMinorMoney(
         inv.total,
         inv.currency
-      )}.\nBalance Due: ${formatMinorMoney(inv.balance_due, inv.currency)}.\nView invoice online: ${
-        window.location.origin
-      }/api/v1/finance/public/invoice/${inv.share_token}`
+      )}.\nBalance Due: ${formatMinorMoney(inv.balance_due, inv.currency)}.\nView invoice online: ${publicInvoiceUrl(
+        inv.share_token || ''
+      )}`
     );
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };

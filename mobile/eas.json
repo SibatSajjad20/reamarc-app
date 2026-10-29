@@ -15,14 +15,14 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://reamarc-app.onrender.com/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://api.oneworklane.com/api/v1"
       }
     },
     "production": {
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://reamarc-app.onrender.com/api/v1"
+        "EXPO_PUBLIC_API_URL": "https://api.oneworklane.com/api/v1"
       }
     }
   },
