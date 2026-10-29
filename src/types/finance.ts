@@ -3,7 +3,7 @@ export type PaymentMethod = 'cash' | 'bank';
 export type BankId = 'abl' | 'meezan';
 export type InvoiceStatus = 'draft' | 'issued' | 'partially_paid' | 'paid' | 'overdue' | 'void' | 'deleted';
 export type ReceiptStatus = 'posted' | 'pending' | 'void' | 'deleted';
-export type FinanceTab = 'overview' | 'invoices' | 'receivables' | 'receipts' | 'collections' | 'summary' | 'accounts' | 'wht' | 'settings';
+export type FinanceTab = 'overview' | 'invoices' | 'receivables' | 'receipts' | 'collections' | 'reports' | 'summary' | 'accounts' | 'wht' | 'settings';
 
 export interface BankAccountConfig {
   bank_id: string;
@@ -300,6 +300,69 @@ export interface WhtReportItem {
   wht_pkr: number;
   has_certificate: boolean;
   certificate_file_id?: string | null;
+}
+
+export interface MonthlyAnalysisMonthRow {
+  month: string;
+  label: string;
+  collected_pkr: number;
+  billed_pkr: number;
+  pending_pkr: number;
+  wht_pkr: number;
+  avg_3m_pkr: number;
+  is_partial: boolean;
+  collected_new_invoices_pkr: number;
+  collected_prior_invoices_pkr: number;
+  collected_unallocated_pkr: number;
+  channels: { cash: number; abl: number; meezan: number; other: number };
+}
+
+export interface MonthlyAnalysisMover {
+  client_name: string;
+  this_month_pkr: number;
+  prior_month_pkr: number;
+  delta_pkr: number;
+}
+
+export type ReportPeriod = 'monthly' | 'quarterly' | 'semiannual' | 'yearly';
+
+export interface MonthlyAnalysisReport {
+  /** Bucket size. With non-monthly periods, `month` keys hold 2026-Q4 / 2026-H2 / 2026. */
+  period?: ReportPeriod;
+  date_from: string;
+  date_to: string;
+  headline_metric: string;
+  headline_rule: string;
+  selected: {
+    month: string;
+    label: string;
+    is_partial: boolean;
+    days_elapsed: number;
+    days_in_month: number;
+    collected_pkr: number;
+    prior_month: string | null;
+    prior_label: string | null;
+    prior_collected_pkr: number | null;
+    delta_pkr: number | null;
+    pct_change: number | null;
+    direction: 'improving' | 'down' | 'flat' | 'no_prior';
+    billed_pkr: number;
+    pending_pkr: number;
+    wht_pkr: number;
+    run_rate_3m_pkr: number | null;
+    run_rate_compare_pkr: number | null;
+    run_rate_status: 'above' | 'below' | 'in_line' | null;
+    /** % above (+) / below (-) the pace-adjusted 3-period run rate; null when there is no run rate. */
+    run_rate_pct?: number | null;
+    channels: { cash: number; abl: number; meezan: number; other: number };
+    collected_new_invoices_pkr: number;
+    collected_prior_invoices_pkr: number;
+    collected_unallocated_pkr: number;
+    top_client_share_pct: number;
+  };
+  months: MonthlyAnalysisMonthRow[];
+  movers_up: MonthlyAnalysisMover[];
+  movers_down: MonthlyAnalysisMover[];
 }
 
 export interface WhtReport {

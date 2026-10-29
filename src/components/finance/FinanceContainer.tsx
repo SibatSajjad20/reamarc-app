@@ -8,6 +8,7 @@ import {
   Wallet,
   Settings,
   Shield,
+  TrendingUp,
 } from 'lucide-react';
 import type { FinanceTab, Invoice } from '../../types/finance';
 import { FinanceOverview } from './FinanceOverview';
@@ -16,10 +17,12 @@ import { InvoiceEditor } from './InvoiceEditor';
 import { ReceiptsView } from './ReceiptsView';
 import { ReceivablesView } from './ReceivablesView';
 import { CollectionsView } from './CollectionsView';
+import { MonthlyAnalysisView } from './MonthlyAnalysisView';
 import { SummaryAccountsView } from './SummaryAccountsView';
 import { AccountsView } from './AccountsView';
 import { WhtView } from './WhtView';
 import { FinanceSettingsView } from './FinanceSettingsView';
+import { normalizeFinanceTab } from './financeTabs';
 
 const FINANCE_TAB_LABELS: Record<FinanceTab, string> = {
   overview: 'Overview',
@@ -27,6 +30,7 @@ const FINANCE_TAB_LABELS: Record<FinanceTab, string> = {
   receivables: 'Receivables',
   receipts: 'Receipts',
   collections: 'Collections',
+  reports: 'Reports',
   summary: 'Summary accounts',
   accounts: 'Cash & bank',
   wht: 'Withhold tax',
@@ -37,11 +41,28 @@ interface FinanceContainerProps {
   initialTab?: FinanceTab;
 }
 
+/** Tab from `/finance/<tab>`; rewrites the legacy `/finance/trends` URL to `/finance/reports`. */
+function tabFromLocation(): FinanceTab | undefined {
+  if (typeof window === 'undefined') return undefined;
+  const match = window.location.pathname.match(/^\/finance\/([^/?#]+)/i);
+  if (!match) return undefined;
+  const tab = normalizeFinanceTab(match[1]);
+  if (tab && match[1].toLowerCase() !== tab) {
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `/finance/${tab}${window.location.search}${window.location.hash}`,
+    );
+  }
+  return tab;
+}
+
 export const FinanceContainer: React.FC<FinanceContainerProps> = ({
   initialTab = 'overview',
 }) => {
-  const [activeTab, setActiveTab] = useState<FinanceTab>(initialTab);
-  const [visitedTabs, setVisitedTabs] = useState<Set<FinanceTab>>(() => new Set([initialTab]));
+  const [startTab] = useState<FinanceTab>(() => tabFromLocation() || normalizeFinanceTab(initialTab) || 'overview');
+  const [activeTab, setActiveTab] = useState<FinanceTab>(startTab);
+  const [visitedTabs, setVisitedTabs] = useState<Set<FinanceTab>>(() => new Set([startTab]));
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editingInvoice, setEditingInvoice] = useState<Invoice | null>(null);
   const [invoiceForPayment, setInvoiceForPayment] = useState<Invoice | null>(null);
@@ -54,6 +75,18 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
       next.add(activeTab);
       return next;
     });
+  }, [activeTab]);
+
+  // Reports is linkable (`/finance/reports?period=quarterly`); other tabs keep `/finance`.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const path = window.location.pathname;
+    if (!/^\/finance(\/|$)/i.test(path)) return;
+    const target = activeTab === 'reports' ? '/finance/reports' : '/finance';
+    const search = activeTab === 'reports' ? window.location.search : '';
+    if (path !== target || window.location.search !== search) {
+      window.history.replaceState(window.history.state, '', `${target}${search}${window.location.hash}`);
+    }
   }, [activeTab]);
 
   useEffect(() => {
@@ -119,6 +152,7 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
     { id: 'receivables', label: 'Receivables', icon: Clock },
     { id: 'receipts', label: 'Receipts', icon: CreditCard },
     { id: 'collections', label: 'Collections', icon: CreditCard },
+    { id: 'reports', label: 'Reports', icon: TrendingUp },
     { id: 'summary', label: 'Summary Accounts', icon: FileText },
     { id: 'accounts', label: 'Cash & Bank', icon: Wallet },
     { id: 'wht', label: 'Withhold Tax', icon: Shield },
@@ -203,6 +237,12 @@ export const FinanceContainer: React.FC<FinanceContainerProps> = ({
         {visitedTabs.has('collections') && (
           <div className={activeTab === 'collections' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'collections'}>
             <CollectionsView />
+          </div>
+        )}
+
+        {visitedTabs.has('reports') && (
+          <div className={activeTab === 'reports' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'reports'}>
+            <MonthlyAnalysisView />
           </div>
         )}
 

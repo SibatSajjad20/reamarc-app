@@ -6,6 +6,8 @@ import type {
   AgeingSummaryReport,
   ClientStatementReport,
   CollectionsReport,
+  MonthlyAnalysisReport,
+  ReportPeriod,
   FinanceAccount,
   FinanceLedgerEntry,
   FinanceService,
@@ -102,6 +104,17 @@ export const financeService = {
   },
   getCachedWht(dateFrom?: string, dateTo?: string, clientName?: string): CacheEntry<WhtReport> | undefined {
     return reportsCache.get(`wht:${queryKey({ dateFrom, dateTo, clientName })}`) as CacheEntry<WhtReport> | undefined;
+  },
+  getCachedMonthlyAnalysis(
+    dateFrom?: string,
+    dateTo?: string,
+    clientName?: string,
+    focusMonth?: string,
+    period?: ReportPeriod,
+  ): CacheEntry<MonthlyAnalysisReport> | undefined {
+    return reportsCache.get(
+      `monthly-analysis:${queryKey({ dateFrom, dateTo, clientName, focusMonth, period })}`,
+    ) as CacheEntry<MonthlyAnalysisReport> | undefined;
   },
 
   hasInitialCache(): boolean {
@@ -457,6 +470,31 @@ export const financeService = {
     if (bank) query.set('bank', bank);
     if (clientName) query.set('client_name', clientName);
     const res = await apiClient.get<CollectionsReport>(`/finance/reports/collections?${query.toString()}`, options);
+    reportsCache.set(key, res);
+    return res;
+  },
+
+  async getMonthlyAnalysis(
+    dateFrom?: string,
+    dateTo?: string,
+    clientName?: string,
+    focusMonth?: string,
+    options?: RequestOptions,
+    period?: ReportPeriod,
+  ): Promise<MonthlyAnalysisReport> {
+    const key = `monthly-analysis:${queryKey({ dateFrom, dateTo, clientName, focusMonth, period })}`;
+    const cached = fresh(reportsCache.get(key) as CacheEntry<MonthlyAnalysisReport> | undefined, LIST_TTL_MS, options);
+    if (cached) return cached;
+    const query = new URLSearchParams();
+    if (dateFrom) query.set('date_from', dateFrom);
+    if (dateTo) query.set('date_to', dateTo);
+    if (clientName) query.set('client_name', clientName);
+    if (focusMonth) query.set('focus_month', focusMonth);
+    if (period && period !== 'monthly') query.set('period', period);
+    const res = await apiClient.get<MonthlyAnalysisReport>(
+      `/finance/reports/monthly-analysis?${query.toString()}`,
+      options,
+    );
     reportsCache.set(key, res);
     return res;
   },

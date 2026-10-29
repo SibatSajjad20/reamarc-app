@@ -59,12 +59,16 @@ from app.services.finance_reports import (
     export_ageing_summary_excel,
     export_ageing_summary_pdf,
     export_collections_pdf,
+    export_monthly_analysis_pdf,
     export_receivables_outstanding_pdf,
     export_summary_accounts_pdf,
     get_ageing_detail_report,
     get_ageing_summary_report,
     get_client_statement_report,
     get_collections_report,
+    get_monthly_collections_analysis,
+    is_period_key,
+    normalize_period,
     get_receivables_outstanding_report,
     get_summary_accounts_report,
     get_wht_report,
@@ -97,12 +101,13 @@ _ALLOWED_REPORT_TYPES = {
     "ageing-detail",
     "statement",
     "collections",
+    "monthly-analysis",
     "receivables",
     "summary-accounts",
     "wht",
 }
 _ALLOWED_REPORT_FORMATS = {"json", "pdf", "xlsx"}
-_PDF_REPORT_TYPES = {"ageing-summary", "collections", "receivables", "summary-accounts"}
+_PDF_REPORT_TYPES = {"ageing-summary", "collections", "monthly-analysis", "receivables", "summary-accounts"}
 _XLSX_REPORT_TYPES = {"ageing-summary"}
 
 
@@ -687,6 +692,8 @@ async def get_report_endpoint(
     date_to: Optional[str] = Query(None, max_length=32),
     method: Optional[str] = Query(None, max_length=16),
     bank: Optional[str] = Query(None, max_length=16),
+    focus_month: Optional[str] = Query(None, max_length=7),
+    period: Optional[str] = Query(None, max_length=16, description="monthly, quarterly, semiannual or yearly"),
     format: Optional[str] = Query(None, max_length=8, description="json, pdf, or xlsx"),
     current_user: Dict[str, Any] = Depends(require_permission("finance", "view")),
 ):
@@ -731,6 +738,37 @@ async def get_report_endpoint(
         data = await get_client_statement_report(
             db, cid, client_name=client_name, date_from=date_from, date_to=date_to, currency=currency
         )
+        return data
+
+    elif report_type == "monthly-analysis":
+        try:
+            period_norm = normalize_period(period)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        if focus_month and not is_period_key(focus_month):
+            raise HTTPException(status_code=400, detail="focus_month must be YYYY-MM, YYYY-Qn, YYYY-Hn or YYYY")
+        data = await get_monthly_collections_analysis(
+            db,
+            cid,
+            date_from=date_from,
+            date_to=date_to,
+            client_name=client_name,
+            method=method,
+            bank=bank,
+            focus_month=focus_month.strip() if focus_month else None,
+            period=period_norm,
+        )
+        if fmt == "pdf":
+            settings = await get_or_init_finance_settings(db, cid)
+            pdf_bytes = export_monthly_analysis_pdf(data, settings)
+            await _audit_report_export(db, cid, current_user, report_type, fmt, date_from, date_to, as_of)
+            return Response(
+                content=pdf_bytes,
+                media_type="application/pdf",
+                headers=_file_download_headers(
+                    f"collections_{period_norm}_{data['date_from']}_{data['date_to']}.pdf"
+                ),
+            )
         return data
 
     elif report_type == "collections":

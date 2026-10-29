@@ -1,14 +1,15 @@
 """Receivables reports service: Ageing Summary, Ageing Detail, Client Statement, Collections, and WHT Reports."""
 from __future__ import annotations
 
-import re
-
+import calendar
 import io
 import logging
+import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from reportlab.graphics.shapes import Drawing, Line, PolyLine, Rect, String
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -599,6 +600,614 @@ async def get_wht_report(
     }
 
 
+# Posted collections only. 50,000 PKR (minor units) or 5% — whichever is larger.
+_TREND_DEAD_BAND_MINOR = 5_000_000
+_TREND_DEAD_BAND_PCT = 0.05
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def _month_key(date_str: Optional[str]) -> str:
+    raw = (date_str or "").strip()
+    return raw[:7] if len(raw) >= 7 else ""
+
+
+def _parse_month(month: str) -> Tuple[int, int]:
+    year_s, month_s = month.split("-", 1)
+    return int(year_s), int(month_s)
+
+
+def _prev_month(month: str) -> str:
+    year, mon = _parse_month(month)
+    if mon == 1:
+        return f"{year - 1:04d}-12"
+    return f"{year:04d}-{mon - 1:02d}"
+
+
+def _month_label(month: str) -> str:
+    try:
+        return datetime.strptime(f"{month}-01", "%Y-%m-%d").strftime("%b %Y")
+    except ValueError:
+        return month
+
+
+def _iter_months(date_from: str, date_to: str) -> List[str]:
+    start = _month_key(date_from)
+    end = _month_key(date_to)
+    if not start or not end or start > end:
+        return []
+    year, mon = _parse_month(start)
+    end_year, end_mon = _parse_month(end)
+    months: List[str] = []
+    while (year, mon) <= (end_year, end_mon):
+        months.append(f"{year:04d}-{mon:02d}")
+        if mon == 12:
+            year += 1
+            mon = 1
+        else:
+            mon += 1
+    return months
+
+
+def _days_in_month(month: str) -> int:
+    year, mon = _parse_month(month)
+    return calendar.monthrange(year, mon)[1]
+
+
+PERIODS = ("monthly", "quarterly", "semiannual", "yearly")
+_PERIOD_MONTHS = {"monthly": 1, "quarterly": 3, "semiannual": 6, "yearly": 12}
+_PERIOD_KEY_RE = re.compile(r"^\d{4}(?:-(?:0[1-9]|1[0-2]|Q[1-4]|H[12]))?$")
+
+
+def normalize_period(period: Optional[str]) -> str:
+    p = (period or "monthly").strip().lower().replace("-", "").replace("_", "")
+    if p in ("semiannually", "halfyearly", "halfyear", "6m", "biannual"):
+        p = "semiannual"
+    if p in ("quarter", "3m"):
+        p = "quarterly"
+    if p in ("year", "annual", "annually", "12m"):
+        p = "yearly"
+    if p in ("month", "1m"):
+        p = "monthly"
+    if p not in PERIODS:
+        raise ValueError(f"period must be one of {', '.join(PERIODS)}")
+    return p
+
+
+def is_period_key(key: Optional[str]) -> bool:
+    return bool(key and _PERIOD_KEY_RE.match(key.strip()))
+
+
+def _period_of(date_str: Optional[str], period: str = "monthly") -> str:
+    month = _month_key(date_str)
+    if not month:
+        return ""
+    try:
+        year, mon = _parse_month(month)
+    except ValueError:
+        return ""
+    if period == "quarterly":
+        return f"{year:04d}-Q{(mon - 1) // 3 + 1}"
+    if period == "semiannual":
+        return f"{year:04d}-H{1 if mon <= 6 else 2}"
+    if period == "yearly":
+        return f"{year:04d}"
+    return month
+
+
+def _period_months(key: str) -> List[str]:
+    """Calendar months (YYYY-MM) covered by a period key."""
+    year = int(key[:4])
+    if len(key) == 4:
+        start, n = 1, 12
+    elif key[5] == "Q":
+        start, n = (int(key[6]) - 1) * 3 + 1, 3
+    elif key[5] == "H":
+        start, n = 1 if key[6] == "1" else 7, 6
+    else:
+        start, n = int(key[5:7]), 1
+    return [f"{year:04d}-{m:02d}" for m in range(start, start + n)]
+
+
+def _period_first_day(key: str) -> str:
+    return f"{_period_months(key)[0]}-01"
+
+
+def _period_last_day(key: str) -> str:
+    last = _period_months(key)[-1]
+    return f"{last}-{_days_in_month(last):02d}"
+
+
+def _days_in_period(key: str) -> int:
+    return sum(_days_in_month(m) for m in _period_months(key))
+
+
+def period_start(date_str: str, period: str) -> str:
+    """First day of the period containing date_str (the range snaps outward to whole periods)."""
+    key = _period_of(date_str, period)
+    return _period_first_day(key) if key else date_str
+
+
+def _prev_period(key: str) -> str:
+    if len(key) == 7 and key[4] == "-" and key[5].isdigit():
+        return _prev_month(key)
+    first = _period_months(key)[0]
+    prev_month = _prev_month(first)
+    if len(key) == 4:
+        return prev_month[:4]
+    return _period_of(f"{prev_month}-01", "quarterly" if key[5] == "Q" else "semiannual")
+
+
+def _period_key_label(key: str) -> str:
+    if len(key) == 4:
+        return key
+    if key[5] in ("Q", "H"):
+        return f"{key[5:]} {key[:4]}"
+    return _month_label(key)
+
+
+def _iter_periods(date_from: str, date_to: str, period: str = "monthly") -> List[str]:
+    keys: List[str] = []
+    for month in _iter_months(date_from, date_to):
+        key = _period_of(f"{month}-01", period)
+        if not keys or keys[-1] != key:
+            keys.append(key)
+    return keys
+
+
+def run_rate_pct(actual: int, run_rate: Optional[int]) -> Optional[float]:
+    """% the selected period is above (+) or below (-) its pace-adjusted 3-period run rate.
+
+    None when there is no run rate yet or it is zero (avoids divide-by-zero).
+    """
+    if run_rate is None or run_rate <= 0:
+        return None
+    return round(((actual - run_rate) / run_rate) * 1000) / 10.0
+
+
+def _receipt_wht_pkr(receipt: Dict[str, Any]) -> int:
+    wht = _as_int(receipt.get("wht_amount"))
+    if receipt.get("currency") == "PKR":
+        return wht
+    try:
+        return int(round(wht * float(receipt.get("exchange_rate") or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _receipt_channel(receipt: Dict[str, Any]) -> str:
+    if receipt.get("method") == "cash":
+        return "cash"
+    bank = (receipt.get("bank") or "").lower().strip()
+    if bank in ("abl", "meezan"):
+        return bank
+    return "other"
+
+
+def _empty_month_bucket(month: str, period: str = "monthly") -> Dict[str, Any]:
+    return {
+        "month": month,
+        "label": _period_key_label(month) if month and month != "0000-00" else _month_label(month),
+        "collected_pkr": 0,
+        "billed_pkr": 0,
+        "pending_pkr": 0,
+        "wht_pkr": 0,
+        "avg_3m_pkr": 0,
+        "is_partial": False,
+        "collected_new_invoices_pkr": 0,
+        "collected_prior_invoices_pkr": 0,
+        "collected_unallocated_pkr": 0,
+        "channels": {"cash": 0, "abl": 0, "meezan": 0, "other": 0},
+    }
+
+
+def _classify_direction(delta: int, prior: int) -> str:
+    if prior <= 0 and delta == 0:
+        return "flat"
+    if prior <= 0 and delta > 0:
+        return "improving"
+    band = max(_TREND_DEAD_BAND_MINOR, int(round(abs(prior) * _TREND_DEAD_BAND_PCT)))
+    if abs(delta) <= band:
+        return "flat"
+    return "improving" if delta > 0 else "down"
+
+
+def _run_rate_status(actual: int, run_rate: Optional[int]) -> Optional[str]:
+    if run_rate is None or run_rate <= 0:
+        return None
+    band = max(_TREND_DEAD_BAND_MINOR, int(round(run_rate * _TREND_DEAD_BAND_PCT)))
+    if abs(actual - run_rate) <= band:
+        return "in_line"
+    return "above" if actual > run_rate else "below"
+
+
+def build_monthly_collections_analysis(
+    *,
+    date_from: str,
+    date_to: str,
+    today: str,
+    receipts: List[Dict[str, Any]],
+    invoices: List[Dict[str, Any]],
+    focus_month: Optional[str] = None,
+    period: str = "monthly",
+) -> Dict[str, Any]:
+    """Compare posted cash-in per period (month, quarter, half-year or year).
+
+    Pending cheques are excluded from collected. Keys keep their historical
+    `month` names for compatibility; with a non-monthly period they hold period
+    keys such as 2026-Q4, 2026-H2 or 2026.
+    """
+    period = normalize_period(period)
+    date_from = period_start(date_from, period) if date_from else date_from
+    months = _iter_periods(date_from, date_to, period)
+    buckets = {month: _empty_month_bucket(month, period) for month in months}
+    client_by_month: Dict[str, Dict[str, int]] = {month: {} for month in months}
+
+    for inv in invoices:
+        month = _period_of(inv.get("issue_date"), period)
+        bucket = buckets.get(month)
+        if not bucket:
+            continue
+        if (inv.get("currency") or "PKR") == "PKR":
+            bucket["billed_pkr"] += _as_int(inv.get("total"))
+
+    for receipt in receipts:
+        month = _period_of(receipt.get("date"), period)
+        bucket = buckets.get(month)
+        if not bucket:
+            continue
+        status = receipt.get("status")
+        pkr = _as_int(receipt.get("pkr_amount"))
+        if status == "pending":
+            bucket["pending_pkr"] += pkr
+            continue
+        if status != "posted":
+            continue
+
+        bucket["collected_pkr"] += pkr
+        bucket["wht_pkr"] += _receipt_wht_pkr(receipt)
+        channel = _receipt_channel(receipt)
+        bucket["channels"][channel] = bucket["channels"].get(channel, 0) + pkr
+        client_name = (receipt.get("client_name") or "Unknown client").strip() or "Unknown client"
+        client_by_month[month][client_name] = client_by_month[month].get(client_name, 0) + pkr
+
+        allocs = receipt.get("allocations") or []
+        allocated = 0
+        for alloc in allocs:
+            amt = _as_int(alloc.get("amount"))
+            if (receipt.get("currency") or "PKR") != "PKR":
+                try:
+                    amt = int(round(amt * float(receipt.get("exchange_rate") or 0)))
+                except (TypeError, ValueError):
+                    amt = 0
+            allocated += amt
+            inv_month = _period_of(alloc.get("invoice_date"), period)
+            if inv_month and inv_month == month:
+                bucket["collected_new_invoices_pkr"] += amt
+            else:
+                bucket["collected_prior_invoices_pkr"] += amt
+        leftover = pkr - allocated
+        if leftover > 0:
+            bucket["collected_unallocated_pkr"] += leftover
+
+    cutoff = min(date_to, today) if today else date_to
+    cutoff_month = _period_of(cutoff, period)
+    series: List[Dict[str, Any]] = []
+    for idx, month in enumerate(months):
+        bucket = buckets[month]
+        last_day = _period_last_day(month)
+        bucket["is_partial"] = month == cutoff_month and cutoff < last_day
+        window = [buckets[m]["collected_pkr"] for m in months[max(0, idx - 2) : idx + 1]]
+        bucket["avg_3m_pkr"] = int(round(sum(window) / len(window))) if window else 0
+        series.append(bucket)
+
+    requested = (focus_month or "").strip()
+    if requested and requested in buckets:
+        selected_month = requested
+    else:
+        end_key = _period_of(date_to, period)
+        selected_month = end_key if end_key in buckets else (months[-1] if months else "")
+
+    selected = buckets.get(selected_month) or _empty_month_bucket(selected_month or "0000-00", period)
+    prior_key = _prev_period(selected_month) if selected_month else ""
+    prior = buckets.get(prior_key)
+    has_prior = prior is not None
+    prior_collected = prior["collected_pkr"] if prior else 0
+    delta = selected["collected_pkr"] - prior_collected
+    pct_change = None
+    if has_prior and prior_collected > 0:
+        pct_change = round((delta / prior_collected) * 1000) / 10.0
+    elif has_prior and selected["collected_pkr"] > 0:
+        pct_change = 100.0
+
+    direction = "no_prior" if not has_prior else _classify_direction(delta, prior_collected)
+
+    complete_before = [
+        buckets[m]["collected_pkr"]
+        for m in months
+        if m < selected_month and not buckets[m]["is_partial"]
+    ]
+    run_rate_source = complete_before[-3:]
+    run_rate_full = (
+        int(round(sum(run_rate_source) / len(run_rate_source))) if run_rate_source else None
+    )
+    dim = _days_in_period(selected_month) if selected_month else 30
+    if selected["is_partial"]:
+        try:
+            elapsed = (
+                datetime.strptime(cutoff[:10], "%Y-%m-%d")
+                - datetime.strptime(_period_first_day(selected_month), "%Y-%m-%d")
+            ).days + 1
+        except (TypeError, ValueError):
+            elapsed = dim
+        elapsed = min(max(elapsed, 1), dim)
+        run_rate_compare = int(round(run_rate_full * elapsed / dim)) if run_rate_full is not None else None
+    else:
+        elapsed = dim
+        run_rate_compare = run_rate_full
+
+    selected_clients = client_by_month.get(selected_month) or {}
+    prior_clients = client_by_month.get(prior_key) or {}
+    names = set(selected_clients) | set(prior_clients)
+    movers = []
+    for name in names:
+        now_amt = selected_clients.get(name, 0)
+        prev_amt = prior_clients.get(name, 0)
+        client_delta = now_amt - prev_amt
+        if client_delta == 0:
+            continue
+        movers.append({
+            "client_name": name,
+            "this_month_pkr": now_amt,
+            "prior_month_pkr": prev_amt,
+            "delta_pkr": client_delta,
+        })
+    movers.sort(key=lambda row: abs(row["delta_pkr"]), reverse=True)
+    improved = [row for row in movers if row["delta_pkr"] > 0][:8]
+    declined = [row for row in movers if row["delta_pkr"] < 0][:8]
+
+    top_client_pkr = max(selected_clients.values()) if selected_clients else 0
+    concentration_pct = (
+        round((top_client_pkr / selected["collected_pkr"]) * 1000) / 10.0
+        if selected["collected_pkr"] > 0
+        else 0.0
+    )
+
+    return {
+        "period": period,
+        "date_from": date_from,
+        "date_to": date_to,
+        "headline_metric": "posted_collections_pkr",
+        "headline_rule": (
+            "Cash collected is posted receipts in PKR. Pending cheques are shown separately "
+            "and are not treated as money in. Invoice totals are billed, not collected."
+        ),
+        "selected": {
+            "month": selected_month,
+            "label": selected["label"],
+            "is_partial": selected["is_partial"],
+            "days_elapsed": elapsed if selected_month else 0,
+            "days_in_month": dim if selected_month else 0,
+            "collected_pkr": selected["collected_pkr"],
+            "prior_month": prior_key if has_prior else None,
+            "prior_label": _period_key_label(prior_key) if has_prior else None,
+            "prior_collected_pkr": prior_collected if has_prior else None,
+            "delta_pkr": delta if has_prior else None,
+            "pct_change": pct_change,
+            "direction": direction,
+            "billed_pkr": selected["billed_pkr"],
+            "pending_pkr": selected["pending_pkr"],
+            "wht_pkr": selected["wht_pkr"],
+            "run_rate_3m_pkr": run_rate_full,
+            "run_rate_compare_pkr": run_rate_compare,
+            "run_rate_status": _run_rate_status(selected["collected_pkr"], run_rate_compare),
+            "run_rate_pct": run_rate_pct(selected["collected_pkr"], run_rate_compare),
+            "channels": selected["channels"],
+            "collected_new_invoices_pkr": selected["collected_new_invoices_pkr"],
+            "collected_prior_invoices_pkr": selected["collected_prior_invoices_pkr"],
+            "collected_unallocated_pkr": selected["collected_unallocated_pkr"],
+            "top_client_share_pct": concentration_pct,
+        },
+        "months": series,
+        "movers_up": improved,
+        "movers_down": declined,
+    }
+
+
+def _pkr_minor(rupees: int) -> int:
+    return int(rupees) * 100
+
+
+async def get_monthly_collections_analysis(
+    db,
+    company_id: str,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    client_name: Optional[str] = None,
+    method: Optional[str] = None,
+    bank: Optional[str] = None,
+    focus_month: Optional[str] = None,
+    period: str = "monthly",
+) -> Dict[str, Any]:
+    """Posted collections per period, period-over-period direction, and client movers."""
+    period = normalize_period(period)
+    end_date = date_to or _today_str()
+    # Snap the start to the first day of its period so the first bucket is whole.
+    start_date = period_start(date_from or "2020-01-01", period)
+    receipt_query: Dict[str, Any] = {
+        "company_id": company_id,
+        "date": {"$gte": start_date, "$lte": end_date},
+        "status": {"$in": ["posted", "pending"]},
+    }
+    if method and method.lower() != "all":
+        receipt_query["method"] = method.lower().strip()
+    if bank and bank.lower() != "all":
+        receipt_query["bank"] = bank.lower().strip()
+    if client_name and client_name.strip():
+        receipt_query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
+
+    invoice_query: Dict[str, Any] = {
+        "company_id": company_id,
+        "issue_date": {"$gte": start_date, "$lte": end_date},
+        "status": {"$nin": ["void", "deleted", "draft"]},
+    }
+    if client_name and client_name.strip():
+        invoice_query["client_name"] = {"$regex": re.escape(client_name.strip()), "$options": "i"}
+
+    receipt_projection = {
+        "date": 1,
+        "status": 1,
+        "pkr_amount": 1,
+        "wht_amount": 1,
+        "currency": 1,
+        "exchange_rate": 1,
+        "client_name": 1,
+        "method": 1,
+        "bank": 1,
+        "allocations": 1,
+    }
+    invoice_projection = {"issue_date": 1, "currency": 1, "total": 1, "status": 1}
+    receipts = await db["receipts"].find(receipt_query, receipt_projection).to_list(length=20_000)
+    invoices = await db["invoices"].find(invoice_query, invoice_projection).to_list(length=20_000)
+    return build_monthly_collections_analysis(
+        date_from=start_date,
+        date_to=end_date,
+        today=_today_str(),
+        receipts=receipts,
+        invoices=invoices,
+        focus_month=focus_month,
+        period=period,
+    )
+
+
+def _rupees_to_lakh(minor: Any) -> float:
+    return _as_int(minor) / 100.0 / 100_000.0
+
+
+def build_monthly_trend_chart(months: List[Dict[str, Any]], width: float, height: float) -> Optional[Drawing]:
+    """Bar chart of collected vs billed (PKR lakh) with a 3-month average line."""
+    if not months:
+        return None
+    collected = [_rupees_to_lakh(row.get("collected_pkr")) for row in months]
+    billed = [_rupees_to_lakh(row.get("billed_pkr")) for row in months]
+    avg = [_rupees_to_lakh(row.get("avg_3m_pkr")) for row in months]
+    peak = max(collected + billed + avg + [1.0])
+    y_max = max(2.0, round(peak * 1.15 * 2) / 2)
+    drawing = Drawing(width, height)
+    left, right, top, bottom = 36, 12, 18, 28
+    plot_w = max(width - left - right, 40)
+    plot_h = max(height - top - bottom, 40)
+    ink = colors.HexColor("#18181B")
+    muted = colors.HexColor("#71717A")
+    rule = colors.HexColor("#E4E4E7")
+    collected_color = colors.HexColor("#3F3F46")
+    billed_color = colors.HexColor("#D4D4D8")
+    drawing.add(Rect(0, 0, width, height, fillColor=colors.white, strokeColor=None))
+    ticks = 4
+    for i in range(ticks + 1):
+        value = y_max * i / ticks
+        y = bottom + plot_h * (value / y_max)
+        drawing.add(Line(left, y, left + plot_w, y, strokeColor=rule, strokeWidth=0.4))
+        drawing.add(String(0, y - 3, f"{value:.1f}", fontName="Helvetica", fontSize=6.5, fillColor=muted))
+    drawing.add(String(0, height - 12, "PKR lakh", fontName="Helvetica", fontSize=6.5, fillColor=muted))
+    n = len(months)
+    slot = plot_w / n
+    avg_points = []
+    for idx, row in enumerate(months):
+        x0 = left + idx * slot
+        center = x0 + slot / 2
+        billed_h = plot_h * (billed[idx] / y_max)
+        collected_h = plot_h * (collected[idx] / y_max)
+        bar_w = min(10, slot * 0.28)
+        drawing.add(Rect(center - bar_w - 1, bottom, bar_w, billed_h, fillColor=billed_color, strokeColor=None))
+        drawing.add(Rect(center + 1, bottom, bar_w, collected_h, fillColor=collected_color, strokeColor=None))
+        avg_points.extend([center, bottom + plot_h * (avg[idx] / y_max)])
+        label = (row.get("label") or "")[:3]
+        if row.get("is_partial"):
+            label += "*"
+        drawing.add(String(center - 8, 8, label, fontName="Helvetica", fontSize=6.5, fillColor=muted))
+    if len(avg_points) >= 4:
+        drawing.add(PolyLine(avg_points, strokeColor=ink, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    legend_y = height - 8
+    drawing.add(Rect(left + 70, legend_y - 3, 8, 8, fillColor=collected_color, strokeColor=None))
+    drawing.add(String(left + 82, legend_y - 2, "Collected", fontName="Helvetica", fontSize=7, fillColor=muted))
+    drawing.add(Rect(left + 140, legend_y - 3, 8, 8, fillColor=billed_color, strokeColor=None))
+    drawing.add(String(left + 152, legend_y - 2, "Billed", fontName="Helvetica", fontSize=7, fillColor=muted))
+    drawing.add(Line(left + 190, legend_y + 1, left + 208, legend_y + 1, strokeColor=ink, strokeWidth=1.1, strokeDashArray=[3, 2]))
+    drawing.add(String(left + 212, legend_y - 2, "3-period avg", fontName="Helvetica", fontSize=7, fillColor=muted))
+    return drawing
+
+
+def export_monthly_analysis_pdf(report: Dict[str, Any], settings: Dict[str, Any]) -> bytes:
+    selected = report.get("selected") or {}
+    _unit = {"monthly": "month", "quarterly": "quarter", "semiannual": "half-year", "yearly": "year"}.get(report.get("period") or "monthly", "month")
+    month_rows = []
+    for row in report.get("months") or []:
+        month_rows.append([
+            f"{row.get('label') or ''}{' *' if row.get('is_partial') else ''}",
+            format_currency_amount(_as_int(row.get("collected_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("billed_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("pending_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("wht_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("avg_3m_pkr")), "PKR"),
+        ])
+    movers = []
+    for row in report.get("movers_up") or []:
+        movers.append([
+            row.get("client_name") or "",
+            "Up",
+            format_currency_amount(_as_int(row.get("prior_month_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("this_month_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("delta_pkr")), "PKR"),
+        ])
+    for row in report.get("movers_down") or []:
+        movers.append([
+            row.get("client_name") or "",
+            "Down",
+            format_currency_amount(_as_int(row.get("prior_month_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("this_month_pkr")), "PKR"),
+            format_currency_amount(_as_int(row.get("delta_pkr")), "PKR"),
+        ])
+    direction = (selected.get("direction") or "flat").replace("_", " ")
+    kpis = [
+        ("Cash collected", format_currency_amount(_as_int(selected.get("collected_pkr")), "PKR")),
+        (f"vs prior {_unit}", format_currency_amount(_as_int(selected.get("delta_pkr")), "PKR")),
+        ("Direction", direction.title()),
+        ("Pending cheques", format_currency_amount(_as_int(selected.get("pending_pkr")), "PKR")),
+    ]
+    rr_pct = selected.get("run_rate_pct")
+    if rr_pct is not None:
+        kpis.append(("vs run rate", f"{rr_pct:+.1f}%"))
+    if movers:
+        month_rows.append(["", "", "", "", "", ""])
+        month_rows.append(["Client movers", "Change", f"Prior {_unit}", f"This {_unit}", "", ""])
+        for mover in movers:
+            month_rows.append([
+                f"{mover[0]} ({mover[1]})",
+                mover[4],
+                mover[2],
+                mover[3],
+                "",
+                "",
+            ])
+    extra: List[Any] = []
+    chart = build_monthly_trend_chart(list(report.get("months") or []), 720, 210)
+    if chart is not None:
+        extra.append(chart)
+        extra.append(Spacer(1, 12))
+    return _standard_report_pdf(
+        title="Collections report" if _unit != "month" else "Monthly collections report",
+        period_label=_period_label(report.get("date_from") or "", report.get("date_to") or ""),
+        settings=settings,
+        headers=[_unit.capitalize(), "Collected", "Billed (PKR)", "Pending", "WHT", f"3-{_unit} avg"],
+        col_weights=[0.18, 0.17, 0.17, 0.16, 0.16, 0.16],
+        rows=month_rows,
+        right_align_from=1,
+        kpi_items=kpis,
+        landscape_page=True,
+        extra_flowables=extra or None,
+    )
+
+
 def export_ageing_summary_excel(report: Dict[str, Any]) -> bytes:
     """Generate professional Excel workbook for Ageing Summary report."""
     wb = openpyxl.Workbook()
@@ -905,6 +1514,7 @@ def _standard_report_pdf(
     right_align_from: int = 1,
     kpi_items: Optional[List[tuple]] = None,
     landscape_page: bool = True,
+    extra_flowables: Optional[List[Any]] = None,
 ) -> bytes:
     """Letterheaded tabular report with wordmark, period, and confidential footer."""
     finance_pdf_mod._ensure_pdf_fonts()
@@ -1004,6 +1614,9 @@ def _standard_report_pdf(
         ]))
         story.append(kpi_table)
         story.append(Spacer(1, 14))
+
+    if extra_flowables:
+        story.extend(extra_flowables)
 
     header_row = []
     for idx, label in enumerate(headers):
