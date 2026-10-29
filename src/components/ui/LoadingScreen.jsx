@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { BrandMark } from './BrandMark';
 import { Skeleton } from './skeleton';
 
 /**
@@ -7,17 +6,20 @@ import { Skeleton } from './skeleton';
  * Supports both full-screen boot/session verification overlay
  * and in-container section skeleton loading.
  *
+ * Full-screen mode is brand-neutral (Worklane W mark + spinner, no company name)
+ * so Worklane hosts never flash Reamarc on first load.
+ *
  * @param {Object} props
  * @param {string} [props.message]
- * @param {string} [props.title]
+ * @param {string} [props.title] - ignored in fullScreen (kept for call-site compat)
  * @param {string} [props.subtext]
  * @param {number} [props.size]
  * @param {boolean} [props.fullScreen]
  * @param {string} [props.className]
  */
 export function LoadingScreen({
-  message = 'Checking your session…',
-  title = 'Reamarc',
+  message = '',
+  title: _title = '',
   subtext = '',
   _size = 0,
   fullScreen = false,
@@ -39,6 +41,8 @@ export function LoadingScreen({
         className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-canvas text-fg select-none transition-opacity duration-160 ease-[var(--ease-standard)] ${
           mounted ? 'opacity-100' : 'opacity-0 pointer-events-none'
         } ${className}`}
+        aria-busy="true"
+        aria-label={message || 'Loading'}
       >
         {/* Top 2px indeterminate progress bar */}
         <div className="fixed top-0 left-0 right-0 h-[2px] bg-subtle overflow-hidden z-[60]">
@@ -50,20 +54,26 @@ export function LoadingScreen({
           />
         </div>
 
-        {/* Centered column */}
-        <div className="flex flex-col items-center text-center">
-          <BrandMark size={32} />
-          <h2 className="mt-2 text-[15px] font-semibold text-fg tracking-tight">
-            {title || 'Reamarc'}
-          </h2>
-          <p className="mt-3 text-[13px] text-fg-muted font-normal">
-            {message}
-          </p>
-          {subtext && (
-            <p className="mt-1 text-[12px] text-fg-faint font-mono">
-              {subtext}
-            </p>
-          )}
+        {/* Centered column — W mark + spinner, no company name */}
+        <div className="flex flex-col items-center text-center gap-5">
+          <img
+            src="/worklane-mark.png"
+            alt=""
+            width={56}
+            height={56}
+            className="w-14 h-14 object-contain select-none"
+            draggable={false}
+          />
+          <div
+            className="w-[22px] h-[22px] rounded-full border-2 border-accent/25 border-t-accent animate-spin"
+            role="presentation"
+          />
+          {message ? (
+            <p className="mt-1 text-[13px] text-fg-muted font-normal">{message}</p>
+          ) : null}
+          {subtext ? (
+            <p className="mt-1 text-[12px] text-fg-faint font-mono">{subtext}</p>
+          ) : null}
         </div>
       </div>
     );

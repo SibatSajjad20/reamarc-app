@@ -33,7 +33,12 @@ const isGallery =
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('ui-gallery');
 
+function removeBootSplash() {
+  document.getElementById('boot-splash')?.remove();
+}
+
 function mount() {
+  removeBootSplash();
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <LucideProvider strokeWidth={1.5} size={16} absoluteStrokeWidth={false}>

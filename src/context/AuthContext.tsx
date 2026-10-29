@@ -5,9 +5,9 @@ import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 import { clearAllAppCaches } from '../utils/cacheBus';
 import {
-  companyMatchesHostSlug,
-  companySlugFromHost,
+  companySwitchNavigationUrl,
   isWorklaneHost,
+  resolveWorklaneHostAction,
   worklaneCompanyHostRedirectUrl,
 } from '../utils/worklaneHost';
 
@@ -24,6 +24,7 @@ export interface PendingBrand {
   brand_name?: string | null;
   logo_url?: string | null;
   accent_color?: string | null;
+  slug?: string | null;
 }
 
 /** One id per tab: BroadcastChannel also delivers to other channel objects in the SAME tab. */
@@ -115,6 +116,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [pendingBrand, setPendingBrand] = useState<PendingBrand | null>(null);
+  /** True while we are about to hard-navigate after login/switch/apex redirect — blocks host ping-pong. */
+  const navigatingAwayRef = useRef(false);
   const userRef = useRef<AuthUser | null>(null);
   userRef.current = user;
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(() => {
@@ -268,10 +271,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(false);
     closeAuthModal();
     // Apex login → https://<slug>.oneworklane.com ( Domains cookie; vercel.app untouched).
+    if (typeof window !== 'undefined' && isWorklaneHost(window.location.hostname)) {
+      navigatingAwayRef.current = true;
+    }
     redirectToWorklaneCompanyHost(finalUser, `/${initialView}`);
   };
 
   const logout = async () => {
+    // Never cross-host on sign-out: stay on the current Worklane host (dataviz stays
+    // dataviz login; apex stays apex). Clear path/query so no company slug leaks into the URL.
+    navigatingAwayRef.current = false;
     if (user && user.role !== 'client') {
       await disableWebPush();
     }
@@ -282,14 +291,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       clearAllAppCaches();
       apiClient.setToken(null);
+      setPendingBrand(null);
       setUser(null);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('reamarc_token');
         localStorage.removeItem('reamarc_impersonation_token');
-      sessionStorage.removeItem('reamarc_impersonation_token');
+        sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
         localStorage.removeItem('reamarc_last_brand');
-        window.history.replaceState(null, '', '/');
+        const clean = `${window.location.origin}/`;
+        if (window.location.href !== clean) {
+          window.location.replace(clean);
+        } else {
+          window.history.replaceState(null, '', '/');
+        }
       }
     }
   };
@@ -311,6 +326,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const target = userRef.current?.companies?.find((c) => c.id === companyId);
     setPendingBrand(target ? { ...target, id: companyId } : { id: companyId });
     setIsLoading(true);
+    // Suspend host-routing so we never switchCompany(back) while still on the old host.
+    navigatingAwayRef.current = true;
     try {
       const res = await authService.switchCompany(companyId);
       clearAllAppCaches();
@@ -332,11 +349,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
           toRemove.forEach((k) => localStorage.removeItem(k));
           localStorage.setItem('reamarc_active_view', 'dashboard');
-          window.history.replaceState(null, '', '/dashboard');
         } catch {}
       }
-
-      setUser(res.user);
 
       // Notify other tabs to reload
       try {
@@ -348,16 +362,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let finalUser: AuthUser | null = res.user;
       try {
         const fresh = await authService.getMe();
-        setUser(fresh);
         finalUser = fresh;
       } catch {}
-      // Hold the overlay until the new logo is in the browser cache, so the sidebar never flashes a fallback.
+
+      const nextSlug =
+        finalUser?.company?.slug ||
+        (finalUser?.companies || []).find((c) => c.id === finalUser?.company_id)?.slug ||
+        target?.slug ||
+        null;
+
+      if (typeof window !== 'undefined') {
+        const navUrl = companySwitchNavigationUrl(
+          window.location.hostname,
+          nextSlug,
+          '/dashboard',
+          '',
+          '',
+        );
+        if (navUrl) {
+          // One hard navigation. Keep neutral loader up (do not clear pendingBrand /
+          // isLoading / setUser) so the old host never paints the other brand.
+          window.location.replace(navUrl);
+          return;
+        }
+      }
+
+      // Same host (vercel.app or already on target): apply user, then clear overlay.
+      setUser(finalUser);
       await preloadImage(finalUser?.company?.logo_url);
-      // Company switch → new subdomain ( Domains cookie; no re-login). No slug → stay.
-      redirectToWorklaneCompanyHost(finalUser, '/dashboard');
-    } finally {
+      navigatingAwayRef.current = false;
       setIsLoading(false);
       setPendingBrand(null);
+    } catch (err) {
+      navigatingAwayRef.current = false;
+      setIsLoading(false);
+      setPendingBrand(null);
+      throw err;
     }
   }, []);
 
@@ -398,54 +438,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {}
   }, [user?.company_id, switchCompany]);
 
-  // Worklane host routing ( Domains cookie carries session; vercel.app untouched):
-  // - apex + logged in → active company subdomain (apex = login / picker only)
-  // - <slug> + member of that company → switch if needed
-  // - <slug> + NOT a member → own company subdomain (avoid redirect loops)
-  // - company with no slug → stay on apex
+  // Worklane host routing ( Domains cookie carries session; vercel.app untouched).
+  // Suspended while switchCompany / login is doing a single outbound navigation —
+  // otherwise Reamarc→DataViz on reamarc host briefly sets user=DataViz and this
+  // effect would switchCompany(Reamarc) again (brand flicker / redirect ping-pong).
   useEffect(() => {
     if (!user) return;
+    if (navigatingAwayRef.current || pendingBrand) return;
     try {
-      if (!isWorklaneHost(window.location.hostname)) return;
-      const hostSlug = companySlugFromHost(window.location.hostname);
-      const list = user.companies || [];
-
-      if (!hostSlug) {
-        // Apex (or www): send logged-in users to their company subdomain when slug exists.
-        redirectToWorklaneCompanyHost(user, window.location.pathname || '/dashboard');
+      const action = resolveWorklaneHostAction(window.location.hostname, user, {
+        suspend: navigatingAwayRef.current,
+        pathname: window.location.pathname || '/dashboard',
+        search: window.location.search,
+        hash: window.location.hash,
+      });
+      if (action.type === 'none') return;
+      if (action.type === 'redirect') {
+        navigatingAwayRef.current = true;
+        setIsLoading(true);
+        window.location.replace(action.url);
         return;
       }
-
-      // Exact company.slug only (never display_name — e.g. "DataViz Technologies").
-      const match = list.find((c) => companyMatchesHostSlug(c, hostSlug));
-      if (match?.id) {
-        if (match.id !== user.company_id) {
-          void switchCompany(match.id);
-        }
-        return;
-      }
-
-      // Non-member on someone else's (or unknown-to-membership) subdomain →
-      // fall back to own company subdomain; if own company has no slug, apex.
-      const before = window.location.href;
-      redirectToWorklaneCompanyHost(
-        user,
-        window.location.pathname && window.location.pathname !== '/'
-          ? window.location.pathname
-          : '/dashboard',
-      );
-      if (window.location.href === before) {
-        // No own slug → apex (login/picker). Path preserved.
-        const path =
-          window.location.pathname && window.location.pathname !== '/'
-            ? window.location.pathname
-            : '';
-        window.location.replace(
-          `https://oneworklane.com${path}${window.location.search}${window.location.hash}`,
-        );
+      if (action.type === 'switch') {
+        void switchCompany(action.companyId);
       }
     } catch {}
-  }, [user?.company_id, user?.companies, user?.company?.slug, switchCompany]);
+  }, [user?.company_id, user?.companies, user?.company?.slug, switchCompany, pendingBrand]);
 
   return (
     <AuthContext.Provider

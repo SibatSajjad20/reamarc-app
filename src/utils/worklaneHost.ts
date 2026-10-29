@@ -169,3 +169,102 @@ export function worklaneCompanyHostRedirectUrl(
   return target;
 }
 
+
+export type WorklaneHostAction =
+  | { type: 'none' }
+  | { type: 'redirect'; url: string }
+  | { type: 'switch'; companyId: string };
+
+export type WorklaneHostUser = {
+  company_id?: string | null;
+  company?: { slug?: string | null } | null;
+  companies?: Array<{ id?: string; slug?: string | null } | null> | null;
+};
+
+/**
+ * Pure host-routing decision for logged-in Worklane sessions.
+ * Callers must skip this entirely while a company switch / outbound redirect is in flight
+ * (otherwise: switch Reamarc→DataViz on reamarc host briefly sets user=DataViz, then this
+ * would call switch(Reamarc) and ping-pong with the outbound redirect to dataviz).
+ */
+export function resolveWorklaneHostAction(
+  hostname: string | null | undefined,
+  user: WorklaneHostUser | null | undefined,
+  opts?: {
+    /** Suppress all actions (switch in flight / about to hard-navigate). */
+    suspend?: boolean;
+    pathname?: string;
+    search?: string;
+    hash?: string;
+  },
+): WorklaneHostAction {
+  if (opts?.suspend) return { type: 'none' };
+  if (!user || !isWorklaneHost(hostname)) return { type: 'none' };
+
+  const pathname = opts?.pathname ?? '/dashboard';
+  const search = opts?.search ?? '';
+  const hash = opts?.hash ?? '';
+  const pathForRedirect =
+    pathname && pathname !== '/' ? pathname : '/dashboard';
+
+  const hostSlug = companySlugFromHost(hostname);
+  const list = (user.companies || []).filter(Boolean) as Array<{
+    id?: string;
+    slug?: string | null;
+  }>;
+
+  if (!hostSlug) {
+    // Apex / www: one redirect to active company subdomain (or stay if no slug).
+    const fromList = list.find((c) => c.id === user.company_id);
+    const slug = user.company?.slug || fromList?.slug || null;
+    const url = worklaneCompanyHostRedirectUrl(
+      hostname,
+      slug,
+      pathForRedirect,
+      search,
+      hash,
+    );
+    return url ? { type: 'redirect', url } : { type: 'none' };
+  }
+
+  const match = list.find((c) => companyMatchesHostSlug(c, hostSlug));
+  if (match?.id) {
+    // Landed on a company subdomain we belong to — switch only if active differs.
+    if (match.id !== user.company_id) {
+      return { type: 'switch', companyId: match.id };
+    }
+    return { type: 'none' };
+  }
+
+  // Non-member on someone else's subdomain → own company host (or apex if no slug).
+  const fromList = list.find((c) => c.id === user.company_id);
+  const ownSlug = user.company?.slug || fromList?.slug || null;
+  const ownUrl = worklaneCompanyHostRedirectUrl(
+    hostname,
+    ownSlug,
+    pathForRedirect,
+    search,
+    hash,
+  );
+  if (ownUrl) return { type: 'redirect', url: ownUrl };
+
+  const path = pathname && pathname !== '/' ? pathname : '';
+  return {
+    type: 'redirect',
+    url: `https://${WORKLANE_BASE_DOMAIN}${path}${search}${hash}`,
+  };
+}
+
+/**
+ * After a successful company-switch API call: at most one hard navigation to the
+ * target subdomain. Null means stay on the current host (already correct / non-Worklane).
+ */
+export function companySwitchNavigationUrl(
+  hostname: string | null | undefined,
+  nextCompanySlug: string | null | undefined,
+  pathname = '/dashboard',
+  search = '',
+  hash = '',
+): string | null {
+  return worklaneCompanyHostRedirectUrl(hostname, nextCompanySlug, pathname, search, hash);
+}

@@ -25,7 +25,7 @@ import type { SettingsSectionSlug } from './types/settings';
 import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { BrandingProvider, readLastBrand } from './context/BrandingProvider';
+import { BrandingProvider } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -693,12 +693,12 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    const bootBrand = pendingBrand || user?.company || readLastBrand();
+    // Neutral Worklane loader (W + spinner). No Reamarc title/mark on first paint.
+    // Company name only appears for an explicit in-app company switch.
     return (
       <LoadingScreen
         fullScreen
-        message={pendingBrand ? `Switching to ${brandNameOf(pendingBrand)}…` : 'Checking your session…'}
-        title={brandNameOf(bootBrand)}
+        message={pendingBrand ? `Switching to ${brandNameOf(pendingBrand)}…` : ''}
       />
     );
   }

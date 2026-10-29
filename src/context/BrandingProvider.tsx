@@ -147,9 +147,12 @@ function writeLastBrand(c: { name?: string; display_name?: string | null; brand_
 export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, pendingBrand } = useAuth();
 
-  // During a switch show the target company; before login (or on a reload) show the last company seen.
-  const company: any = pendingBrand || user?.company || (user ? null : readLastBrand());
-  const companyName = company?.display_name || company?.brand_name || company?.name || 'Reamarc';
+  // During a switch show the target company only. Never apply reamarc_last_brand while
+  // logged out / booting — that caused apex flicker (Reamarc → DataViz → Reamarc).
+  const company: any = pendingBrand || user?.company || null;
+  const companyName = company
+    ? company.display_name || company.brand_name || company.name || 'Reamarc'
+    : 'Worklane';
   const accentColor = company?.accent_color || '#6847E0';
   const logoUrl = company?.logo_url || null;
   const timezone = company?.timezone || 'Asia/Karachi';
@@ -158,23 +161,40 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     applyAccent(accentColor);
     if (user?.company && !pendingBrand) writeLastBrand(user.company);
 
-    // Dynamic Document Title
-    if (user && companyName) {
+    // Dynamic Document Title — only after a real logged-in company (never from stale lastBrand).
+    if (user?.company && companyName && companyName !== 'Worklane') {
       const currentTitle = document.title;
-      if (!currentTitle || currentTitle.includes('Reamarc') || currentTitle === 'Vite + React + TS') {
+      if (
+        !currentTitle ||
+        currentTitle === 'Worklane' ||
+        currentTitle.includes('Reamarc') ||
+        currentTitle === 'Vite + React + TS'
+      ) {
         document.title = `${companyName} · Operations Hub`;
       }
     }
 
-    // Dynamic Favicon
-    if (logoUrl) {
-      let link: HTMLLinkElement | null = document.querySelector("link[rel*='icon']");
-      if (!link) {
-        link = document.createElement('link');
-        link.rel = 'shortcut icon';
-        document.getElementsByTagName('head')[0].appendChild(link);
+    // Dynamic Favicon: company logo when logged in; neutral W otherwise.
+    const iconLinks = Array.from(
+      document.querySelectorAll<HTMLLinkElement>("link[rel*='icon'], link[rel='apple-touch-icon']"),
+    );
+    if (user && logoUrl) {
+      if (iconLinks.length === 0) {
+        const link = document.createElement('link');
+        link.rel = 'icon';
+        link.href = logoUrl;
+        document.head.appendChild(link);
+      } else {
+        iconLinks.forEach((el) => {
+          el.href = logoUrl;
+        });
       }
-      link.href = logoUrl;
+    } else if (!user) {
+      iconLinks.forEach((el) => {
+        if (el.rel.includes('apple')) el.href = '/worklane-mark.png';
+        else if ((el.getAttribute('sizes') || '') === '32x32') el.href = '/favicon.png';
+        else el.href = '/worklane-mark.png';
+      });
     }
   }, [accentColor, companyName, logoUrl, user, pendingBrand]);
 

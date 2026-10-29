@@ -4,10 +4,12 @@ import {
   companyMatchesHostSlug,
   companySlugFromHost,
   companySubdomainUrl,
+  companySwitchNavigationUrl,
   isWorklaneHost,
   publicApiOrigin,
   publicAppOrigin,
   publicInvoiceUrl,
+  resolveWorklaneHostAction,
   unknownWorklaneSubdomainApexUrl,
   worklaneCompanyHostRedirectUrl,
 } from '../worklaneHost';
@@ -110,5 +112,72 @@ describe('Worklane subdomain navigation', () => {
     expect(
       worklaneCompanyHostRedirectUrl('reamarc-app.vercel.app', 'dataviz', '/dashboard'),
     ).toBeNull();
+  });
+});
+
+describe('resolveWorklaneHostAction (no ping-pong)', () => {
+  const reamarc = { id: 'c_reamarc', slug: 'reamarc' };
+  const dataviz = { id: 'c_dataviz', slug: 'dataviz' };
+  const userOnReamarc = {
+    company_id: 'c_reamarc',
+    company: { slug: 'reamarc' },
+    companies: [reamarc, dataviz],
+  };
+  const userOnDataviz = {
+    company_id: 'c_dataviz',
+    company: { slug: 'dataviz' },
+    companies: [reamarc, dataviz],
+  };
+
+  it('suspends all actions during an in-flight switch/redirect', () => {
+    expect(
+      resolveWorklaneHostAction('reamarc.oneworklane.com', userOnDataviz, { suspend: true }),
+    ).toEqual({ type: 'none' });
+    expect(
+      resolveWorklaneHostAction('oneworklane.com', userOnDataviz, { suspend: true }),
+    ).toEqual({ type: 'none' });
+  });
+
+  it('inbound visit to reamarc while active is DataViz: switch once to host company (not a loop)', () => {
+    // Host wins for deliberate visits. Outbound switches must set suspend=true instead.
+    expect(resolveWorklaneHostAction('reamarc.oneworklane.com', userOnDataviz)).toEqual({
+      type: 'switch',
+      companyId: 'c_reamarc',
+    });
+  });
+
+  it('suspended outbound switch never fights the host (the flicker root cause)', () => {
+    // Simulate: API already moved active→DataViz but browser still on reamarc during replace().
+    expect(
+      resolveWorklaneHostAction('reamarc.oneworklane.com', userOnDataviz, { suspend: true }),
+    ).toEqual({ type: 'none' });
+  });
+
+  it('landing on dataviz while active is Reamarc switches once to DataViz', () => {
+    expect(resolveWorklaneHostAction('dataviz.oneworklane.com', userOnReamarc)).toEqual({
+      type: 'switch',
+      companyId: 'c_dataviz',
+    });
+  });
+
+  it('apex logged-in redirects once to active company subdomain', () => {
+    expect(resolveWorklaneHostAction('oneworklane.com', userOnDataviz, { pathname: '/' })).toEqual({
+      type: 'redirect',
+      url: 'https://dataviz.oneworklane.com/dashboard',
+    });
+  });
+
+  it('already on correct subdomain is a no-op', () => {
+    expect(resolveWorklaneHostAction('dataviz.oneworklane.com', userOnDataviz)).toEqual({
+      type: 'none',
+    });
+  });
+
+  it('companySwitchNavigationUrl is a single hop to the target host', () => {
+    expect(companySwitchNavigationUrl('reamarc.oneworklane.com', 'dataviz', '/dashboard')).toBe(
+      'https://dataviz.oneworklane.com/dashboard',
+    );
+    expect(companySwitchNavigationUrl('dataviz.oneworklane.com', 'dataviz', '/dashboard')).toBeNull();
+    expect(companySwitchNavigationUrl('reamarc-app.vercel.app', 'dataviz', '/dashboard')).toBeNull();
   });
 });

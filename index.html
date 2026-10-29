@@ -4,14 +4,53 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <title>Reamarc</title>
+  <link rel="icon" type="image/png" href="/worklane-mark.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+  <link rel="apple-touch-icon" href="/worklane-mark.png" />
+  <title>Worklane</title>
   <script src="/theme-init.js"></script>
+  <style>
+    /* Neutral first-paint loader (no brand name). Removed when React mounts. */
+    #boot-splash {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      background: #FAF9FD;
+      color-scheme: light dark;
+    }
+    html.dark #boot-splash {
+      background: #0A0B10;
+    }
+    #boot-splash .boot-mark {
+      width: 56px;
+      height: 56px;
+      object-fit: contain;
+      display: block;
+    }
+    #boot-splash .boot-spinner {
+      width: 22px;
+      height: 22px;
+      border: 2px solid rgba(79, 70, 229, 0.22);
+      border-top-color: #4F46E5;
+      border-radius: 50%;
+      animation: boot-spin 0.7s linear infinite;
+    }
+    @keyframes boot-spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
 </head>
 
 <body>
+  <div id="boot-splash" aria-busy="true" aria-label="Loading">
+    <img class="boot-mark" src="/worklane-mark.png" alt="" width="56" height="56" />
+    <div class="boot-spinner" role="presentation"></div>
+  </div>
   <div id="root"></div>
   <script type="module" src="/src/main.tsx"></script>
 </body>

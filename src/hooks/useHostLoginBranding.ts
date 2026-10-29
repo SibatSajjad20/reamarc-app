@@ -128,7 +128,10 @@ export function applyLoginDocumentBrand(opts: {
   const prevHrefs = iconLinks.map((el) => el.href);
 
   if (opts.loading || !opts.displayName) {
-    document.title = 'Sign in';
+    document.title = 'Worklane';
+    iconLinks.forEach((el) => {
+      el.href = '/worklane-mark.png';
+    });
   } else {
     document.title = `Sign in · ${opts.displayName}`;
   }
@@ -137,13 +140,17 @@ export function applyLoginDocumentBrand(opts: {
     iconLinks.forEach((el) => {
       el.href = opts.logoUrl!;
     });
-    // Ensure at least one icon link exists
     if (iconLinks.length === 0) {
       const link = document.createElement('link');
       link.rel = 'icon';
       link.href = opts.logoUrl;
       document.head.appendChild(link);
     }
+  } else if (!opts.loading && !opts.logoUrl) {
+    // Company with no logo (or apex platform): keep neutral W, never the old Reamarc R.
+    iconLinks.forEach((el) => {
+      el.href = '/worklane-mark.png';
+    });
   }
 
   return () => {
