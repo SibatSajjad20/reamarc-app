@@ -11,6 +11,7 @@ import {
   Ban,
   Clock,
   Paperclip,
+  Pencil,
   X,
 } from 'lucide-react';
 import { openFileAttachment } from '../../utils/fileUrl';
@@ -23,7 +24,15 @@ import { Button } from '../ui/button';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, TableSkeletonRows, DrawerSkeleton } from '../ui/Skeletons';
-import { publicInvoiceUrl } from '../../utils/worklaneHost';
+import { formatInvoiceDate } from '../../utils/formatInvoiceDate';
+import {
+  copyTextToClipboard,
+  invoiceEditBlockedMessage,
+  publicInvoiceUrl,
+  whatsAppShareUrl,
+} from '../../utils/invoiceShare';
+import { useToast } from '../../context/ToastContext';
+import { usePermissions } from '../../hooks/usePermissions';
 
 interface InvoicesViewProps {
   onCreateNew: () => void;
@@ -36,6 +45,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   onEditInvoice,
   onRecordPaymentForInvoice,
 }) => {
+  const { addToast } = useToast();
+  const { isAdmin } = usePermissions();
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<string>('all');
   const listParams = useMemo(() => ({ status: 'with_deleted', limit: 500 }), []);
@@ -193,19 +204,42 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     }
   };
 
-  const handleCopyLink = (token?: string | null) => {
-    if (!token) return;
+  const handleEditInvoice = (inv: Invoice) => {
+    const blocked = invoiceEditBlockedMessage(inv.status, isAdmin);
+    if (blocked) {
+      addToast('Cannot edit invoice', blocked, 'error');
+      return;
+    }
+    setIsDrawerOpen(false);
+    onEditInvoice(inv);
+  };
+
+  const handleCopyLink = async (inv: Invoice) => {
+    const token = inv.share_token;
+    if (!token) {
+      addToast('Link unavailable', 'This invoice does not have a public link yet. Open it and try again.', 'error');
+      return;
+    }
+    if (inv.status === 'draft' || inv.status === 'deleted') {
+      addToast('Link unavailable', 'Issue the invoice before sharing a public link.', 'error');
+      return;
+    }
     const url = publicInvoiceUrl(token);
-    navigator.clipboard.writeText(url);
-    setCopiedToken(token);
-    setTimeout(() => setCopiedToken(null), 2500);
+    try {
+      await copyTextToClipboard(url);
+      setCopiedToken(token);
+      setTimeout(() => setCopiedToken(null), 2500);
+      addToast('Link copied', url, 'success');
+    } catch {
+      addToast('Could not copy link', url, 'error');
+    }
   };
 
   const handleRegenerateLink = async (inv: Invoice) => {
     if (!window.confirm(`Create a new public link for ${inv.number || 'this invoice'}? The old link will stop working.`)) return;
     try {
       const res = await financeService.regenerateInvoiceShareLink(inv.id);
-      handleCopyLink(res.share_token);
+      await handleCopyLink({ ...inv, share_token: res.share_token });
       fetchInvoices();
     } catch (err: any) {
       setActionError(err?.message || 'Could not regenerate the link');
@@ -213,15 +247,19 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   };
 
   const handleShareWhatsApp = (inv: Invoice) => {
-    const text = encodeURIComponent(
+    const token = inv.share_token;
+    if (!token || inv.status === 'draft' || inv.status === 'deleted') {
+      addToast('Link unavailable', 'Issue the invoice before sharing a public link.', 'error');
+      return;
+    }
+    const url = publicInvoiceUrl(token);
+    const message =
       `Hello ${inv.client_name},\nHere is your invoice ${inv.number} for ${formatMinorMoney(
         inv.total,
-        inv.currency
-      )}.\nBalance Due: ${formatMinorMoney(inv.balance_due, inv.currency)}.\nView invoice online: ${publicInvoiceUrl(
-        inv.share_token || ''
-      )}`
-    );
-    window.open(`https://wa.me/?text=${text}`, '_blank');
+        inv.currency,
+      )}.\nBalance Due: ${formatMinorMoney(inv.balance_due, inv.currency)}.\nView invoice online: ${url}`;
+    // Open synchronously inside the click handler so popup blockers do not kill it.
+    window.open(whatsAppShareUrl(message, inv.client_billing?.phone), '_blank');
   };
 
   const getStatusBadge = (inv: Invoice) => <InvoiceStatusBadge invoice={inv} />;
@@ -358,8 +396,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       {inv.number}
                     </td>
                     <td className="py-3 px-4 font-medium text-fg align-middle">{inv.client_name}</td>
-                    <td className="py-3 px-4 text-fg-muted align-middle font-numeric">{inv.issue_date}</td>
-                    <td className="py-3 px-4 text-fg-muted align-middle font-numeric">{inv.due_date}</td>
+                    <td className="py-3 px-4 text-fg-muted align-middle font-numeric">{formatInvoiceDate(inv.issue_date)}</td>
+                    <td className="py-3 px-4 text-fg-muted align-middle font-numeric">{formatInvoiceDate(inv.due_date)}</td>
                     <td className="py-3 px-4 text-right font-semibold text-fg align-middle font-numeric">
                       {formatMinorMoney(inv.total, inv.currency)}
                     </td>
@@ -379,6 +417,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           title="View details"
                         >
                           <Eye className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleEditInvoice(inv)}
+                          disabled={inv.status === 'deleted'}
+                          className="inline-flex h-8 w-8 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition disabled:invisible"
+                          title="Edit invoice"
+                        >
+                          <Pencil className="w-4 h-4" />
                         </button>
 
                         <button
@@ -403,8 +451,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
                         <button
                           type="button"
-                          onClick={() => handleCopyLink(inv.share_token)}
-                          disabled={!inv.share_token || inv.status === 'deleted' || inv.status === 'void'}
+                          onClick={() => void handleCopyLink(inv)}
+                          disabled={!inv.share_token || inv.status === 'deleted' || inv.status === 'draft'}
                           className="inline-flex h-8 w-8 items-center justify-center text-fg-muted hover:text-accent-text rounded-md hover:bg-hover transition disabled:invisible"
                           title="Copy public link"
                         >
@@ -460,18 +508,26 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 </button>
               </div>
               <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
-                {selectedInvoice.status === 'draft' && (
+                {selectedInvoice.status !== 'deleted' && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setIsDrawerOpen(false);
-                      onEditInvoice(selectedInvoice);
-                    }}
-                    className="px-3 py-1.5 bg-accent-soft text-accent-text font-semibold text-xs rounded-lg transition"
+                    onClick={() => handleEditInvoice(selectedInvoice)}
+                    className="px-3 py-1.5 bg-accent-soft text-accent-text font-semibold text-xs rounded-lg transition inline-flex items-center gap-1.5"
                   >
-                    Edit Draft
+                    <Pencil className="w-3.5 h-3.5" />
+                    Edit
                   </button>
                 )}
+
+                <button
+                  type="button"
+                  onClick={() => void handleCopyLink(selectedInvoice)}
+                  disabled={!selectedInvoice.share_token || selectedInvoice.status === 'draft'}
+                  className="px-3 py-1.5 border border-border-strong hover:bg-canvas text-fg-2 font-semibold text-xs rounded-lg transition inline-flex items-center gap-1.5 disabled:opacity-40"
+                >
+                  {copiedToken === selectedInvoice.share_token ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Share2 className="w-3.5 h-3.5" />}
+                  Copy public link
+                </button>
 
                 {selectedInvoice.balance_due > 0 && selectedInvoice.status !== 'draft' && selectedInvoice.status !== 'void' && selectedInvoice.status !== 'deleted' && onRecordPaymentForInvoice && (
                   <button
@@ -543,7 +599,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   )}
                   {selectedInvoice.deleted_at && (
                     <p className="mt-1 text-rose-700/80 dark:text-rose-400">
-                      Deleted {selectedInvoice.deleted_at.slice(0, 10)}
+                      Deleted {formatInvoiceDate(selectedInvoice.deleted_at)}
                     </p>
                   )}
                 </div>

@@ -36,6 +36,7 @@ import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
 import { PublicClientReviewView } from './components/views/PublicClientReviewView';
+import { PublicInvoiceView } from './components/finance/PublicInvoiceView';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 import { AppShell } from './components/layout/AppShell';
 import { TopBar } from './components/layout/TopBar';
@@ -685,6 +686,11 @@ function AppInner() {
 
   if (isPublicReview) {
     return <PublicClientReviewView theme={theme} />;
+  }
+
+  const isPublicInvoice = currentPathLower.startsWith('/invoice/');
+  if (isPublicInvoice) {
+    return <PublicInvoiceView />;
   }
 
   if (isAuthLoading) {

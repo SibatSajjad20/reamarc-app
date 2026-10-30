@@ -370,12 +370,20 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           <Button type="button" variant="secondary" size="sm" icon={Eye} onClick={() => setPreviewOpen(true)}>
             Preview
           </Button>
-          <Button type="button" variant="secondary" size="sm" icon={Save} onClick={() => handleSave(false)} loading={loading}>
-            Save draft
-          </Button>
-          <Button type="button" variant="primary" size="sm" icon={Send} onClick={() => handleSave(true)} loading={loading}>
-            Issue invoice
-          </Button>
+          {initialInvoice && initialInvoice.status && initialInvoice.status !== 'draft' ? (
+            <Button type="button" variant="primary" size="sm" icon={Save} onClick={() => handleSave(false)} loading={loading}>
+              Save changes
+            </Button>
+          ) : (
+            <>
+              <Button type="button" variant="secondary" size="sm" icon={Save} onClick={() => handleSave(false)} loading={loading}>
+                Save draft
+              </Button>
+              <Button type="button" variant="primary" size="sm" icon={Send} onClick={() => handleSave(true)} loading={loading}>
+                Issue invoice
+              </Button>
+            </>
+          )}
         </div>
       </header>
 

@@ -44,6 +44,18 @@ FONT_BOLD_ITALIC = "Helvetica-BoldOblique"
 _FONTS_READY = False
 
 
+def format_invoice_date(value: Optional[str]) -> str:
+    """Display helper: ISO YYYY-MM-DD in the DB becomes DD-MM-YYYY on documents."""
+    if not value:
+        return "—"
+    raw = str(value).strip()[:10]
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").strftime("%d-%m-%Y")
+    except ValueError:
+        return str(value).strip() or "—"
+
+
+
 def _ensure_pdf_fonts() -> None:
     """Register Inter (OFL) for invoice and receipt PDFs. Falls back to Helvetica."""
     global FONT_REGULAR, FONT_BOLD, FONT_ITALIC, FONT_BOLD_ITALIC, _FONTS_READY
@@ -457,17 +469,13 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
 
     # Right: Invoice metadata table — labels left, values right-aligned to the page edge
     inv_num = invoice.get("number", "DRAFT")
-    inv_date = invoice.get("issue_date", "") or "—"
-    terms = invoice.get("terms", "Due on receipt") or "—"
-    due_date = invoice.get("due_date", "") or "—"
-    ref = (invoice.get("reference") or "").strip() or "—"
+    inv_date = format_invoice_date(invoice.get("issue_date"))
+    due_date = format_invoice_date(invoice.get("due_date"))
 
     meta_data = [
         [Paragraph("INVOICE", style_meta_label), Paragraph(f"<b>{inv_num}</b>", style_meta_value_right)],
         [Paragraph("DATE", style_meta_label), Paragraph(inv_date, style_meta_value_right)],
-        [Paragraph("TERMS", style_meta_label), Paragraph(terms, style_meta_value_right)],
         [Paragraph("DUE DATE", style_meta_label), Paragraph(due_date, style_meta_value_right)],
-        [Paragraph("REFERENCE", style_meta_label), Paragraph(ref, style_meta_value_right)],
     ]
     meta_table = Table(meta_data, colWidths=[78, 108])
     meta_table.setStyle(TableStyle([

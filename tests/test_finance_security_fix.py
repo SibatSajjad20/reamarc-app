@@ -141,7 +141,7 @@ class FinanceSecurityFix(unittest.IsolatedAsyncioTestCase):
             iid = (await ac.post("/api/v1/finance/invoices", json=INV("Old Name"))).json()["id"]
             r = await ac.put(f"/api/v1/finance/invoices/{iid}", json={"client_name": "New Name"})
             self.assertEqual(r.status_code, 200, r.text)
-            a = await self.db.finance_audit.find_one({"entity_id": iid, "action": "invoice_update"})
+            a = await self.db.finance_audit.find_one({"entity_id": iid, "action": {"$in": ["invoice_edit", "invoice_update"]}})
             self.assertIsNotNone(a)
             self.assertEqual(a["details"]["changes"]["client_name"], {"old": "Old Name", "new": "New Name"})
 

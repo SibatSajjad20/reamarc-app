@@ -1,3 +1,4 @@
+import { formatInvoiceDate } from '../../utils/formatInvoiceDate';
 import React from 'react';
 import type { Invoice, InvoiceLineItem, Currency, BankAccountConfig } from '../../types/finance';
 import { formatMinorMoney, amountInWords } from '../../utils/money';
@@ -136,10 +137,8 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
         <div>
           <dl className="w-[220px]">
             <MetaRow label="INVOICE" value={invoice.number || 'DRAFT'} />
-            <MetaRow label="DATE" value={invoice.issue_date || '—'} />
-            <MetaRow label="TERMS" value={invoice.terms || 'Due on receipt'} />
-            <MetaRow label="DUE DATE" value={invoice.due_date || '—'} />
-            <MetaRow label="REFERENCE" value={invoice.reference || '—'} />
+            <MetaRow label="DATE" value={formatInvoiceDate(invoice.issue_date)} />
+            <MetaRow label="DUE DATE" value={formatInvoiceDate(invoice.due_date)} />
           </dl>
         </div>
       </div>

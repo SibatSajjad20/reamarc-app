@@ -135,7 +135,7 @@ class TestFinanceModule(unittest.IsolatedAsyncioTestCase):
         self.assertIn("INV-2026-0005", numbers)
 
     async def test_03_invoice_draft_lifecycle_and_locks(self):
-        """Dual-condition: editing draft is allowed; editing issued invoice is rejected."""
+        """Draft and issued invoices can be edited; paid invoices are blocked for non-admins."""
         transport = httpx.ASGITransport(app=self.app)
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as ac:
             # 1. Create Draft Invoice
@@ -199,10 +199,64 @@ class TestFinanceModule(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(issued_inv["number"].startswith("INV-2026-"))
             self.assertIsNotNone(issued_inv.get("pdf_file_id"))
 
-            # 4. Rejected Case: Try to edit an issued invoice
-            res_illegal_edit = await ac.put(f"/api/v1/finance/invoices/{inv_id}", json=update_payload)
-            self.assertEqual(res_illegal_edit.status_code, 400)
-            self.assertIn("only draft invoices can be edited", res_illegal_edit.json()["detail"].lower())
+            # 4. Issued invoices can be edited; invoice number stays the same
+            issued_number = issued_inv["number"]
+            res_issued_edit = await ac.put(
+                f"/api/v1/finance/invoices/{inv_id}",
+                json={"discount_value": 2000000, "notes": "corrected after issue"},
+            )
+            self.assertEqual(res_issued_edit.status_code, 200, res_issued_edit.text)
+            edited = res_issued_edit.json()
+            self.assertEqual(edited["number"], issued_number)
+            self.assertEqual(edited["discount_amount"], 2000000)
+            self.assertEqual(edited["total"], 13000000)
+            self.assertEqual(edited["balance_due"], 13000000)
+            self.assertIn("amount_in_words", edited)
+            self.assertEqual(edited.get("notes"), "corrected after issue")
+
+            # Patch endpoint works too
+            res_patch = await ac.patch(
+                f"/api/v1/finance/invoices/{inv_id}",
+                json={"notes": "patched note"},
+            )
+            self.assertEqual(res_patch.status_code, 200, res_patch.text)
+            self.assertEqual(res_patch.json().get("notes"), "patched note")
+            self.assertEqual(res_patch.json()["number"], issued_number)
+
+            # Audit log records the edit
+            audit = await self.raw["finance_audit"].find_one(
+                {"entity_id": inv_id, "action": "invoice_edit"},
+                sort=[("created_at", -1)],
+            )
+            self.assertIsNotNone(audit)
+            self.assertEqual(audit["details"].get("number"), issued_number)
+
+            # 4b. Paid invoices are blocked for non-admins
+            await self.raw["invoices"].update_one(
+                {"id": inv_id},
+                {"$set": {"status": "paid", "balance_due": 0, "amount_paid": edited["total"]}},
+            )
+            prev_role = self.current_mock_user["role"]
+            # operations has finance access but is not admin, so paid edits are blocked
+            self.current_mock_user["role"] = "operations"
+            try:
+                res_paid_edit = await ac.put(
+                    f"/api/v1/finance/invoices/{inv_id}",
+                    json={"notes": "should fail"},
+                )
+                self.assertEqual(res_paid_edit.status_code, 400, res_paid_edit.text)
+                self.assertIn("fully paid", res_paid_edit.json()["detail"].lower())
+            finally:
+                self.current_mock_user["role"] = prev_role
+
+            # 4c. Admin can still correct a paid invoice
+            res_admin_edit = await ac.put(
+                f"/api/v1/finance/invoices/{inv_id}",
+                json={"notes": "admin correction"},
+            )
+            self.assertEqual(res_admin_edit.status_code, 200, res_admin_edit.text)
+            self.assertEqual(res_admin_edit.json().get("notes"), "admin correction")
+            self.assertEqual(res_admin_edit.json()["number"], issued_number)
 
     async def test_04_payment_receipt_allocations_and_ledger(self):
         """Dual-condition: Valid receipt allocates & enters ledger; Over-allocation is rejected."""

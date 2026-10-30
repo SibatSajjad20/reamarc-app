@@ -40,6 +40,7 @@ from app.services.finance_invoices import (
     create_invoice_draft,
     delete_invoice,
     duplicate_invoice,
+    ensure_invoice_share_token,
     get_invoice_by_share_token,
     get_invoices,
     issue_invoice,
@@ -347,6 +348,7 @@ async def get_invoice_detail_endpoint(
     inv = await db["invoices"].find_one({"company_id": cid, "id": invoice_id})
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice not found")
+    await ensure_invoice_share_token(db, inv)
     inv.pop("_id", None)
 
     # Attach receipts timeline
@@ -359,18 +361,35 @@ async def get_invoice_detail_endpoint(
     return inv
 
 
+async def _update_invoice_http(invoice_id: str, payload: InvoiceUpdate, current_user: Dict[str, Any]):
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    is_admin = normalize_role(current_user.get("role")) == "admin"
+    updated = await update_invoice_draft(
+        db, cid, invoice_id, payload, user_id=uid, user_name=uname, is_admin=is_admin
+    )
+    updated.pop("_id", None)
+    return updated
+
+
 @router.put("/invoices/{invoice_id}")
 async def update_invoice_endpoint(
     invoice_id: str,
     payload: InvoiceUpdate,
     current_user: Dict[str, Any] = Depends(require_permission("finance", "create")),
 ):
-    db = get_database()
-    cid = _extract_company_id(current_user)
-    uid = current_user.get("id") or current_user.get("_id")
-    updated = await update_invoice_draft(db, cid, invoice_id, payload, user_id=uid)
-    updated.pop("_id", None)
-    return updated
+    return await _update_invoice_http(invoice_id, payload, current_user)
+
+
+@router.patch("/invoices/{invoice_id}")
+async def patch_invoice_endpoint(
+    invoice_id: str,
+    payload: InvoiceUpdate,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "create")),
+):
+    return await _update_invoice_http(invoice_id, payload, current_user)
 
 
 @router.post("/invoices/{invoice_id}/issue")

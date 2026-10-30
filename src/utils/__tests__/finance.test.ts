@@ -12,6 +12,14 @@ import {
 import { userCan } from '../../hooks/usePermissions';
 import { validateFinanceProofFile, FINANCE_PROOF_MAX_BYTES } from '../financeProof';
 import { resolveInvoiceStatus } from '../../components/finance/financeUi';
+import { formatInvoiceDate } from '../formatInvoiceDate';
+import {
+  invoiceEditBlockedMessage,
+  publicInvoicePath,
+  publicInvoiceUrl,
+  toWhatsAppNumber,
+  whatsAppShareUrl,
+} from '../invoiceShare';
 
 describe('Finance Money & Conversion Utilities', () => {
   it('converts major units to minor integer paisa/cents accurately', () => {
@@ -158,5 +166,37 @@ describe('Finance Permission Enforcement', () => {
 
     const devUser = { role: 'developer', is_active: true };
     expect(userCan(devUser, 'finance', 'view')).toBe(false);
+  });
+});
+
+describe('Invoice date display', () => {
+  it('formats ISO dates as DD-MM-YYYY and leaves blanks as an em dash', () => {
+    expect(formatInvoiceDate('2026-11-02')).toBe('02-11-2026');
+    expect(formatInvoiceDate('2026-11-02T12:00:00Z')).toBe('02-11-2026');
+    expect(formatInvoiceDate(null)).toBe('—');
+    expect(formatInvoiceDate('not-a-date')).toBe('not-a-date');
+  });
+});
+
+describe('Invoice share helpers', () => {
+  it('builds an origin-based public invoice URL', () => {
+    expect(publicInvoicePath('inv_tok_abc')).toBe('/invoice/inv_tok_abc');
+    expect(publicInvoiceUrl('inv_tok_abc', 'https://dataviz.oneworklane.com')).toBe(
+      'https://dataviz.oneworklane.com/invoice/inv_tok_abc',
+    );
+  });
+
+  it('normalizes Pakistan phone numbers for WhatsApp', () => {
+    expect(toWhatsAppNumber('03001234567')).toBe('923001234567');
+    expect(toWhatsAppNumber('+92 300 1234567')).toBe('923001234567');
+    expect(whatsAppShareUrl('hi', '03001234567')).toBe('https://wa.me/923001234567?text=hi');
+    expect(whatsAppShareUrl('hi')).toBe('https://wa.me/?text=hi');
+  });
+
+  it('blocks edit for paid/void/deleted unless admin', () => {
+    expect(invoiceEditBlockedMessage('paid', false)).toMatch(/fully paid/i);
+    expect(invoiceEditBlockedMessage('void', false)).toMatch(/on hold/i);
+    expect(invoiceEditBlockedMessage('paid', true)).toBeNull();
+    expect(invoiceEditBlockedMessage('issued', false)).toBeNull();
   });
 });

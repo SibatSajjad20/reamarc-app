@@ -13,7 +13,7 @@ from pymongo import DESCENDING
 from app.core.uploads import save_upload_bytes
 from app.schemas.finance import InvoiceCreate, InvoiceResponse, InvoiceUpdate
 from app.services.finance_numbering import get_next_number
-from app.services.finance_pdf import generate_invoice_pdf
+from app.services.finance_pdf import amount_in_words, generate_invoice_pdf
 from app.services.finance_settings import (
     BANK_DETAILS_REQUIRED_MESSAGE,
     get_or_init_finance_settings,
@@ -103,26 +103,58 @@ async def create_invoice_draft(
     return doc
 
 
+LOCKED_INVOICE_STATUSES = ("paid", "void", "deleted")
+
+
+def assert_invoice_editable(existing: Dict[str, Any], is_admin: bool = False) -> None:
+    """Non-admins cannot edit paid, void (on hold), or deleted invoices."""
+    inv_status = str(existing.get("status") or "")
+    if inv_status in LOCKED_INVOICE_STATUSES and not is_admin:
+        labels = {"paid": "fully paid", "void": "on hold", "deleted": "deleted"}
+        label = labels.get(inv_status, inv_status)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This invoice is {label} and cannot be edited. An admin can make corrections if needed.",
+        )
+
+
+async def ensure_invoice_share_token(db, inv: Dict[str, Any]) -> str:
+    token = (inv.get("share_token") or "").strip()
+    if token:
+        return token
+    token = f"inv_tok_{uuid.uuid4().hex}"
+    company_id = inv.get("company_id")
+    invoice_id = inv.get("id")
+    if company_id and invoice_id:
+        await db["invoices"].update_one(
+            {"company_id": company_id, "id": invoice_id},
+            {"$set": {"share_token": token}},
+        )
+    inv["share_token"] = token
+    return token
+
+
 async def update_invoice_draft(
     db,
     company_id: str,
     invoice_id: str,
     payload: InvoiceUpdate,
     user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+    is_admin: bool = False,
 ) -> Dict[str, Any]:
-    """Edit an existing draft invoice. Issued or voided invoices cannot be edited."""
+    """Edit an invoice. Number is immutable. Totals are always recalculated server-side."""
     coll = db["invoices"]
     existing = await coll.find_one({"company_id": company_id, "id": invoice_id})
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
 
-    if existing.get("status") != "draft":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot edit invoice in '{existing.get('status')}' status. Only draft invoices can be edited.",
-        )
+    assert_invoice_editable(existing, is_admin=is_admin)
 
-    update_dict = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update_dict = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    for locked in ("id", "company_id", "number", "share_token", "status", "amount_paid", "wht_settled"):
+        update_dict.pop(locked, None)
+
     line_items_data = update_dict.get("line_items") or existing.get("line_items", [])
     if isinstance(line_items_data, list) and line_items_data and hasattr(line_items_data[0], "model_dump"):
         line_items_data = [it.model_dump() for it in line_items_data]
@@ -131,16 +163,22 @@ async def update_invoice_draft(
     disc_val = update_dict.get("discount_value") if update_dict.get("discount_value") is not None else existing.get("discount_value", 0)
 
     financials = compute_invoice_financials(line_items_data, disc_type, disc_val)
+    currency = update_dict.get("currency") or existing.get("currency", "PKR")
+    paid = int(existing.get("amount_paid", 0) or 0)
+    wht = int(existing.get("wht_settled", 0) or 0)
     update_dict["line_items"] = line_items_data
     update_dict["subtotal"] = financials["subtotal"]
     update_dict["discount_amount"] = financials["discount_amount"]
     update_dict["total"] = financials["total"]
-    update_dict["balance_due"] = financials["total"] - (existing.get("amount_paid", 0) + existing.get("wht_settled", 0))
+    update_dict["balance_due"] = financials["total"] - paid - wht
+    update_dict["amount_in_words"] = amount_in_words(financials["total"], currency)
     update_dict["updated_at"] = _now_iso()
+    if not (existing.get("share_token") or "").strip():
+        update_dict["share_token"] = f"inv_tok_{uuid.uuid4().hex}"
 
     changes = {}
     for k, v in update_dict.items():
-        if k == "updated_at":
+        if k in ("updated_at", "amount_in_words"):
             continue
         old = existing.get(k)
         new = [it.model_dump() if hasattr(it, "model_dump") else it for it in v] if isinstance(v, list) else (
@@ -154,17 +192,47 @@ async def update_invoice_draft(
         {"$set": update_dict},
         return_document=True,
     )
-    if changes:
-        await db["finance_audit"].insert_one({
-            "id": f"aud_{uuid.uuid4().hex[:12]}",
-            "company_id": company_id,
-            "action": "invoice_update",
-            "entity_type": "invoice",
-            "entity_id": invoice_id,
-            "details": {"changes": changes},
-            "user_id": user_id,
-            "created_at": update_dict.get("updated_at") or _now_iso(),
-        })
+    if not result:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Invoice not found")
+
+    editor = user_name or user_id or "Unknown"
+    await db["finance_audit"].insert_one({
+        "id": f"aud_{uuid.uuid4().hex[:12]}",
+        "company_id": company_id,
+        "action": "invoice_edit",
+        "entity_type": "invoice",
+        "entity_id": invoice_id,
+        "details": {
+            "number": existing.get("number"),
+            "edited_by": editor,
+            "changes": changes,
+        },
+        "user_id": user_id,
+        "user_name": user_name,
+        "created_at": _now_iso(),
+    })
+
+    if result.get("status") not in ("draft", "deleted"):
+        try:
+            settings = await get_or_init_finance_settings(db, company_id)
+            pdf_bytes = generate_invoice_pdf(result, settings)
+            rel_key = f"finance/invoices/{company_id}/{secrets.token_hex(12)}_{result.get('number')}.pdf"
+            file_id = await save_upload_bytes(
+                db,
+                relative_key=rel_key,
+                content=pdf_bytes,
+                original_name=f"{result.get('number')}.pdf",
+                content_type="application/pdf",
+                extra_metadata={"company_id": company_id, "invoice_id": invoice_id},
+            )
+            result = await coll.find_one_and_update(
+                {"company_id": company_id, "id": invoice_id},
+                {"$set": {"pdf_file_id": file_id, "updated_at": _now_iso()}},
+                return_document=True,
+            ) or result
+        except Exception as exc:
+            logger.warning("Could not refresh invoice PDF snapshot after edit: %s", exc)
+
     return result
 
 
@@ -440,6 +508,7 @@ async def get_invoices(
 
     # Dynamic overdue tag computation
     for it in items:
+        await ensure_invoice_share_token(db, it)
         if it.get("status") in ("issued", "partially_paid") and it.get("due_date", "") < today:
             it["is_overdue"] = True
             it["effective_status"] = "overdue"
