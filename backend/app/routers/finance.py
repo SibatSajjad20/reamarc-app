@@ -863,59 +863,65 @@ async def get_report_endpoint(
 @router.get("/public/invoice/{share_token}")
 @limiter.limit("60/minute")
 async def get_public_invoice_endpoint(request: Request, share_token: str):
-    db = get_database()
-    inv = await get_invoice_by_share_token(db, share_token)
+    """Unauthenticated public invoice page. Token lookup is global (no tenant ctx)."""
+    # Same pattern as content-calendar public review: find by secret token on the
+    # raw DB, then enter tenant_scope for company-scoped settings.
+    inv = await get_invoice_by_share_token(get_database(), share_token)
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice link not found or expired")
 
     cid = inv.get("company_id") or "company_reamarc"
-    settings = await get_or_init_finance_settings(db, cid)
+    with tenant_scope(cid):
+        db = get_database()
+        settings = await get_or_init_finance_settings(db, cid)
 
-    # Return safe public view
-    return {
-        "invoice": {
-            "number": inv.get("number"),
-            "client_name": inv.get("client_name"),
-            "client_billing": inv.get("client_billing"),
-            "issue_date": inv.get("issue_date"),
-            "due_date": inv.get("due_date"),
-            "terms": inv.get("terms"),
-            "reference": inv.get("reference"),
-            "currency": inv.get("currency"),
-            "line_items": inv.get("line_items"),
-            "subtotal": inv.get("subtotal"),
-            "discount_amount": inv.get("discount_amount"),
-            "total": inv.get("total"),
-            "amount_paid": inv.get("amount_paid"),
-            "wht_settled": inv.get("wht_settled"),
-            "balance_due": inv.get("balance_due"),
-            "status": inv.get("status"),
-            "notes": inv.get("notes"),
-            "terms_text": inv.get("terms_text"),
-            "pay_to_bank": inv.get("pay_to_bank"),
-        },
-        "company": {
-            "name": settings.get("company_name"),
-            "address": settings.get("company_address"),
-            "phone": settings.get("company_phone"),
-            "email": settings.get("company_email"),
-            "website": settings.get("company_website"),
-            "tax_id": settings.get("tax_id"),
-        },
-    }
+        # Return safe public view
+        return {
+            "invoice": {
+                "number": inv.get("number"),
+                "client_name": inv.get("client_name"),
+                "client_billing": inv.get("client_billing"),
+                "issue_date": inv.get("issue_date"),
+                "due_date": inv.get("due_date"),
+                "terms": inv.get("terms"),
+                "reference": inv.get("reference"),
+                "currency": inv.get("currency"),
+                "line_items": inv.get("line_items"),
+                "subtotal": inv.get("subtotal"),
+                "discount_amount": inv.get("discount_amount"),
+                "total": inv.get("total"),
+                "amount_paid": inv.get("amount_paid"),
+                "wht_settled": inv.get("wht_settled"),
+                "balance_due": inv.get("balance_due"),
+                "status": inv.get("status"),
+                "notes": inv.get("notes"),
+                "terms_text": inv.get("terms_text"),
+                "pay_to_bank": inv.get("pay_to_bank"),
+            },
+            "company": {
+                "name": settings.get("company_name"),
+                "address": settings.get("company_address"),
+                "phone": settings.get("company_phone"),
+                "email": settings.get("company_email"),
+                "website": settings.get("company_website"),
+                "tax_id": settings.get("tax_id"),
+            },
+        }
 
 
 @router.get("/public/invoice/{share_token}/pdf")
 @limiter.limit("30/minute")
 async def get_public_invoice_pdf_endpoint(request: Request, share_token: str):
-    db = get_database()
-    inv = await get_invoice_by_share_token(db, share_token)
+    """Unauthenticated public invoice PDF. Token lookup is global (no tenant ctx)."""
+    inv = await get_invoice_by_share_token(get_database(), share_token)
     if not inv:
         raise HTTPException(status_code=404, detail="Invoice link not found or expired")
 
     cid = inv.get("company_id") or "company_reamarc"
-    settings = await get_or_init_finance_settings(db, cid)
-    pdf_bytes = generate_invoice_pdf(inv, settings)
+    with tenant_scope(cid):
+        db = get_database()
+        settings = await get_or_init_finance_settings(db, cid)
+        pdf_bytes = generate_invoice_pdf(inv, settings)
     filename = f"{inv.get('number', 'invoice')}.pdf"
     return Response(
         content=pdf_bytes,

@@ -561,7 +561,12 @@ export const financeService = {
   async getPublicInvoice(shareToken: string): Promise<any> {
     const base = (API_BASE_URL || '/api/v1').replace(/\/$/, '');
     const res = await fetch(`${base}/finance/public/invoice/${encodeURIComponent(shareToken)}`);
-    if (!res.ok) throw new Error('Invoice link not found or expired');
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 410) {
+        throw new Error('Invoice link not found or expired');
+      }
+      throw new Error('Could not load this invoice. Please try again in a moment.');
+    }
     return res.json();
   },
 

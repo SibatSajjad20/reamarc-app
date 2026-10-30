@@ -520,10 +520,26 @@ async def get_invoices(
 
 
 async def get_invoice_by_share_token(db, share_token: str) -> Optional[Dict[str, Any]]:
-    """Public lookup of an invoice via secret share token."""
+    """Public lookup of an invoice via secret share token.
+
+    Uses the raw/global DB so unauthenticated public links work when
+    MULTI_TENANT_ENABLED is on (no request tenant context). Share tokens are
+    unguessable secrets unique across companies. The ``db`` argument is kept for
+    callers/tests and used only as a fallback when the global DB is unavailable.
+    """
     if not share_token or not share_token.strip():
         return None
-    inv = await db["invoices"].find_one({"share_token": share_token.strip()})
+    from app.core.tenant import get_global_db
+
+    gdb = get_global_db()
+    coll = None
+    if gdb is not None:
+        coll = gdb["invoices"]
+    elif db is not None:
+        coll = db["invoices"]
+    if coll is None:
+        return None
+    inv = await coll.find_one({"share_token": share_token.strip()})
     if not inv:
         return None
     if inv.get("status") in ("deleted", "draft", "void"):
