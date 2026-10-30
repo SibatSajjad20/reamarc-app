@@ -2386,10 +2386,9 @@ async def process_check_out(
 
     cout = existing.get("check_out") or existing.get("punch_out")
     if cout:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Already checked out at {cout}."
-        )
+        # Idempotent: a repeat check-out (double-click / retry) returns the saved record
+        # instead of a 400 that the UI shows as "Check-out failed" after a successful write.
+        return AttendanceRecordResponse.from_mongo(existing)
 
     # Use assigned shift for the record's date (date override / weekday), not the template stamped at check-in.
     shift = await get_shift_for_user(user_id, department, date_str)
@@ -2502,6 +2501,13 @@ async def process_check_out(
         return_document=ReturnDocument.AFTER,
     )
     if not result:
+        # Lost the race with a parallel check-out: treat as success if punch-out is present.
+        raced = await db.attendance_records.find_one(
+            {"user_id": user_id, "date": date_str},
+            {"_id": 0},
+        )
+        if raced and (raced.get("check_out") or raced.get("punch_out")):
+            return AttendanceRecordResponse.from_mongo(raced)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already checked out today or check-in is missing.",

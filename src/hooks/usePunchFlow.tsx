@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Clock } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../types/attendance';
 import { attendanceService } from '../services/attendanceService';
@@ -186,6 +186,8 @@ export function usePunchFlow(
   const enforceGps = todayData?.enforce_gps_geofence ?? true;
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  /** Sync lock — React state alone cannot stop a double-click before re-render. */
+  const submittingRef = useRef(false);
   const [varianceOpen, setVarianceOpen] = useState(false);
   const [varianceReason, setVarianceReason] = useState('');
   const [varianceCategory, setVarianceCategory] = useState('');
@@ -210,6 +212,7 @@ export function usePunchFlow(
     getBrowserLocation();
 
   const handleCheckIn = async () => {
+    if (submittingRef.current) return;
     try {
       if (isOffDay) {
         addToast('Rest day', `${offDayLabel}. Check-in is not required.`, 'info');
@@ -224,6 +227,7 @@ export function usePunchFlow(
         return;
       }
 
+      submittingRef.current = true;
       setIsSubmitting(true);
 
       let nextCoords = coords;
@@ -313,6 +317,7 @@ export function usePunchFlow(
     } catch (err: any) {
       addToast('Check-in failed', err.message || 'Could not verify attendance punch.', 'error');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
       setVerificationStep('');
     }
@@ -353,8 +358,13 @@ export function usePunchFlow(
   const gateType = overrideGateType || computeLiveGateType();
   const needsVarianceReason = gateType === 'overtime' || gateType === 'undertime';
 
+  const isAlreadyCheckedOutError = (message: string) =>
+    /already checked out/i.test(message || '');
+
   const submitCheckOut = async (reason?: string, category?: string) => {
+    if (submittingRef.current) return;
     try {
+      submittingRef.current = true;
       setIsSubmitting(true);
 
       let coordsToSend: { lat: number; lng: number; accuracy: number } | null = null;
@@ -433,8 +443,19 @@ export function usePunchFlow(
         addToast('Early departure reason required', 'Please enter a reason to complete check-out.', 'info');
         return;
       }
+      if (isAlreadyCheckedOutError(errMsg)) {
+        // Parallel/double submit: first request already saved the punch-out.
+        setVarianceOpen(false);
+        setVarianceReason('');
+        setVarianceCategory('');
+        setOverrideGateType(null);
+        addToast('Checked out', 'Your shift has ended and timesheet calculated.', 'success');
+        onRefresh();
+        return;
+      }
       addToast('Check-out failed', err.message || 'Could not record check-out.', 'error');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
       setVerificationStep('');
     }

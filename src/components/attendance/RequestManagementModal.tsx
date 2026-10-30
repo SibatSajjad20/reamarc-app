@@ -444,7 +444,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         if (!isTime(regularizeOut)) {
           errs.regularizeOut = 'Time out must be HH:MM (24-hour), e.g. 18:30.';
         } else if (isFuturePktClockTime(regularizeDate, regularizeOut)) {
-          errs.regularizeOut = 'That would check you out before you leave. Use Time in only while you are still working.';
+          // Intentional: a future Time Out would close the day before the person actually leaves.
+          // Accidental early checkout: ask HR/Admin to clear Time Out on the Daily Matrix so the
+          // session reopens; then check out normally when leaving (do not pre-file a future out time).
+          errs.regularizeOut =
+            'Time Out cannot be in the future. If you checked out by mistake, ask HR to clear Time Out on the Daily Matrix so you can check out again when you leave. Use Time in only to fix check-in while still working.';
         }
       }
       if (isOffDay(regularizeDate)) {
@@ -1091,7 +1095,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
 
               {(correctionTarget === 'both' || correctionTarget === 'time_out') && (
                 <Callout variant="warning">
-                  Including time out will check you out at that time. If your shift has not ended, use <strong>Time in only</strong> unless you have already left.
+                  Including time out sets that checkout time (must already have happened). If you are still working, use <strong>Time in only</strong>. If you checked out by mistake, ask HR to clear Time Out on the Daily Matrix so you can check out again.
                 </Callout>
               )}
 
