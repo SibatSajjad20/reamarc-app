@@ -30,6 +30,7 @@ import type {
 } from '../../types/finance';
 import type { Workspace } from '../../types';
 import { InvoicePreview } from './InvoicePreview';
+import { formatInvoiceNumber } from '../../utils/formatInvoiceNumber';
 
 interface InvoiceEditorProps {
   invoiceId?: string | null;
@@ -308,7 +309,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
 
   // Prepare preview object
   const previewData: Partial<Invoice> = {
-    number: initialInvoice?.number || 'INV-2026-DRAFT',
+    number: initialInvoice?.number || 'INV-26-DRAFT',
     client_name: clientName || 'Sample Client',
     client_billing: {
       name: billingName,
@@ -358,7 +359,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </Button>
           <div className="min-w-0 pt-0.5">
             <h1 className="text-h2 font-semibold text-fg leading-7">
-              {invoiceId ? `Edit ${initialInvoice?.number || 'draft'}` : 'New invoice'}
+              {invoiceId ? `Edit ${formatInvoiceNumber(initialInvoice?.number) || 'draft'}` : 'New invoice'}
             </h1>
             <p className="text-caption text-fg-muted mt-0.5">
               Draft lines, preview, then save or issue

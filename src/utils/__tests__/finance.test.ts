@@ -13,6 +13,7 @@ import { userCan } from '../../hooks/usePermissions';
 import { validateFinanceProofFile, FINANCE_PROOF_MAX_BYTES } from '../financeProof';
 import { resolveInvoiceStatus } from '../../components/finance/financeUi';
 import { formatInvoiceDate } from '../formatInvoiceDate';
+import { formatInvoiceNumber } from '../formatInvoiceNumber';
 import {
   invoiceEditBlockedMessage,
   publicInvoicePath,
@@ -166,6 +167,15 @@ describe('Finance Permission Enforcement', () => {
 
     const devUser = { role: 'developer', is_active: true };
     expect(userCan(devUser, 'finance', 'view')).toBe(false);
+  });
+});
+
+describe('Invoice number display', () => {
+  it('shortens a four-digit year to two digits', () => {
+    expect(formatInvoiceNumber('INV-2026-0005')).toBe('INV-26-0005');
+    expect(formatInvoiceNumber('INV-26-0005')).toBe('INV-26-0005');
+    expect(formatInvoiceNumber('DRAFT-abc')).toBe('DRAFT-abc');
+    expect(formatInvoiceNumber(null)).toBe('');
   });
 });
 

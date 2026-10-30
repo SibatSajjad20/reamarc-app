@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from pymongo import ReturnDocument
 
 logger = logging.getLogger(__name__)
+
+_FULL_YEAR_IN_NUMBER = re.compile(r"-(?:19|20)(\d{2})-")
+
+
+def format_document_number(number: Optional[str]) -> str:
+    """Display helper: INV-2026-0005 -> INV-26-0005. Two-digit years are unchanged."""
+    if not number:
+        return number or ""
+    return _FULL_YEAR_IN_NUMBER.sub(r"-\1-", str(number), count=1)
 
 
 async def get_next_number(
@@ -17,9 +27,10 @@ async def get_next_number(
     year: Optional[int] = None,
 ) -> str:
     """Atomically increment and return the next formatted number for a document type.
-    
-    Example invoice: INV-2026-0001
-    Example receipt: RCT-2026-0001
+
+    Example invoice: INV-26-0001
+    Example receipt: RCT-26-0001
+    Counters still key off the full calendar year so sequences do not collide.
     """
     if year is None:
         year = datetime.now(timezone.utc).year
@@ -38,9 +49,8 @@ async def get_next_number(
     )
 
     seq = doc.get("seq", 1)
-    
-    # If prefix ends with hyphen or dash, format as PREFIX{year}-{seq:04d}
+    year_short = year % 100
+
     if prefix.endswith("-"):
-        return f"{prefix}{year}-{seq:04d}"
-    else:
-        return f"{prefix}-{year}-{seq:04d}"
+        return f"{prefix}{year_short:02d}-{seq:04d}"
+    return f"{prefix}-{year_short:02d}-{seq:04d}"

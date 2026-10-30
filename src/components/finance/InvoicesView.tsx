@@ -25,6 +25,7 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { KpiRowSkeleton, TableSkeletonRows, DrawerSkeleton } from '../ui/Skeletons';
 import { formatInvoiceDate } from '../../utils/formatInvoiceDate';
+import { formatInvoiceNumber } from '../../utils/formatInvoiceNumber';
 import {
   copyTextToClipboard,
   invoiceEditBlockedMessage,
@@ -132,6 +133,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       if (!q) return true;
       return (
         inv.number?.toLowerCase().includes(q) ||
+        formatInvoiceNumber(inv.number).toLowerCase().includes(q) ||
         inv.client_name?.toLowerCase().includes(q) ||
         inv.reference?.toLowerCase().includes(q)
       );
@@ -236,7 +238,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   };
 
   const handleRegenerateLink = async (inv: Invoice) => {
-    if (!window.confirm(`Create a new public link for ${inv.number || 'this invoice'}? The old link will stop working.`)) return;
+    if (!window.confirm(`Create a new public link for ${formatInvoiceNumber(inv.number) || 'this invoice'}? The old link will stop working.`)) return;
     try {
       const res = await financeService.regenerateInvoiceShareLink(inv.id);
       await handleCopyLink({ ...inv, share_token: res.share_token });
@@ -254,7 +256,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     }
     const url = publicInvoiceUrl(token);
     const message =
-      `Hello ${inv.client_name},\nHere is your invoice ${inv.number} for ${formatMinorMoney(
+      `Hello ${inv.client_name},\nHere is your invoice ${formatInvoiceNumber(inv.number)} for ${formatMinorMoney(
         inv.total,
         inv.currency,
       )}.\nBalance Due: ${formatMinorMoney(inv.balance_due, inv.currency)}.\nView invoice online: ${url}`;
@@ -393,7 +395,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                     className="hover:bg-canvas/80 cursor-pointer transition"
                   >
                     <td className="py-3 px-4 font-numeric font-bold text-fg align-middle">
-                      {inv.number}
+                      {formatInvoiceNumber(inv.number)}
                     </td>
                     <td className="py-3 px-4 font-medium text-fg align-middle">{inv.client_name}</td>
                     <td className="py-3 px-4 text-fg-muted align-middle font-numeric">{formatInvoiceDate(inv.issue_date)}</td>
@@ -739,7 +741,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-xs p-4">
           <div className="bg-surface rounded-lg shadow-xl max-w-md w-full p-6 space-y-4">
             <h3 className="text-base font-bold text-fg flex items-center gap-2 text-rose-600">
-              Delete invoice {deleteModalInv.number}
+              Delete invoice {formatInvoiceNumber(deleteModalInv.number)}
             </h3>
             <p className="text-xs text-fg-2">
               The invoice is removed from live lists but kept as an audit record.

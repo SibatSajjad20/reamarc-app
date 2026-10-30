@@ -11,6 +11,8 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
+import { formatInvoiceDate } from '../../utils/formatInvoiceDate';
+import { formatInvoiceNumber } from '../../utils/formatInvoiceNumber';
 import { formatMinorMoney } from '../../utils/money';
 import type { Invoice, FinanceAccount, FinanceLedgerEntry, AgeingSummaryReport, CollectionsReport, FinanceTab } from '../../types/finance';
 import { FinanceReportFilters, FinanceStatusBadge } from './financeUi';
@@ -322,7 +324,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="font-numeric font-semibold text-xs text-fg dark:text-white">
-                        {inv.number}
+                        {formatInvoiceNumber(inv.number)}
                       </span>
                       {getStatusBadge(inv.status)}
                     </div>
@@ -330,7 +332,7 @@ export const FinanceOverview: React.FC<FinanceOverviewProps> = ({
                       {inv.client_name}
                     </p>
                     <p className="text-[11px] text-fg-muted">
-                      Due: {inv.due_date}
+                      Due: {formatInvoiceDate(inv.due_date)}
                     </p>
                   </div>
 

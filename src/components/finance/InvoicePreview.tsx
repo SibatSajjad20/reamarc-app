@@ -1,4 +1,5 @@
 import { formatInvoiceDate } from '../../utils/formatInvoiceDate';
+import { formatInvoiceNumber } from '../../utils/formatInvoiceNumber';
 import React from 'react';
 import type { Invoice, InvoiceLineItem, Currency, BankAccountConfig } from '../../types/finance';
 import { formatMinorMoney, amountInWords } from '../../utils/money';
@@ -32,16 +33,15 @@ interface InvoicePreviewProps {
 
 function MetaRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[88px_1fr] gap-x-2.5 py-[3px] text-[11px] leading-4">
-      <dt className="text-right text-zinc-500">{label}</dt>
-      <dd className="text-zinc-900 font-numeric">{value}</dd>
-    </div>
+    <>
+      <dt className="py-px text-right font-bold text-zinc-500">{label}</dt>
+      <dd className="py-px text-right text-zinc-900 font-numeric">{value}</dd>
+    </>
   );
 }
 
 export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, companySettings }) => {
   const currency = invoice.currency || 'PKR';
-  const subtotal = invoice.subtotal || 0;
   const discountAmount = invoice.discount_amount || 0;
   const total = invoice.total || 0;
   const amountPaid = invoice.amount_paid || 0;
@@ -134,10 +134,10 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
           )}
         </div>
 
-        <div>
-          <dl className="w-[220px]">
-            <MetaRow label="INVOICE" value={invoice.number || 'DRAFT'} />
-            <MetaRow label="DATE" value={formatInvoiceDate(invoice.issue_date)} />
+        <div className="shrink-0 text-right">
+          <dl className="ml-auto grid grid-cols-[auto_auto] items-baseline gap-x-1.5 text-[10px] leading-[13px]">
+            <MetaRow label="INVOICE" value={formatInvoiceNumber(invoice.number) || 'DRAFT'} />
+            <MetaRow label="ISSUE DATE" value={formatInvoiceDate(invoice.issue_date)} />
             <MetaRow label="DUE DATE" value={formatInvoiceDate(invoice.due_date)} />
           </dl>
         </div>
@@ -146,7 +146,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
       <table className="mt-8 w-full border-collapse text-[12px]">
         <thead>
           <tr className="border-b border-zinc-900 text-[10px] font-medium uppercase tracking-[0.12em] text-zinc-500">
-            <th className="py-2 pr-3 text-left w-8 font-medium">#</th>
+            <th className="py-2 pr-3 text-left w-8 font-medium">SR</th>
             <th className="py-2 pr-3 text-left font-medium">Description</th>
             <th className="py-2 px-3 text-right w-14 font-medium">Qty</th>
             <th className="py-2 px-3 text-right w-[108px] font-medium">Rate</th>
@@ -178,32 +178,23 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
         </tbody>
       </table>
 
-      <div className="mt-6 flex items-start justify-between gap-10">
+      <div className="mt-6 grid grid-cols-[1fr_240px] items-start gap-x-10">
         <div className="max-w-[320px] text-[11px] leading-4 text-zinc-600">
           <p className="text-[10px] font-medium uppercase tracking-[0.14em] text-zinc-500">Amount in words</p>
           <p className="mt-1.5 italic">
             {amountInWords(balanceDue > 0 ? balanceDue : total, currency)}
           </p>
-          <p className="mt-4">
-            {invoice.notes ||
-              companySettings?.notes_template ||
-              'Thank you for your business.'}
-          </p>
         </div>
 
         <dl className="w-[240px] text-[12px]">
-          <div className="flex justify-between py-1">
-            <dt className="text-zinc-500">Subtotal</dt>
-            <dd className="font-numeric">{formatMinorMoney(subtotal, currency)}</dd>
-          </div>
           {discountAmount > 0 && (
             <div className="flex justify-between py-1">
               <dt className="text-zinc-500">Discount</dt>
               <dd className="font-numeric">-{formatMinorMoney(discountAmount, currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between py-1.5 border-t border-zinc-200 mt-1 font-semibold">
-            <dt>Net total</dt>
+          <div className="flex justify-between py-1.5 font-semibold text-zinc-900">
+            <dt>TOTAL</dt>
             <dd className="font-numeric">{formatMinorMoney(total, currency)}</dd>
           </div>
           {amountPaid > 0 && (
@@ -218,11 +209,18 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({ invoice, company
               <dd className="font-numeric">-{formatMinorMoney(whtSettled, currency)}</dd>
             </div>
           )}
-          <div className="flex justify-between py-2 mt-1 border-t border-zinc-900 font-semibold">
-            <dt>Balance due</dt>
-            <dd className="font-numeric">{formatMinorMoney(balanceDue, currency)}</dd>
-          </div>
         </dl>
+
+        <p className="max-w-[320px] self-center text-[11px] leading-4 text-zinc-600">
+          {invoice.notes ||
+            companySettings?.notes_template ||
+            'We greatly appreciate your business and the opportunity to serve you.'}
+        </p>
+
+        <div className="flex justify-between py-2 border-t border-zinc-900 font-semibold text-[12px]">
+          <span>BALANCE DUE</span>
+          <span className="font-numeric">{formatMinorMoney(balanceDue, currency)}</span>
+        </div>
       </div>
 
       <div className="mt-8 pt-5 border-t border-zinc-200 text-[11px] leading-4 text-zinc-700">

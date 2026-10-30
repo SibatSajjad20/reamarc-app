@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.services.finance_numbering import format_document_number
+
 try:
     from reportlab.lib import colors
     from reportlab.lib.pagesizes import A4
@@ -116,6 +118,32 @@ def _wordmark_path() -> Optional[Path]:
 
 def _stamp_path() -> Optional[Path]:
     return _asset_path("reamarc-stamp.png")
+
+
+def _draw_status_stamp(canv: Any, text: str, fill_hex: str, stroke_hex: str) -> None:
+    """Diagonal status badge whose box always wraps the label."""
+    canv.saveState()
+    page_w = getattr(canv, "_pagesize", A4)[0]
+    canv.translate(page_w / 2, 480)
+    canv.rotate(25)
+    font_size = 32 if len(text) > 8 else 42
+    canv.setFont(FONT_BOLD, font_size)
+    canv.setFillColor(colors.HexColor(fill_hex), alpha=0.18)
+    canv.setStrokeColor(colors.HexColor(stroke_hex), alpha=0.45)
+    canv.setLineWidth(1.6)
+    text_w = canv.stringWidth(text, FONT_BOLD, font_size)
+    pad_x = 14
+    pad_y = 7
+    canv.drawCentredString(0, 0, text)
+    canv.rect(
+        -text_w / 2 - pad_x,
+        -pad_y,
+        text_w + 2 * pad_x,
+        font_size + pad_y + 2,
+        stroke=1,
+        fill=0,
+    )
+    canv.restoreState()
 
 
 REAMARC_COMPANY_ID = "company_reamarc"
@@ -467,25 +495,52 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
 
     bill_to_p = Paragraph(bill_to_html, style_meta_value)
 
-    # Right: Invoice metadata table — labels left, values right-aligned to the page edge
-    inv_num = invoice.get("number", "DRAFT")
+    # Right: bold labels in one column, values right-aligned in the other
+    from reportlab.pdfbase.pdfmetrics import stringWidth
+
+    inv_num = format_document_number(invoice.get("number") or "DRAFT")
     inv_date = format_invoice_date(invoice.get("issue_date"))
     due_date = format_invoice_date(invoice.get("due_date"))
 
+    style_meta_label_col = ParagraphStyle(
+        "MetaLabelCol",
+        parent=normal,
+        fontName=FONT_BOLD,
+        fontSize=8,
+        leading=10,
+        alignment=2,
+        textColor=text_muted,
+    )
+    style_meta_value_col = ParagraphStyle(
+        "MetaValueCol",
+        parent=normal,
+        fontName=FONT_REGULAR,
+        fontSize=8,
+        leading=10,
+        alignment=2,
+        textColor=text_dark,
+    )
+    gap = stringWidth("  ", FONT_REGULAR, 8)
+    label_w = max(stringWidth(s, FONT_BOLD, 8) for s in ("INVOICE", "ISSUE DATE", "DUE DATE")) + 1
+    value_w = max(
+        stringWidth(str(inv_num), FONT_BOLD, 8),
+        stringWidth(inv_date, FONT_REGULAR, 8),
+        stringWidth(due_date, FONT_REGULAR, 8),
+    ) + 1
     meta_data = [
-        [Paragraph("INVOICE", style_meta_label), Paragraph(f"<b>{inv_num}</b>", style_meta_value_right)],
-        [Paragraph("DATE", style_meta_label), Paragraph(inv_date, style_meta_value_right)],
-        [Paragraph("DUE DATE", style_meta_label), Paragraph(due_date, style_meta_value_right)],
+        [Paragraph("INVOICE", style_meta_label_col), Paragraph(f"<b>{inv_num}</b>", style_meta_value_col)],
+        [Paragraph("ISSUE DATE", style_meta_label_col), Paragraph(inv_date, style_meta_value_col)],
+        [Paragraph("DUE DATE", style_meta_label_col), Paragraph(due_date, style_meta_value_col)],
     ]
-    meta_table = Table(meta_data, colWidths=[78, 108])
+    meta_table = Table(meta_data, colWidths=[label_w + gap, value_w])
+    meta_table.hAlign = "RIGHT"
     meta_table.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
-        ("ALIGN", (1, 0), (1, -1), "LEFT"),
-        ("TOPPADDING", (0, 0), (-1, -1), 2),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+        ("ALIGN", (0, 0), (-1, -1), "RIGHT"),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
         ("LEFTPADDING", (0, 0), (0, -1), 0),
-        ("RIGHTPADDING", (0, 0), (0, -1), 10),
+        ("RIGHTPADDING", (0, 0), (0, -1), gap),
         ("LEFTPADDING", (1, 0), (1, -1), 0),
         ("RIGHTPADDING", (1, 0), (1, -1), 0),
     ]))
@@ -511,7 +566,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     table_data = []
     if has_qty_rate:
         table_data.append([
-            Paragraph("SL", style_th),
+            Paragraph("SR", style_th),
             Paragraph("DESCRIPTION", style_th),
             Paragraph("QTY", style_th),
             Paragraph("RATE", style_th),
@@ -520,7 +575,7 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
         col_widths = [30, 273, 50, 80, 90]
     else:
         table_data.append([
-            Paragraph("SL", style_th),
+            Paragraph("SR", style_th),
             Paragraph("DESCRIPTION", style_th),
             Paragraph("AMOUNT", style_td_right),
         ])
@@ -560,67 +615,84 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     story.append(Spacer(1, 15))
 
     # 4. Totals and Notes Section
-    subtotal = invoice.get("subtotal", 0)
     discount_amount = invoice.get("discount_amount", 0)
     total = invoice.get("total", 0)
     amount_paid = invoice.get("amount_paid", 0)
     wht_settled = invoice.get("wht_settled", 0)
     balance_due = invoice.get("balance_due", 0)
 
-    # Right side: Totals Box
-    totals_rows = [
-        [Paragraph("Subtotal", style_label), Paragraph(format_currency_amount(subtotal, currency), style_td_right)],
-    ]
-    if discount_amount > 0:
-        totals_rows.append([
-            Paragraph("Discount", style_label),
-            Paragraph(f"-{format_currency_amount(discount_amount, currency)}", style_td_right),
-        ])
-    totals_rows.append([
-        Paragraph("<b>Net total</b>", style_label),
-        Paragraph(f"<b>{format_currency_amount(total, currency)}</b>", style_td_right),
-    ])
-    if amount_paid > 0:
-        totals_rows.append([
-            Paragraph("Amount Paid", style_label),
-            Paragraph(f"-{format_currency_amount(amount_paid, currency)}", style_td_right),
-        ])
-    if wht_settled > 0:
-        totals_rows.append([
-            Paragraph("WHT Settled", style_label),
-            Paragraph(f"-{format_currency_amount(wht_settled, currency)}", style_td_right),
-        ])
-    totals_rows.append([
-        Paragraph('<font color="#5046E5" size="10"><b>BALANCE DUE</b></font>', style_label),
-        Paragraph(f'<font color="#5046E5" size="10"><b>{format_currency_amount(balance_due, currency)}</b></font>', style_td_right),
-    ])
-
-    totals_table = Table(totals_rows, colWidths=[90, 110])
-    totals_table.setStyle(TableStyle([
+    totals_style = TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("LEFTPADDING", (0, 0), (-1, -1), 4),
         ("RIGHTPADDING", (0, 0), (-1, -1), 4),
         ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.HexColor("#F1F5F9")),
-    ]))
+    ])
 
-    # Left side: Amount in words & client thank you
+    upper_rows = []
+    if discount_amount > 0:
+        upper_rows.append([
+            Paragraph("Discount", style_label),
+            Paragraph(f"-{format_currency_amount(discount_amount, currency)}", style_td_right),
+        ])
+    upper_rows.append([
+        Paragraph('<font color="#0F172A"><b>TOTAL</b></font>', style_label),
+        Paragraph(f'<font color="#0F172A"><b>{format_currency_amount(total, currency)}</b></font>', style_td_right),
+    ])
+    if amount_paid > 0:
+        upper_rows.append([
+            Paragraph("Amount Paid", style_label),
+            Paragraph(f"-{format_currency_amount(amount_paid, currency)}", style_td_right),
+        ])
+    if wht_settled > 0:
+        upper_rows.append([
+            Paragraph("WHT Settled", style_label),
+            Paragraph(f"-{format_currency_amount(wht_settled, currency)}", style_td_right),
+        ])
+
+    upper_table = Table(upper_rows, colWidths=[90, 110])
+    upper_table.setStyle(totals_style)
+
+    balance_table = Table(
+        [[
+            Paragraph('<font color="#5046E5" size="10"><b>BALANCE DUE</b></font>', style_label),
+            Paragraph(
+                f'<font color="#5046E5" size="10"><b>{format_currency_amount(balance_due, currency)}</b></font>',
+                style_td_right,
+            ),
+        ]],
+        colWidths=[90, 110],
+    )
+    balance_table.setStyle(totals_style)
+
     words = amount_in_words(balance_due if balance_due > 0 else total, currency)
     notes_text = invoice.get("notes") or settings.get("notes_template") or "We greatly appreciate your business and the opportunity to serve you."
-    left_summary = [
-        Paragraph(f'<font color="#64748B">Amount in words:</font><br/><b>{words}</b>', style_words),
-        Spacer(1, 8),
-        Paragraph(f'<font color="#475569">{notes_text}</font>', style_meta_value),
-    ]
 
-    summary_table = Table([[left_summary, totals_table]], colWidths=[323, 200])
+    summary_table = Table(
+        [
+            [
+                Paragraph(f'<font color="#64748B">Amount in words:</font><br/><b>{words}</b>', style_words),
+                upper_table,
+            ],
+            [
+                Paragraph(f'<font color="#475569">{notes_text}</font>', style_meta_value),
+                balance_table,
+            ],
+        ],
+        colWidths=[323, 200],
+    )
     summary_table.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("VALIGN", (0, 0), (0, 0), "TOP"),
+        ("VALIGN", (1, 0), (1, 0), "TOP"),
+        ("VALIGN", (0, 1), (0, 1), "MIDDLE"),
+        ("VALIGN", (1, 1), (1, 1), "MIDDLE"),
         ("LEFTPADDING", (0, 0), (-1, -1), 0),
         ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-        ("TOPPADDING", (0, 0), (-1, -1), 0),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, 0), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 4),
+        ("TOPPADDING", (0, 1), (-1, 1), 2),
+        ("BOTTOMPADDING", (0, 1), (-1, 1), 0),
     ]))
     story.append(summary_table)
     story.append(Spacer(1, 20))
@@ -703,27 +775,12 @@ def generate_invoice_pdf(invoice: Dict[str, Any], settings: Dict[str, Any]) -> b
     status_label = (invoice.get("status") or "").lower()
 
     def _draw_decorations(canv, document):
-        if status_label in ("paid", "partially_paid", "void"):
-            canv.saveState()
-            canv.setFont(FONT_BOLD, 45)
-            canv.translate(300, 480)
-            canv.rotate(25)
-            if status_label == "paid":
-                canv.setFillColor(colors.HexColor("#10B981"), alpha=0.18)
-                canv.setStrokeColor(colors.HexColor("#10B981"), alpha=0.4)
-                text = "PAID"
-            elif status_label == "partially_paid":
-                canv.setFillColor(colors.HexColor("#F59E0B"), alpha=0.18)
-                canv.setStrokeColor(colors.HexColor("#F59E0B"), alpha=0.4)
-                text = "PARTIALLY PAID"
-            else:
-                canv.setFillColor(colors.HexColor("#EF4444"), alpha=0.18)
-                canv.setStrokeColor(colors.HexColor("#EF4444"), alpha=0.4)
-                text = "ON HOLD"
-
-            canv.drawCentredString(0, 0, text)
-            canv.rect(-130, -15, 260, 60, stroke=1, fill=0)
-            canv.restoreState()
+        if status_label == "paid":
+            _draw_status_stamp(canv, "PAID", "#10B981", "#10B981")
+        elif status_label == "partially_paid":
+            _draw_status_stamp(canv, "PARTIALLY PAID", "#F59E0B", "#F59E0B")
+        elif status_label == "void":
+            _draw_status_stamp(canv, "ON HOLD", "#EF4444", "#EF4444")
 
     doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_draw_decorations, onLaterPages=_draw_decorations)
     return buffer.getvalue()
@@ -856,7 +913,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
 
     total_paid_in_table = 0
     for alloc in allocations:
-        inv_num = alloc.get("invoice_number", alloc.get("invoice_id", "—"))
+        inv_num = format_document_number(alloc.get("invoice_number", alloc.get("invoice_id", "—")))
         inv_date = alloc.get("invoice_date", rcpt_date)
         paid_date = rcpt_date
         inv_total = alloc.get("invoice_total", alloc.get("amount", 0))
@@ -937,15 +994,7 @@ def generate_receipt_pdf(receipt: Dict[str, Any], settings: Dict[str, Any]) -> b
 
     def _draw_decorations(canv, document):
         if status_label == "void":
-            canv.saveState()
-            canv.setFont(FONT_BOLD, 45)
-            canv.translate(300, 480)
-            canv.rotate(25)
-            canv.setFillColor(colors.HexColor("#EF4444"), alpha=0.18)
-            canv.setStrokeColor(colors.HexColor("#EF4444"), alpha=0.4)
-            canv.drawCentredString(0, 0, "ON HOLD")
-            canv.rect(-130, -15, 260, 60, stroke=1, fill=0)
-            canv.restoreState()
+            _draw_status_stamp(canv, "ON HOLD", "#EF4444", "#EF4444")
 
     doc.build(story, canvasmaker=NumberedCanvas, onFirstPage=_draw_decorations, onLaterPages=_draw_decorations)
     return buffer.getvalue()

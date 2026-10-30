@@ -10,6 +10,7 @@ import {
 import { financeService } from '../../services/financeService';
 import { workspaceService } from '../../services/workspaceService';
 import { formatMinorMoney, majorToMinor, minorToMajor, parseMajorGrouped } from '../../utils/money';
+import { formatInvoiceNumber } from '../../utils/formatInvoiceNumber';
 import { AmountInput, CURRENCY_OPTIONS, FinanceProofSlot } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
@@ -282,7 +283,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
     );
     if (overAllocated) {
       showFormError(
-        `Allocation for ${overAllocated.invoice.number} exceeds remaining balance of ${formatMinorMoney(overAllocated.invoice.balance_due, currency)}`
+        `Allocation for ${formatInvoiceNumber(overAllocated.invoice.number)} exceeds remaining balance of ${formatMinorMoney(overAllocated.invoice.balance_due, currency)}`
       );
       return;
     }
@@ -585,10 +586,10 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             }
                             setAllocRows(next);
                           }}
-                          aria-label={`Allocate ${row.invoice.number}`}
+                          aria-label={`Allocate ${formatInvoiceNumber(row.invoice.number)}`}
                         />
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-fg">{row.invoice.number}</td>
+                      <td className="py-2.5 px-3 font-semibold text-fg">{formatInvoiceNumber(row.invoice.number)}</td>
                       <td className="py-2.5 px-3 text-fg-muted">{row.invoice.due_date}</td>
                       <td className="py-2.5 px-3 text-right text-fg-2">
                         {formatMinorMoney(row.invoice.total, row.invoice.currency)}

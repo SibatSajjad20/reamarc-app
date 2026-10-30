@@ -627,7 +627,7 @@ export const FinanceSettingsView: React.FC = () => {
                 onChange={(e) => setSettings({ ...settings, invoice_prefix: e.target.value })}
                 className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg uppercase outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
-              <p className="text-caption text-fg-muted mt-1">E.g. &apos;INV&apos; generates INV-2026-0001</p>
+              <p className="text-caption text-fg-muted mt-1">E.g. &apos;INV&apos; generates INV-26-0001</p>
             </div>
 
             <div>
@@ -641,7 +641,7 @@ export const FinanceSettingsView: React.FC = () => {
                 onChange={(e) => setSettings({ ...settings, receipt_prefix: e.target.value })}
                 className="w-full h-9 px-3 rounded-md border border-border-strong bg-surface text-sm font-numeric text-fg uppercase outline-none hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]"
               />
-              <p className="text-caption text-fg-muted mt-1">E.g. &apos;RCT&apos; generates RCT-2026-0001</p>
+              <p className="text-caption text-fg-muted mt-1">E.g. &apos;RCT&apos; generates RCT-26-0001</p>
             </div>
 
             <div>
