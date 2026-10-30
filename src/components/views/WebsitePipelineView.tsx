@@ -17,7 +17,7 @@ import { useToast } from '../../context/ToastContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { websiteProjectService } from '../../services/websiteProjectService';
-import { canManageWebsiteProject } from '../../utils/websiteProjectAccess';
+import { canCreateWebsiteProject, canManageWebsiteProject } from '../../utils/websiteProjectAccess';
 import type { Workspace } from '../../types';
 import type {
   WebsiteProject,
@@ -161,6 +161,7 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
 
   // Permissions
   const canManage = useMemo(() => canManageWebsiteProject(user), [user]);
+  const canCreateProject = useMemo(() => canCreateWebsiteProject(user), [user]);
 
   // Filtering
   const filteredProjects = useMemo(() => {
@@ -322,7 +323,7 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
                 ]}
                 size="default"
               />
-              {canManage && (
+              {canCreateProject && (
                 <Button
                   variant="primary"
                   size="md"
