@@ -1,6 +1,12 @@
+/**
+ * Excel export for Daily Log — mirrors Content Calendar's approach:
+ * export strictly the currently visible/filtered rows client-side (SheetJS),
+ * with formula-injection safety via excelSafeCell.
+ */
 import * as XLSX from 'xlsx';
 import type { DailyLogColumn, DailyLogEntry } from '../types/dailyLog';
 import { formatHours } from './logTimeChecks';
+import { excelSafeCell } from './safeHttpUrl';
 
 export interface DailyLogExportMeta {
   periodLabel: string;
@@ -10,6 +16,9 @@ export interface DailyLogExportMeta {
   exportedBy: string;
   exportedByRole?: string;
   companyName?: string;
+  /** Active UI filters beyond date/dept (search, person, column filters). */
+  filterSummary?: string;
+  viewMode?: 'log' | 'sheet';
 }
 
 const STANDARD_COL_WIDTHS: Record<string, number> = {
@@ -38,16 +47,18 @@ function getCellValue(entry: DailyLogEntry, key: string): string | number {
 
   if (raw === undefined || raw === null) return '';
 
-  const text = String(raw).trim();
   if (key === 'deliverables') {
-    return text
-      .split('|')
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .join('\n');
+    const text = String(raw).trim();
+    return excelSafeCell(
+      text
+        .split('|')
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .join('\n'),
+    );
   }
 
-  return text;
+  return excelSafeCell(raw);
 }
 
 function compareEntries(a: DailyLogEntry, b: DailyLogEntry): number {
@@ -62,7 +73,7 @@ function safeFilenamePart(value: string): string {
   return value.replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, '_').replace(/_+/g, '_').slice(0, 40);
 }
 
-function buildFilename(meta: DailyLogExportMeta): string {
+export function buildDailyLogFilename(meta: DailyLogExportMeta): string {
   const prefix = safeFilenamePart(meta.companyName || 'Company');
   const range =
     meta.startDate && meta.endDate
@@ -75,15 +86,21 @@ function buildFilename(meta: DailyLogExportMeta): string {
   return `${prefix}_Daily_Log_${range}${dept}.xlsx`;
 }
 
+export interface DailyLogWorkbookBuild {
+  filename: string;
+  sheetData: (string | number)[][];
+  workbook: XLSX.WorkBook;
+}
+
 /**
- * Single-tab Daily Log workbook matching the on-screen columns,
- * with a title block, period metadata, and a hours total row.
+ * Build a Daily Log workbook from the visible/filtered rows (no download).
+ * Used by exportDailyLogWorkbook and by tests / sample generation.
  */
-export function exportDailyLogWorkbook(
+export function buildDailyLogWorkbook(
   entries: DailyLogEntry[],
   columns: DailyLogColumn[],
   meta: DailyLogExportMeta,
-): string {
+): DailyLogWorkbookBuild {
   const companyName = meta.companyName || '';
   const exportCols = columns.length > 0 ? columns : [];
   const sorted = [...entries].sort(compareEntries);
@@ -113,10 +130,17 @@ export function exportDailyLogWorkbook(
     `Dates: ${periodRange}`,
     `Department: ${meta.department || 'All'}`,
   ]);
-  sheetData.push([
+  const generatedRow = [
     `Generated: ${new Date().toLocaleString()}`,
     `Exported by: ${meta.exportedBy}${meta.exportedByRole ? ` (${meta.exportedByRole})` : ''}`,
-  ]);
+  ];
+  if (meta.viewMode) {
+    generatedRow.push(`View: ${meta.viewMode === 'sheet' ? 'Sheet' : 'Log'}`);
+  }
+  sheetData.push(generatedRow);
+  if (meta.filterSummary) {
+    sheetData.push([`Filters: ${meta.filterSummary}`]);
+  }
   sheetData.push([
     `Entries: ${sorted.length}`,
     `People: ${people.size}`,
@@ -184,7 +208,23 @@ export function exportDailyLogWorkbook(
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Daily Log');
 
-  const filename = buildFilename(meta);
-  XLSX.writeFile(wb, filename);
+  return {
+    filename: buildDailyLogFilename(meta),
+    sheetData,
+    workbook: wb,
+  };
+}
+
+/**
+ * Exports strictly the currently visible/filtered Daily Log rows to Excel.
+ * Runs in-browser (same pattern as Content Calendar export).
+ */
+export function exportDailyLogWorkbook(
+  entries: DailyLogEntry[],
+  columns: DailyLogColumn[],
+  meta: DailyLogExportMeta,
+): string {
+  const { filename, workbook } = buildDailyLogWorkbook(entries, columns, meta);
+  XLSX.writeFile(workbook, filename);
   return filename;
 }

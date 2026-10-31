@@ -755,6 +755,21 @@ async def get_sheets(
 
 
 @router.get("/my-entries")
+def build_team_member_own_scope_filter(current_uid: str, current_name: Optional[str] = None) -> dict:
+    """
+    Scope filter for team_member Daily Log reads (list + Excel export).
+
+    Employees may only see/export their own entries. Export is client-side SheetJS
+    over GET /entries; this filter is the backend enforcement so a crafted request
+    cannot pull other people's logs. Company isolation comes from the tenant DB.
+    """
+    clauses: List[dict] = [{"user_id": current_uid}]
+    if current_name:
+        clauses.append({"user_id": {"$exists": False}, "resource_name": current_name})
+        clauses.append({"user_id": None, "resource_name": current_name})
+    return {"$or": clauses}
+
+
 @router.get("/entries/mine")
 async def get_my_entries(
     current_user: dict = Depends(get_current_user),
@@ -899,11 +914,8 @@ async def get_entries(
             query_filter["user_id"] = current_uid
     else:
         # Regular Team Member: strictly restricted to their own submitted logs
-        query_filter["$or"] = [
-            {"user_id": current_uid},
-            {"user_id": {"$exists": False}, "resource_name": current_name},
-            {"user_id": None, "resource_name": current_name},
-        ]
+        # (also backs Excel export — employees never receive other users' rows)
+        query_filter.update(build_team_member_own_scope_filter(current_uid, current_name))
 
     # 2. DATE FILTERING (Today, Week, Month, Custom Range)
     if start_date and end_date:

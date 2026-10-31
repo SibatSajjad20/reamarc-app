@@ -194,7 +194,10 @@ export const DailyLogView: React.FC = () => {
   const isOperations = user?.role === 'operations';
   const isLead = user?.role === 'team_lead';
   const canSubmitLogs = user?.role === 'team_member' || user?.role === 'team_lead' || user?.role === 'hr';
-  const canExportLogs = isAdmin || isHR || isOperations || isLead;
+  // Anyone who can open Daily Log can export the currently visible rows.
+  // Backend GET /entries already scopes team_member to own logs (never others).
+  const canExportLogs =
+    isAdmin || isHR || isOperations || isLead || user?.role === 'team_member';
   const userDept = user?.primary_department || user?.department || '';
   const departments = DEFAULT_DEPARTMENTS;
 
@@ -577,31 +580,6 @@ export const DailyLogView: React.FC = () => {
     return { periodLabel: 'Custom Range', startDate: customStartDate, endDate: customEndDate };
   };
 
-  const handleExportExcel = async () => {
-    if (!canExportLogs || isExporting) return;
-    setIsExporting(true);
-    try {
-      const exportEntries = await dailyLogService.getAllEntries(buildFilterParams());
-      if (!exportEntries.length) {
-        addToast('Nothing to export', 'No daily log entries match the current date and department filters.', 'warning');
-        return;
-      }
-      const period = getExportPeriodMeta();
-      const filename = exportDailyLogWorkbook(exportEntries, columns, {
-        ...period,
-        companyName: brandNameOf(user?.company),
-        department: selectedDept || 'All',
-        exportedBy: user?.full_name || user?.name || user?.email || 'Unknown',
-        exportedByRole: getRoleLabel(user?.role),
-      });
-      addToast('Excel downloaded', `Saved ${filename} with ${exportEntries.length} log ${exportEntries.length === 1 ? 'entry' : 'entries'}.`, 'success');
-    } catch (err) {
-      console.error('Daily log Excel export failed:', err);
-      addToast('Export failed', 'Could not download the daily log Excel file. Please try again.', 'error');
-    } finally {
-      setIsExporting(false);
-    }
-  };
 
   const openAddTimeForDate = useCallback((date: string) => {
     setDatePreset('custom');
@@ -953,6 +931,51 @@ export const DailyLogView: React.FC = () => {
 
     return result;
   }, [entries, searchQuery, isLead, selectedMember, isOwnEntry, columnFilters, columns]);
+
+  const handleExportExcel = () => {
+    // Match Content Calendar: export strictly the currently visible/filtered rows
+    // (date range, department, member, search, column filters) — no extra refetch.
+    if (!canExportLogs || isExporting) return;
+    setIsExporting(true);
+    try {
+      const exportEntries = filteredEntries;
+      if (!exportEntries.length) {
+        addToast('Nothing to export', 'There are no entries currently visible in the active filters.', 'warning');
+        return;
+      }
+      const period = getExportPeriodMeta();
+      const filterBits: string[] = [];
+      if (searchQuery.trim()) filterBits.push(`Search: "${searchQuery.trim()}"`);
+      if (isLead && selectedMember !== 'ALL') {
+        const memberLabel = memberOptions.find((o) => o.value === selectedMember)?.label || selectedMember;
+        filterBits.push(`Person: ${memberLabel}`);
+      }
+      Object.entries(columnFilters).forEach(([colKey, filterVal]) => {
+        if (!filterVal || filterVal === '__ALL__') return;
+        const colDef = columns.find((c) => c.key === colKey);
+        filterBits.push(`${colDef?.label || colKey}: ${filterVal}`);
+      });
+      exportDailyLogWorkbook(exportEntries, columns, {
+        ...period,
+        companyName: brandNameOf(user?.company),
+        department: selectedDept || 'All',
+        exportedBy: user?.full_name || user?.name || user?.email || 'Unknown',
+        exportedByRole: getRoleLabel(user?.role),
+        filterSummary: filterBits.length ? filterBits.join(' · ') : undefined,
+        viewMode,
+      });
+      addToast(
+        'Export complete',
+        `Exported ${exportEntries.length} visible log ${exportEntries.length === 1 ? 'entry' : 'entries'} to Excel.`,
+        'success',
+      );
+    } catch (err) {
+      console.error('Daily log Excel export failed:', err);
+      addToast('Export failed', 'Could not download the daily log Excel file. Please try again.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const isTeamView = useMemo(() => {
     return filteredEntries.some((e) => !isOwnEntry(e));
@@ -1370,6 +1393,7 @@ export const DailyLogView: React.FC = () => {
                     icon={Download}
                     loading={isExporting}
                     onClick={handleExportExcel}
+                    title="Export the currently visible filtered rows to Excel"
                   >
                     Export
                   </Button>
@@ -1642,6 +1666,7 @@ export const DailyLogView: React.FC = () => {
                   loading={isExporting}
                   disabled={isExporting || isLoading}
                   onClick={handleExportExcel}
+                  title="Export the currently visible filtered rows to Excel"
                 >
                   Export
                 </Button>
