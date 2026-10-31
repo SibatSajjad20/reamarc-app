@@ -9,8 +9,9 @@ import { Skeleton } from './skeleton';
  * Full-screen mode is brand-neutral (Worklane W mark + spinner, no company name)
  * so Worklane hosts never flash Reamarc on first load.
  *
- * Full-screen is immediately visible (no opacity delay). The HTML #boot-splash
- * covers first paint; a delayed fade-in here used to blink the W loader ~4×.
+ * Full-screen is immediately visible (no opacity delay). First boot keeps the
+ * HTML #boot-splash only (App returns null while auth loads) so the W mark is
+ * not swapped for a second React loader. Use fullScreen for company switches.
  *
  * @param {Object} props
  * @param {string} [props.message]

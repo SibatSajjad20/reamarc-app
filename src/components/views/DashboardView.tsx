@@ -379,22 +379,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     if (!startIso) return;
 
     try {
-      const [entries, targetResults] = await Promise.all([
-        dailyLogService.getEntries({
-          user_id: user.id,
-          start_date: startIso,
-          end_date: endIso,
-          limit: 500,
-        }),
-        Promise.all(weekDates.map((wd) => dailyLogService.getDayTarget(wd.date).catch(() => null))),
-      ]);
-
-      const expectedByDate: Record<string, number> = {};
-      weekDates.forEach((wd, i) => {
-        const t = targetResults[i];
-        if (t && typeof t.expected_hours === 'number' && Number.isFinite(t.expected_hours)) {
-          expectedByDate[wd.date] = t.expected_hours;
-        }
+      // One entries fetch for the week. Do NOT call getDayTarget per weekday (was
+      // 5–7 extra authenticated round-trips on every dashboard mount). Expected
+      // hours come from today's attendance shift + off-day helper.
+      const entries = await dailyLogService.getEntries({
+        user_id: user.id,
+        start_date: startIso,
+        end_date: endIso,
+        limit: 500,
       });
 
       const perDayMap: Record<string, number> = {};
@@ -418,7 +410,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           hours: hrs,
           isFuture: wd.isFuture,
           isToday: wd.isToday,
-          expectedHours: expectedHoursForStripDay(isOff, expectedByDate[wd.date], fallbackExp),
+          expectedHours: expectedHoursForStripDay(isOff, undefined, fallbackExp),
           isOffDay: isOff,
         };
       });
@@ -752,6 +744,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     if (!user?.id) return;
 
     async function init() {
+      // Critical path first (punch card, summary, inbox). Heavy full-list overdue
+      // scans (content calendar + website tasks) wait a tick so they do not contend
+      // with first paint on a multi-tenant Render box (~400–600ms RTT each).
       const promises: Promise<any>[] = [
         loadAttendance(),
         loadMatrix(),
@@ -759,7 +754,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         loadLoggerNeedsAttention(),
         loadWeeklyStats(),
         loadPipelineStageCards(),
-        loadOverdueAlerts(),
       ];
 
       if (isLead) {
@@ -770,6 +764,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       }
 
       await Promise.allSettled(promises);
+      const ric = (window as any).requestIdleCallback as
+        | ((cb: () => void, opts?: { timeout: number }) => number)
+        | undefined;
+      if (typeof ric === 'function') {
+        ric(() => { void loadOverdueAlerts(); }, { timeout: 1500 });
+      } else {
+        window.setTimeout(() => { void loadOverdueAlerts(); }, 300);
+      }
     }
 
     void init();

@@ -232,6 +232,25 @@ async def _create_indexes_background():
             await db_instance.db.website_projects.create_index(
                 [("company_id", 1), ("status", 1)], name="idx_company_web_projects"
             )
+            # Hot path compounds used by dashboard / attendance / daily-log under TenantDB
+            await db_instance.db.attendance_records.create_index(
+                [("company_id", 1), ("user_id", 1), ("date", 1)], name="idx_company_att_user_date"
+            )
+            await db_instance.db.daily_log_entries.create_index(
+                [("company_id", 1), ("user_id", 1), ("date", -1)], name="idx_company_dailylog_user_date"
+            )
+            await db_instance.db.daily_log_entries.create_index(
+                [("company_id", 1), ("date", -1)], name="idx_company_dailylog_date"
+            )
+            await db_instance.db.daily_log_day_scores.create_index(
+                [("company_id", 1), ("user_id", 1), ("date", 1)], name="idx_company_dailylog_scores_user_date"
+            )
+            await db_instance.db.company_calendar.create_index(
+                [("company_id", 1), ("date", 1)], name="idx_company_calendar_company_date"
+            )
+            await db_instance.db.content_calendar_items.create_index(
+                [("company_id", 1), ("stage", 1)], name="idx_company_content_stage"
+            )
         except Exception as e:
             logger.warning(f"Could not initialize multi-tenant indexes: {e}")
 

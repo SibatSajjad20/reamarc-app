@@ -10,7 +10,7 @@ from app.config import settings
 from app.models.user import UserRole
 
 _AUTH_CACHE: Dict[str, Dict[str, Any]] = {}
-_AUTH_CACHE_TTL_SECONDS = 30
+_AUTH_CACHE_TTL_SECONDS = 90
 
 
 def invalidate_auth_cache(user_id: Optional[str] = None, membership_id: Optional[str] = None) -> None:

@@ -710,14 +710,18 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    // Neutral Worklane loader (W + spinner). No Reamarc title/mark on first paint.
-    // Company name only appears for an explicit in-app company switch.
-    return (
-      <LoadingScreen
-        fullScreen
-        message={pendingBrand ? `Switching to ${brandNameOf(pendingBrand)}…` : ''}
-      />
-    );
+    // First boot: keep ONLY the HTML #boot-splash (already on screen). Mounting a
+    // second React LoadingScreen under it caused a visible W/spinner swap when
+    // splash faded out. Company switch still uses React LoadingScreen (no splash).
+    if (pendingBrand) {
+      return (
+        <LoadingScreen
+          fullScreen
+          message={`Switching to ${brandNameOf(pendingBrand)}…`}
+        />
+      );
+    }
+    return null;
   }
 
   if (!user) {
