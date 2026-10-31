@@ -1,23 +1,9 @@
 import { brandNameOf } from './utils/branding';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
-import { DashboardView } from './components/views/DashboardView';
-import { PerformanceMarketing } from './components/views/PerformanceMarketing';
-import { AdminPanel } from './components/admin/AdminPanel';
-import { DailyLogView } from './components/views/DailyLogView';
-import { ExceptionInboxView } from './components/views/ExceptionInboxView';
-import { AttendanceView } from './components/views/AttendanceView';
-import { SettingsView } from './components/settings/SettingsView';
-import { ActiveClientsView } from './components/views/ActiveClientsView';
-import { ClientPage, type ClientPageState } from './components/views/ClientPage';
+import type { ClientPageState } from './components/views/ClientPage';
 import type { WorkspaceFormSeed } from './hooks/useClientForm';
-import { CrmView } from './components/views/CrmView';
-import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
-import { ContentCalendarView } from './components/views/ContentCalendarView';
-import { WebsitePipelineView } from './components/views/WebsitePipelineView';
-import { FinanceContainer } from './components/finance/FinanceContainer';
-import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
 import type { AdminSectionType } from './types/admin';
@@ -27,7 +13,6 @@ import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
-import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { usePermissions } from './hooks/usePermissions';
 import { viewFromNotificationPath } from './utils/notificationRoute';
@@ -35,9 +20,6 @@ import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { removeBootSplash } from './utils/bootSplash';
-import { PublicSchedulerView } from './components/views/PublicSchedulerView';
-import { PublicClientReviewView } from './components/views/PublicClientReviewView';
-import { PublicInvoiceView } from './components/finance/PublicInvoiceView';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 import { AppShell } from './components/layout/AppShell';
 import { TopBar } from './components/layout/TopBar';
@@ -55,13 +37,35 @@ import {
   resolveTheme,
 } from './utils/themePreference';
 
+const DashboardView = lazy(() => import('./components/views/DashboardView').then((m) => ({ default: m.DashboardView })));
+const AttendanceView = lazy(() => import('./components/views/AttendanceView').then((m) => ({ default: m.AttendanceView })));
+const PerformanceMarketing = lazy(() => import('./components/views/PerformanceMarketing').then((m) => ({ default: m.PerformanceMarketing })));
+const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })));
+const DailyLogView = lazy(() => import('./components/views/DailyLogView').then((m) => ({ default: m.DailyLogView })));
+const ExceptionInboxView = lazy(() => import('./components/views/ExceptionInboxView').then((m) => ({ default: m.ExceptionInboxView })));
+const SettingsView = lazy(() => import('./components/settings/SettingsView').then((m) => ({ default: m.SettingsView })));
+const ActiveClientsView = lazy(() => import('./components/views/ActiveClientsView').then((m) => ({ default: m.ActiveClientsView })));
+const ClientPage = lazy(() => import('./components/views/ClientPage').then((m) => ({ default: m.ClientPage })));
+const CrmView = lazy(() => import('./components/views/CrmView').then((m) => ({ default: m.CrmView })));
+const WonDealApprovalsView = lazy(() => import('./components/views/WonDealApprovalsView').then((m) => ({ default: m.WonDealApprovalsView })));
+const ContentCalendarView = lazy(() => import('./components/views/ContentCalendarView').then((m) => ({ default: m.ContentCalendarView })));
+const WebsitePipelineView = lazy(() => import('./components/views/WebsitePipelineView').then((m) => ({ default: m.WebsitePipelineView })));
+const FinanceContainer = lazy(() => import('./components/finance/FinanceContainer').then((m) => ({ default: m.FinanceContainer })));
+const ClientPortalContainer = lazy(() => import('./components/portal/ClientPortalContainer').then((m) => ({ default: m.ClientPortalContainer })));
+const AuthScreen = lazy(() => import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen })));
+const PublicSchedulerView = lazy(() => import('./components/views/PublicSchedulerView').then((m) => ({ default: m.PublicSchedulerView })));
+const PublicClientReviewView = lazy(() => import('./components/views/PublicClientReviewView').then((m) => ({ default: m.PublicClientReviewView })));
+const PublicInvoiceView = lazy(() => import('./components/finance/PublicInvoiceView').then((m) => ({ default: m.PublicInvoiceView })));
+
 function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading, pendingBrand } = useAuth();
   const moduleClicksBlocked = useModuleLoadBlocked();
+  const [initialRouteReady, setInitialRouteReady] = useState(false);
+  const markInitialRouteReady = useCallback(() => setInitialRouteReady(true), []);
 
-  // Keep the HTML #boot-splash up through auth bootstrap (and under React's
-  // LoadingScreen). Removing it in main.tsx caused blank gaps + remount blinks.
+  // One cold-boot episode: auth and the critical data for data-heavy landing
+  // routes both finish before the HTML splash performs its single fade.
   useEffect(() => {
     const path = (typeof window !== 'undefined' ? window.location.pathname : '').toLowerCase();
     const isPublic =
@@ -70,10 +74,16 @@ function AppInner() {
       path.startsWith('/review') ||
       path.startsWith('/client-review') ||
       path.startsWith('/invoice/');
-    if (isPublic || !isAuthLoading) {
+    const routeNeedsData = Boolean(user) && (
+      path === '' ||
+      path === '/' ||
+      path.startsWith('/dashboard') ||
+      path.startsWith('/attendance')
+    );
+    if (isPublic || (!isAuthLoading && !user) || (!isAuthLoading && (!routeNeedsData || initialRouteReady))) {
       removeBootSplash();
     }
-  }, [isAuthLoading]);
+  }, [isAuthLoading, user, initialRouteReady]);
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
@@ -901,7 +911,10 @@ function AppInner() {
         <ErrorBoundary onGoHome={() => handleSelectView(getDefaultViewForUser())}>
           {currentView === 'dashboard' && !isClient && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-              <DashboardView onNavigateView={handleSelectView} />
+              <DashboardView
+                onNavigateView={handleSelectView}
+                onInitialDataReady={markInitialRouteReady}
+              />
             </div>
           )}
 
@@ -1000,6 +1013,7 @@ function AppInner() {
                 <AttendanceView
                   activeSection={activeAttendanceSection}
                   onSectionChange={setActiveAttendanceSection}
+                  onInitialDataReady={markInitialRouteReady}
                 />
               </div>
             ) : (
@@ -1161,7 +1175,9 @@ export function App() {
         <BrandingProvider>
           <ModuleLoadGateProvider>
             <BreadcrumbProvider>
-              <AppInner />
+              <Suspense fallback={null}>
+                <AppInner />
+              </Suspense>
             </BreadcrumbProvider>
           </ModuleLoadGateProvider>
         </BrandingProvider>

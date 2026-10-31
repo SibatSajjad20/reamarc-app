@@ -747,6 +747,7 @@ async def get_current_user(
         read_only=is_ro,
         request_id=request.headers.get("X-Request-ID"),
     ))
+    request.state.company_id = effective_cid
 
     # Read-only impersonation restrictions
     if is_imp:

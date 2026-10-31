@@ -6,17 +6,30 @@ import {
   toIsoDate,
   type OffDayInfo,
 } from '../utils/offDays';
+import { registerCacheClearer } from '../utils/cacheBus';
 
 interface MonthKey {
   year: number;
   month: number;
 }
 
-export function useOffDays(extraMonths?: MonthKey[]) {
-  const [holidays, setHolidays] = useState<Set<string>>(new Set());
-  const [workingSaturdays, setWorkingSaturdays] = useState<Set<string>>(new Set());
-  const [holidayTitles, setHolidayTitles] = useState<Record<string, string>>({});
-  const [ready, setReady] = useState(false);
+interface OffDaysCacheValue {
+  holidays: string[];
+  workingSaturdays: string[];
+  holidayTitles: Record<string, string>;
+  fetchedAt: number;
+}
+
+const offDaysCache = new Map<string, OffDaysCacheValue>();
+registerCacheClearer(() => offDaysCache.clear());
+
+export function useOffDays(extraMonths?: MonthKey[], companyId = 'unknown') {
+  const cacheKey = `${companyId}:${(extraMonths || []).map((m) => `${m.year}-${m.month}`).join(',')}`;
+  const cached = offDaysCache.get(cacheKey);
+  const [holidays, setHolidays] = useState<Set<string>>(() => new Set(cached?.holidays || []));
+  const [workingSaturdays, setWorkingSaturdays] = useState<Set<string>>(() => new Set(cached?.workingSaturdays || []));
+  const [holidayTitles, setHolidayTitles] = useState<Record<string, string>>(() => cached?.holidayTitles || {});
+  const [ready, setReady] = useState(Boolean(cached));
 
   const years = useMemo(() => {
     const currentYear = new Date().getFullYear();
@@ -26,6 +39,14 @@ export function useOffDays(extraMonths?: MonthKey[]) {
   }, [extraMonths]);
 
   useEffect(() => {
+    const warm = offDaysCache.get(cacheKey);
+    if (warm && Date.now() - warm.fetchedAt < 60_000) {
+      setHolidays(new Set(warm.holidays));
+      setWorkingSaturdays(new Set(warm.workingSaturdays));
+      setHolidayTitles(warm.holidayTitles);
+      setReady(true);
+      return;
+    }
     let cancelled = false;
     Promise.all([
       ...years.map((y) =>
@@ -69,12 +90,18 @@ export function useOffDays(extraMonths?: MonthKey[]) {
       setHolidays(nextHolidays);
       setWorkingSaturdays(nextWorking);
       setHolidayTitles(nextTitles);
+      offDaysCache.set(cacheKey, {
+        holidays: Array.from(nextHolidays),
+        workingSaturdays: Array.from(nextWorking),
+        holidayTitles: nextTitles,
+        fetchedAt: Date.now(),
+      });
       setReady(true);
     });
     return () => {
       cancelled = true;
     };
-  }, [years]);
+  }, [years, cacheKey]);
 
   const getOffDay = useCallback(
     (iso?: string | null): OffDayInfo => {

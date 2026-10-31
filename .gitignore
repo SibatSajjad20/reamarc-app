@@ -80,6 +80,14 @@ scripts/
 backend/scripts/
 backend/uploads/
 uploads/
+test-results/
+
+# Performance guardrails intentionally live in otherwise ignored test/script trees.
+!scripts/
+!scripts/check-bundle-size.mjs
+!backend/tests/
+backend/tests/*
+!backend/tests/test_dashboard_bootstrap_perf.py
 
 # Audit dumps & PDFs (do not commit)
 SECURITY_AUDIT.pdf

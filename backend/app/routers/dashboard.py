@@ -399,3 +399,84 @@ async def get_dashboard_summary(
         logs=logs_section,
         meta=meta,
     )
+
+
+@router.get("/bootstrap")
+async def get_dashboard_bootstrap(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Any = Depends(get_database),
+):
+    """One tenant-scoped, permission-scoped payload for dashboard first paint."""
+    from app.services import attendance_service
+    from app.services.access import is_tracked
+    from app.routers.attendance import extract_client_ip, extract_detected_public_ip
+
+    now_pkt = datetime.now(PKT_TIMEZONE)
+    today_iso = now_pkt.strftime("%Y-%m-%d")
+    monday = (now_pkt - timedelta(days=now_pkt.weekday())).strftime("%Y-%m-%d")
+    role = str(current_user.get("role") or "").lower()
+    is_admin = role == UserRole.ADMIN.value
+    is_hr = role == UserRole.HR.value
+    attendance_enabled = (not is_admin) and is_tracked(current_user, "attendance")
+    daily_log_enabled = (not is_admin) and is_tracked(current_user, "daily_log")
+
+    async def _none():
+        return None
+
+    async def _weekly_logs():
+        if not daily_log_enabled:
+            return []
+        pipeline = [
+            {
+                "$match": {
+                    "user_id": current_user["id"],
+                    "date": {"$gte": monday, "$lte": today_iso},
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$date",
+                    "hours": {"$sum": "$hours_utilized"},
+                }
+            },
+            {"$project": {"_id": 0, "date": "$_id", "hours": 1}},
+            {"$sort": {"date": 1}},
+        ]
+        rows = await db.daily_log_entries.aggregate(pipeline).to_list(7)
+        for row in rows:
+            row["hours"] = round(float(row.get("hours") or 0), 2)
+        return rows
+
+    async def _day_target():
+        if not daily_log_enabled:
+            return None
+        # Reuse the canonical calculation so relaxed-day and attendance behavior
+        # cannot diverge between the dashboard and daily-log module.
+        from app.routers.daily_log import get_day_target
+        return await get_day_target(date=today_iso, current_user=current_user)
+
+    tasks = {
+        "summary": get_dashboard_summary(current_user=current_user, db=db),
+        "todayAttendance": attendance_service.get_today_status(
+            user=current_user,
+            client_ip=extract_client_ip(request),
+            detected_public_ip=extract_detected_public_ip(request),
+        ) if attendance_enabled else _none(),
+        "timesheet": attendance_service.get_my_timesheet(
+            user=current_user, year=now_pkt.year, month=now_pkt.month
+        ) if attendance_enabled else _none(),
+        "matrix": attendance_service.get_daily_matrix(date_str=today_iso)
+        if (is_admin or is_hr) else _none(),
+        "weeklyLogs": _weekly_logs(),
+        "dayTarget": _day_target(),
+    }
+    values = await asyncio.gather(*tasks.values())
+    payload = dict(zip(tasks.keys(), values))
+    payload["meta"] = {
+        "generatedAt": _now_iso(),
+        "companyId": current_user.get("company_id"),
+        "weekStart": monday,
+        "today": today_iso,
+    }
+    return payload

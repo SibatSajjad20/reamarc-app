@@ -2,6 +2,7 @@ import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 from app.core.index_migration import ensure_all_company_unique_indexes
+from app.core.performance import MongoCommandCounter
 import logging
 
 logger = logging.getLogger(__name__)
@@ -236,6 +237,9 @@ async def _create_indexes_background():
             await db_instance.db.attendance_records.create_index(
                 [("company_id", 1), ("user_id", 1), ("date", 1)], name="idx_company_att_user_date"
             )
+            await db_instance.db.attendance_records.create_index(
+                [("company_id", 1), ("date", 1), ("status", 1)], name="idx_company_att_date_status"
+            )
             await db_instance.db.daily_log_entries.create_index(
                 [("company_id", 1), ("user_id", 1), ("date", -1)], name="idx_company_dailylog_user_date"
             )
@@ -250,6 +254,19 @@ async def _create_indexes_background():
             )
             await db_instance.db.content_calendar_items.create_index(
                 [("company_id", 1), ("stage", 1)], name="idx_company_content_stage"
+            )
+            await db_instance.db.leave_requests.create_index(
+                [("company_id", 1), ("status", 1), ("created_at", -1)], name="idx_company_leave_status_created"
+            )
+            await db_instance.db.missed_punch_inquiries.create_index(
+                [("company_id", 1), ("status", 1), ("created_at", -1)], name="idx_company_punch_status_created"
+            )
+            await db_instance.db.website_project_tasks.create_index(
+                [("company_id", 1), ("assignee_id", 1), ("status", 1), ("due_date", 1)],
+                name="idx_company_webtask_assignee_status_due",
+            )
+            await db_instance.db.website_projects.create_index(
+                [("company_id", 1), ("stage", 1), ("status", 1)], name="idx_company_webproject_stage_status"
             )
         except Exception as e:
             logger.warning(f"Could not initialize multi-tenant indexes: {e}")
@@ -267,6 +284,7 @@ async def connect_to_mongo():
             maxPoolSize=50,
             minPoolSize=5,
             serverSelectionTimeoutMS=5000,
+            event_listeners=[MongoCommandCounter()],
         )
         db_name = settings.MONGODB_DB_NAME
         db_instance.db = db_instance.client[db_name]

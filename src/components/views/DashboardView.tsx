@@ -129,10 +129,12 @@ export function getDepartmentCategories(user?: any): DepartmentCategory[] {
 
 interface DashboardViewProps {
   onNavigateView: (view: ViewType, subSection?: string) => void;
+  onInitialDataReady?: () => void;
 }
 
-export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) => {
+export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, onInitialDataReady }) => {
   const { user } = useAuth();
+  attendanceService.setCompanyScope?.(user?.company_id);
   const perms = usePermissions();
   const role = (user?.role || '').toLowerCase().trim();
   const isAdmin = role === 'admin';
@@ -157,7 +159,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const monthName = today.toLocaleDateString('en-US', { month: 'long' });
 
   // Dashboard cache lookup
-  const cacheKey = `${user?.id || 'anon'}-${todayIso}`;
+  const cacheKey = `${user?.company_id || 'no-company'}-${user?.id || 'anon'}-${todayIso}`;
   const initialCache = useMemo(() => getDashboardCache(cacheKey), [cacheKey]);
 
   // Summary loading state
@@ -234,7 +236,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const [requestModalTab, setRequestModalTab] = useState<'leave' | 'short_leave' | 'wfh' | 'regularization'>('leave');
 
   // Off days hook
-  const { isOffDay } = useOffDays();
+  const { isOffDay } = useOffDays(undefined, user?.company_id);
   const isDateOffRef = useRef(isOffDay);
   useEffect(() => {
     isDateOffRef.current = isOffDay;
@@ -276,6 +278,83 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   useEffect(() => {
     hasTeamHours404Ref.current = hasTeamHours404;
   }, [hasTeamHours404]);
+
+  const loadBootstrap = useCallback(async (force = false) => {
+    if (!user?.id || !user.company_id || user.needs_setup) {
+      onInitialDataReady?.();
+      return;
+    }
+    const hasWarmData = Boolean(getDashboardCache(cacheKey));
+    if (!hasWarmData) {
+      setIsLoadingAttendance(true);
+      setIsLoadingSummary(true);
+    }
+    try {
+      const data = await dashboardService.getBootstrap(user.company_id, force);
+      setTodayAttendance(data.todayAttendance);
+      setTimesheetData(data.timesheet);
+      setMatrixData(data.matrix);
+      setDayTarget(data.dayTarget);
+
+      const loggedByDate = new Map((data.weeklyLogs || []).map((row) => [row.date, Number(row.hours) || 0]));
+      let loggedTotal = 0;
+      let loggedPast = 0;
+      const loggedDays = weekDates.map((wd) => {
+        const hours = loggedByDate.get(wd.date) || 0;
+        loggedTotal += hours;
+        if (!wd.isFuture && hours > 0) loggedPast += 1;
+        const off = stableIsDateOff(wd.date);
+        return {
+          label: wd.label,
+          date: wd.date,
+          hours,
+          isFuture: wd.isFuture,
+          isToday: wd.isToday,
+          expectedHours: expectedHoursForStripDay(off, undefined, data.todayAttendance?.shift?.expected_hours),
+          isOffDay: off,
+        };
+      });
+      setWeeklyLoggedHours(loggedTotal);
+      setWeeklyLoggedDays(loggedDays);
+      setPastDaysLoggedCount(loggedPast);
+
+      const summary = data.summary;
+      if (summary.crm) {
+        const labels: Array<[string, string]> = [
+          ['new', 'New'], ['contacted', 'Contacted'], ['qualified', 'Qualified'],
+          ['session_booked', 'Meeting Booked'], ['session_done', 'Meeting Completed'],
+        ];
+        setCrmStages(labels.map(([id, label]) => ({ label, count: summary.crm?.stages[id] || 0 })));
+        setOverdueFollowupsCount(summary.crm.overdueFollowUps || 0);
+        setUncontactedLeadsCount(summary.crm.unassigned || 0);
+      }
+      if (summary.content) {
+        setContentStages([
+          { label: 'Content', count: summary.content.stages.Content || 0 },
+          { label: 'Creative', count: summary.content.stages.Creative || 0 },
+          { label: 'Client Review', count: summary.content.stages.ClientReview || 0 },
+          { label: 'Revisions', count: summary.content.stages.Revisions || 0 },
+          { label: 'Ready to Post', count: summary.content.stages.ReadyToPost || 0 },
+        ]);
+      }
+      if (summary.website) {
+        const labels: Array<[string, string]> = [
+          ['strategy', 'Strategy'], ['content', 'Content'], ['design', 'Design'],
+          ['assets', 'Creative Assets'], ['development', 'Development'],
+          ['qa', 'Internal QA'], ['client_review', 'Client Review'], ['production', 'Production'],
+        ];
+        setWebsiteStages(labels.map(([id, label]) => ({ label, count: summary.website?.stages[id] || 0 })));
+      }
+      setYesterdayMissingLogCount(summary.logs?.missingYesterday || 0);
+      setLogExceptionsInboxCount(summary.approvals?.pendingLogExceptions || 0);
+    } catch {
+      // Keep warm data visible; cold failures render the stable empty state.
+    } finally {
+      setIsLoadingAttendance(false);
+      setIsLoadingSummary(false);
+      onInitialDataReady?.();
+    }
+  }, [user?.id, user?.company_id, user?.needs_setup, cacheKey, weekDates, stableIsDateOff, onInitialDataReady]);
 
   // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
@@ -707,7 +786,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
   }, [isAdmin, user, perms]);
 
-  // 10. Lightweight overdue alerts for Content and Website (run concurrently)
+  // Lightweight overdue alerts for Content and Website (deferred; not on critical path)
   const loadOverdueAlerts = useCallback(async () => {
     const promises: Promise<any>[] = [];
     if (perms.can('content_calendar', 'view')) {
@@ -739,38 +818,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     await Promise.allSettled(promises);
   }, [isAdmin, user, isLead, todayIso, perms]);
 
-  // 1. Initial Mount Load (fires once when user/role is established)
+  // Initial first paint is exactly one request. Secondary charts/inboxes wait
+  // until after paint and never block the boot splash.
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || user.needs_setup) {
+      onInitialDataReady?.();
+      return;
+    }
 
     async function init() {
-      // Critical path first (punch card, summary, inbox). Heavy full-list overdue
-      // scans (content calendar + website tasks) wait a tick so they do not contend
-      // with first paint on a multi-tenant Render box (~400–600ms RTT each).
-      const promises: Promise<any>[] = [
-        loadAttendance(),
-        loadMatrix(),
-        loadManagementData(),
-        loadLoggerNeedsAttention(),
-        loadWeeklyStats(),
-        loadPipelineStageCards(),
-      ];
-
-      if (isLead) {
-        promises.push(loadTeamHours());
-      }
-      if (!isAdmin && !isOps) {
-        promises.push(loadMyHours());
-      }
-
-      await Promise.allSettled(promises);
+      await loadBootstrap();
       const ric = (window as any).requestIdleCallback as
         | ((cb: () => void, opts?: { timeout: number }) => number)
         | undefined;
+      const loadSecondary = () => {
+        void Promise.allSettled([
+          loadManagementData(),
+          loadLoggerNeedsAttention(),
+          isLead ? loadTeamHours() : Promise.resolve(),
+          !isAdmin && !isOps ? loadMyHours() : Promise.resolve(),
+          loadOverdueAlerts(),
+        ]);
+      };
       if (typeof ric === 'function') {
-        ric(() => { void loadOverdueAlerts(); }, { timeout: 1500 });
+        ric(loadSecondary, { timeout: 2500 });
       } else {
-        window.setTimeout(() => { void loadOverdueAlerts(); }, 300);
+        window.setTimeout(loadSecondary, 1500);
       }
     }
 
@@ -785,16 +858,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       return;
     }
     let cancelled = false;
-    crmApprovalsService
-      .listPending()
-      .then((rows) => {
-        if (!cancelled) setPendingWonDealsCount(rows.length);
-      })
-      .catch(() => {
-        if (!cancelled) setPendingWonDealsCount(0);
-      });
+    const timer = window.setTimeout(() => {
+      crmApprovalsService
+        .listPending()
+        .then((rows) => {
+          if (!cancelled) setPendingWonDealsCount(rows.length);
+        })
+        .catch(() => {
+          if (!cancelled) setPendingWonDealsCount(0);
+        });
+    }, 1500);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
   }, [perms.canApproveWonDeal, user?.id]);
 

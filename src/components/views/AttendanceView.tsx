@@ -54,13 +54,16 @@ export type EmployeeAttendanceSubTab =
 export interface AttendanceViewProps {
   activeSection?: AttendanceSubSection;
   onSectionChange?: (section: AttendanceSubSection) => void;
+  onInitialDataReady?: () => void;
 }
 
 export const AttendanceView: React.FC<AttendanceViewProps> = ({
   activeSection,
   onSectionChange,
+  onInitialDataReady,
 }) => {
   const { user } = useAuth();
+  attendanceService.setCompanyScope?.(user?.company_id);
   const { addToast } = useToast();
 
   const isAdmin = user?.role === 'admin';
@@ -294,8 +297,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   const loadDirectoryMembers = useCallback(async () => {
     try {
+      const cached = adminService.getCachedMembers();
       // Deactivated people stay pickable so their past timesheets can be opened (listed last).
-      const members = await adminService.getMembers();
+      const members =
+        cached && Date.now() - cached.fetchedAt < 60_000
+          ? cached.data
+          : await adminService.getMembers();
       const internal = (members || [])
         .filter((m) => m.role !== 'client' && m.role !== 'admin')
         .sort((a, b) => Number(a.is_active === false) - Number(b.is_active === false));
@@ -411,59 +418,36 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     matrixDate,
   ]);
 
-  // Initial load on mount - Cache-first (NEVER clears cache on mount!)
+  // One first-paint bootstrap. Deeper tab data is fetched lazily.
   useEffect(() => {
     const init = async () => {
       try {
-        if (isManagementRole) {
-          const cachedMatrix = attendanceService.getCachedDailyMatrix(
-            matrixDate,
-            selectedDepartment !== 'All' ? selectedDepartment : undefined
-          );
-          if (cachedMatrix) {
-            setMatrixData(cachedMatrix.data);
-            setIsLoading(false);
-          } else {
-            setIsLoading(true);
-          }
-
-          await Promise.allSettled([
-            loadMatrix(
-              matrixDate,
-              selectedDepartment !== 'All' ? selectedDepartment : undefined,
-              false
-            ),
-            loadPendingInquiries(),
-          ]);
-          setIsLoading(false);
-
-          void Promise.allSettled([
-            loadRequests(),
-            loadDirectoryMembers(),
-          ]);
-        } else {
-          const cachedTs = attendanceService.getCachedMyTimesheet(selectedYear, selectedMonth);
-          if (cachedTs) {
-            setTimesheetData(cachedTs.data);
-            setIsLoading(false);
-          } else {
-            setIsLoading(true);
-          }
-
-          await Promise.allSettled([
-            loadTimesheet(selectedYear, selectedMonth, false),
-            loadRequests(),
-            loadPendingInquiries(),
-          ]);
-          setIsLoading(false);
+        const bootstrap = await attendanceService.getBootstrap();
+        setAttendanceMinDate(bootstrap.config.effective_start_date);
+        setMatrixDate((prev) =>
+          prev < bootstrap.config.effective_start_date
+            ? bootstrap.config.effective_start_date
+            : prev
+        );
+        if (bootstrap.matrix) {
+          attendanceService.setCachedDailyMatrix(bootstrap.meta.date, bootstrap.matrix);
+          setMatrixData(bootstrap.matrix);
+        }
+        if (bootstrap.timesheet) {
+          attendanceService.setCachedMyTimesheet(selectedYear, selectedMonth, bootstrap.timesheet);
+          setTimesheetData(bootstrap.timesheet);
         }
       } finally {
         setIsLoading(false);
+        onInitialDataReady?.();
       }
+      window.setTimeout(() => {
+        void loadPendingInquiries();
+      }, 1000);
     };
 
     void init();
-  }, [isManagementRole]);
+  }, [isManagementRole, user?.company_id]);
 
   // SWR: Revalidate quietly on domain invalidations without resetting skeletons or unmounting
   useCacheInvalidation(['attendance', 'requests', 'approvals'], (key) => {
@@ -486,18 +470,6 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       void loadTimesheet(selectedYear, selectedMonth, true);
     }
   });
-
-  useEffect(() => {
-    attendanceService
-      .getAttendanceConfig()
-      .then((cfg) => {
-        setAttendanceMinDate(cfg.effective_start_date);
-        setMatrixDate((prev) => (prev < cfg.effective_start_date ? cfg.effective_start_date : prev));
-      })
-      .catch(() => {
-        setAttendanceMinDate(getAttendanceMinDate());
-      });
-  }, []);
 
   useEffect(() => {
     if (!isManagementRole || !selectedEmployeeId) return;

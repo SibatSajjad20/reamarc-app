@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite",
     "dev:phone": "vite --host",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && node scripts/check-bundle-size.mjs",
     "lint": "npx oxlint && node scripts/check-tokens.mjs",
     "test": "vitest run",
+    "test:e2e": "playwright test",
     "preview": "vite preview",
     "start": "vite preview"
   },
@@ -36,6 +37,7 @@
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/vite": "^4.3.3",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",

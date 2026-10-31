@@ -43,6 +43,11 @@ class TestPerfHotIndexes(unittest.IsolatedAsyncioTestCase):
             "idx_company_dailylog_scores_user_date",
             "idx_company_calendar_company_date",
             "idx_company_content_stage",
+            "idx_company_att_date_status",
+            "idx_company_leave_status_created",
+            "idx_company_punch_status_created",
+            "idx_company_webtask_assignee_status_due",
+            "idx_company_webproject_stage_status",
         ):
             self.assertIn(required, names, f"missing index {required}")
 

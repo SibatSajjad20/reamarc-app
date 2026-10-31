@@ -1,6 +1,7 @@
 import logging
 import json
 import os
+import time
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request, Query, Depends
 from fastapi.responses import JSONResponse
@@ -267,7 +268,7 @@ _cors_kwargs = dict(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With", "Range"],
-    expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
+    expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length", "Server-Timing"],
 )
 # Always allow https://<label>.oneworklane.com (and apex) via regex; list covers exact defaults.
 _cors_kwargs["allow_origin_regex"] = (
@@ -280,6 +281,49 @@ from app.services.permissions import operations_view_only_middleware
 
 app.middleware("http")(operations_view_only_middleware)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
+
+
+@app.middleware("http")
+async def request_timing_middleware(request: Request, call_next):
+    """Expose backend time and emit one payload-free performance log per request."""
+    from app.core.performance import begin_request_metrics, end_request_metrics
+    from app.core.tenant import get_tenant_context
+
+    metrics, token = begin_request_metrics()
+    started = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = (time.perf_counter() - started) * 1000
+        logging.getLogger("app.timing").info(
+            "request_timing route=%s method=%s status=500 company_id=%s duration_ms=%.1f mongo_commands=%s",
+            request.url.path,
+            request.method,
+            getattr(request.state, "company_id", None) or "-",
+            duration_ms,
+            metrics.mongo_commands,
+        )
+        end_request_metrics(token)
+        raise
+    duration_ms = (time.perf_counter() - started) * 1000
+    response.headers["Server-Timing"] = (
+        f'app;dur={duration_ms:.1f}, mongo;desc="{metrics.mongo_commands} commands"'
+    )
+    tenant = get_tenant_context()
+    company_id = getattr(request.state, "company_id", None) or (
+        tenant.company_id if tenant else None
+    )
+    logging.getLogger("app.timing").info(
+        "request_timing route=%s method=%s status=%s company_id=%s duration_ms=%.1f mongo_commands=%s",
+        request.url.path,
+        request.method,
+        response.status_code,
+        company_id or "-",
+        duration_ms,
+        metrics.mongo_commands,
+    )
+    end_request_metrics(token)
+    return response
 
 def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:
     """Cookie sessions need CSRF; Bearer tokens do not. JSON is not an exemption."""

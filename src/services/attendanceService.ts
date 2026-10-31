@@ -73,64 +73,80 @@ class BoundedCache<T> {
 }
 
 class AttendanceService {
+  private companyScope = 'unknown';
+  private bootstrapCache = new BoundedCache<{
+    kind: 'management' | 'employee';
+    matrix: DailyMatrixResponse | null;
+    timesheet: PersonalTimesheetResponse | null;
+    config: AttendanceConfig;
+    meta: { company_id: string; date: string };
+  }>(4);
   private monthlySummaryCache = new BoundedCache<MonthlyPunctualityResponse>(24);
   private matrixCache = new BoundedCache<DailyMatrixResponse>(30);
   private employeeTimesheetCache = new BoundedCache<PersonalTimesheetResponse>(50);
   private myTimesheetCache = new BoundedCache<PersonalTimesheetResponse>(24);
 
+  public setCompanyScope(companyId?: string | null): void {
+    this.companyScope = companyId || 'unknown';
+  }
+
+  private key(value: string): string {
+    return `${this.companyScope}:${value}`;
+  }
+
   public getCachedMonthlySummary(year: number, month: number, department?: string): AttendanceCacheEntry<MonthlyPunctualityResponse> | undefined {
     const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
-    return this.monthlySummaryCache.get(`${year}-${month}-${deptKey}`);
+    return this.monthlySummaryCache.get(this.key(`${year}-${month}-${deptKey}`));
   }
 
   public setCachedMonthlySummary(year: number, month: number, data: MonthlyPunctualityResponse, department?: string): void {
     const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
-    this.monthlySummaryCache.set(`${year}-${month}-${deptKey}`, data);
+    this.monthlySummaryCache.set(this.key(`${year}-${month}-${deptKey}`), data);
   }
 
   public getCachedDailyMatrix(date: string, department?: string): AttendanceCacheEntry<DailyMatrixResponse> | undefined {
     const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
-    return this.matrixCache.get(`${date}-${deptKey}`);
+    return this.matrixCache.get(this.key(`${date}-${deptKey}`));
   }
 
   public setCachedDailyMatrix(date: string, data: DailyMatrixResponse, department?: string): void {
     const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
-    this.matrixCache.set(`${date}-${deptKey}`, data);
+    this.matrixCache.set(this.key(`${date}-${deptKey}`), data);
   }
 
   public getCachedEmployeeTimesheet(userId: string, year: number, month: number): AttendanceCacheEntry<PersonalTimesheetResponse> | undefined {
-    return this.employeeTimesheetCache.get(`${userId}-${year}-${month}`);
+    return this.employeeTimesheetCache.get(this.key(`${userId}-${year}-${month}`));
   }
 
   public setCachedEmployeeTimesheet(userId: string, year: number, month: number, data: PersonalTimesheetResponse): void {
-    this.employeeTimesheetCache.set(`${userId}-${year}-${month}`, data);
+    this.employeeTimesheetCache.set(this.key(`${userId}-${year}-${month}`), data);
   }
 
   public getCachedMyTimesheet(year: number, month: number): AttendanceCacheEntry<PersonalTimesheetResponse> | undefined {
-    return this.myTimesheetCache.get(`${year}-${month}`);
+    return this.myTimesheetCache.get(this.key(`${year}-${month}`));
   }
 
   public setCachedMyTimesheet(year: number, month: number, data: PersonalTimesheetResponse): void {
-    this.myTimesheetCache.set(`${year}-${month}`, data);
+    this.myTimesheetCache.set(this.key(`${year}-${month}`), data);
   }
 
   private requestsCache = new BoundedCache<AttendanceRequest[]>(5);
   private todayStatusCache = new BoundedCache<TodayAttendanceResponse>(2);
 
   public getCachedRequests(): AttendanceCacheEntry<AttendanceRequest[]> | undefined {
-    return this.requestsCache.get('requests');
+    return this.requestsCache.get(this.key('requests'));
   }
 
   public setCachedRequests(data: AttendanceRequest[]): void {
-    this.requestsCache.set('requests', data);
+    this.requestsCache.set(this.key('requests'), data);
   }
 
   public getCachedTodayStatus(): AttendanceCacheEntry<TodayAttendanceResponse> | undefined {
-    return this.todayStatusCache.get('today');
+    return this.todayStatusCache.get(this.key('today'));
   }
 
   public setCachedTodayStatus(data: TodayAttendanceResponse): void {
-    this.todayStatusCache.set('today', data);
+    this.todayStatusCache.set(this.key('today'), data);
   }
 
   public clearAllCaches(): void {
@@ -140,6 +156,7 @@ class AttendanceService {
     this.myTimesheetCache.clear();
     this.requestsCache.clear();
     this.todayStatusCache.clear();
+    this.bootstrapCache.clear();
   }
   /**
    * Fetch current user's today attendance status, assigned shift, and WFH state
@@ -150,6 +167,27 @@ class AttendanceService {
       this.setCachedTodayStatus(res);
     }
     return res;
+  }
+
+  public async getBootstrap(): Promise<{
+    kind: 'management' | 'employee';
+    matrix: DailyMatrixResponse | null;
+    timesheet: PersonalTimesheetResponse | null;
+    config: AttendanceConfig;
+    meta: { company_id: string; date: string };
+  }> {
+    const key = this.key('bootstrap');
+    const cached = this.bootstrapCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < 60_000) return cached.data;
+    const data = await apiClient.get<{
+      kind: 'management' | 'employee';
+      matrix: DailyMatrixResponse | null;
+      timesheet: PersonalTimesheetResponse | null;
+      config: AttendanceConfig;
+      meta: { company_id: string; date: string };
+    }>('/attendance/bootstrap');
+    this.bootstrapCache.set(key, data);
+    return data;
   }
 
   /**
@@ -163,6 +201,7 @@ class AttendanceService {
     });
     this.todayStatusCache.clear();
     this.myTimesheetCache.clear();
+    this.bootstrapCache.clear();
     emitInvalidation(['attendance', 'dashboard', 'daily-log']);
     return res;
   }
@@ -178,6 +217,7 @@ class AttendanceService {
     });
     this.todayStatusCache.clear();
     this.myTimesheetCache.clear();
+    this.bootstrapCache.clear();
     emitInvalidation(['attendance', 'dashboard', 'daily-log']);
     return res;
   }
@@ -189,6 +229,7 @@ class AttendanceService {
     const res = await apiClient.post<AttendanceRecord>('/attendance/break', payload);
     this.todayStatusCache.clear();
     this.myTimesheetCache.clear();
+    this.bootstrapCache.clear();
     emitInvalidation(['attendance', 'dashboard', 'daily-log']);
     return res;
   }

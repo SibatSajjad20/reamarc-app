@@ -273,6 +273,58 @@ async def get_attendance_config(
     )
 
 
+@router.get("/bootstrap")
+async def get_attendance_bootstrap(
+    current_user: dict = Depends(require_internal_user),
+):
+    """First-paint attendance data in one request; deeper tabs remain lazy."""
+    from app.services.attendance_golive import (
+        ATTENDANCE_GO_LIVE_DATE,
+        ATTENDANCE_TEST_START_DATE,
+        get_effective_start_date,
+        is_go_live_reached,
+        pkt_today_str,
+    )
+
+    today = pkt_today_str()
+    now = datetime.now(timezone.utc)
+    role = str(current_user.get("role") or "").lower()
+    is_management = role in ("admin", "hr", "operations")
+
+    config = {
+        "go_live_date": ATTENDANCE_GO_LIVE_DATE,
+        "test_start_date": ATTENDANCE_TEST_START_DATE,
+        "effective_start_date": get_effective_start_date(today),
+        "timezone": "Asia/Karachi",
+        "go_live_reached": is_go_live_reached(today),
+    }
+    if is_management:
+        matrix = await attendance_service.get_daily_matrix(date_str=today)
+        return {
+            "kind": "management",
+            "matrix": matrix,
+            "timesheet": None,
+            "config": config,
+            "meta": {"company_id": current_user.get("company_id"), "date": today},
+        }
+
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
+    timesheet = await attendance_service.get_my_timesheet(
+        user=current_user, year=now.year, month=now.month
+    )
+    return {
+        "kind": "employee",
+        "matrix": None,
+        "timesheet": timesheet,
+        "config": config,
+        "meta": {"company_id": current_user.get("company_id"), "date": today},
+    }
+
+
 @router.get("/my-timesheet", response_model=MonthlyTimesheetResponse)
 async def get_my_monthly_timesheet(
     year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),
