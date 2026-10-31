@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { isBootstrapMissing } from '../utils/bootstrapCompat';
 import { detectPublicIp } from '../utils/publicIp';
 import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type {
@@ -74,6 +75,8 @@ class BoundedCache<T> {
 
 class AttendanceService {
   private companyScope = 'unknown';
+  private bootstrapMissing = false;
+  private bootstrapRevalidating = false;
   private bootstrapCache = new BoundedCache<{
     kind: 'management' | 'employee';
     matrix: DailyMatrixResponse | null;
@@ -157,6 +160,18 @@ class AttendanceService {
     this.requestsCache.clear();
     this.todayStatusCache.clear();
     this.bootstrapCache.clear();
+    this.bootstrapMissing = false;
+    this.bootstrapRevalidating = false;
+  }
+
+  public getCachedBootstrap(): AttendanceCacheEntry<{
+    kind: 'management' | 'employee';
+    matrix: DailyMatrixResponse | null;
+    timesheet: PersonalTimesheetResponse | null;
+    config: AttendanceConfig;
+    meta: { company_id: string; date: string };
+  }> | undefined {
+    return this.bootstrapCache.get(this.key('bootstrap'));
   }
   /**
    * Fetch current user's today attendance status, assigned shift, and WFH state
@@ -178,16 +193,73 @@ class AttendanceService {
   }> {
     const key = this.key('bootstrap');
     const cached = this.bootstrapCache.get(key);
-    if (cached && Date.now() - cached.fetchedAt < 60_000) return cached.data;
-    const data = await apiClient.get<{
-      kind: 'management' | 'employee';
-      matrix: DailyMatrixResponse | null;
-      timesheet: PersonalTimesheetResponse | null;
-      config: AttendanceConfig;
-      meta: { company_id: string; date: string };
-    }>('/attendance/bootstrap');
-    this.bootstrapCache.set(key, data);
-    return data;
+    if (cached && Date.now() - cached.fetchedAt < 60_000) {
+      if (!this.bootstrapRevalidating) {
+        this.bootstrapRevalidating = true;
+        window.setTimeout(() => {
+          void this.fetchBootstrap()
+            .catch(() => undefined)
+            .finally(() => {
+              this.bootstrapRevalidating = false;
+            });
+        }, 2500);
+      }
+      return cached.data;
+    }
+    return this.fetchBootstrap();
+  }
+
+  private async fetchBootstrap(): Promise<{
+    kind: 'management' | 'employee';
+    matrix: DailyMatrixResponse | null;
+    timesheet: PersonalTimesheetResponse | null;
+    config: AttendanceConfig;
+    meta: { company_id: string; date: string };
+  }> {
+    const key = this.key('bootstrap');
+    if (this.bootstrapMissing) {
+      const data = await this.legacyBootstrap();
+      this.bootstrapCache.set(key, data);
+      return data;
+    }
+    try {
+      const data = await apiClient.get<{
+        kind: 'management' | 'employee';
+        matrix: DailyMatrixResponse | null;
+        timesheet: PersonalTimesheetResponse | null;
+        config: AttendanceConfig;
+        meta: { company_id: string; date: string };
+      }>('/attendance/bootstrap');
+      this.bootstrapCache.set(key, { ...data, matrix: data.kind === 'management' ? null : data.matrix });
+      return this.bootstrapCache.get(key)!.data;
+    } catch (error) {
+      if (isBootstrapMissing(error) && !this.bootstrapMissing) {
+        this.bootstrapMissing = true;
+        const data = await this.legacyBootstrap();
+        this.bootstrapCache.set(key, data);
+        return data;
+      }
+      throw error;
+    }
+  }
+
+  private async legacyBootstrap(): Promise<{
+    kind: 'management' | 'employee';
+    matrix: DailyMatrixResponse | null;
+    timesheet: PersonalTimesheetResponse | null;
+    config: AttendanceConfig;
+    meta: { company_id: string; date: string };
+  }> {
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const config = await this.getAttendanceConfig();
+    return {
+      kind: 'employee',
+      matrix: null,
+      timesheet: await this.getMyTimesheet(now.getFullYear(), now.getMonth() + 1).catch(() => null),
+      config,
+      meta: { company_id: this.companyScope, date },
+    };
   }
 
   /**

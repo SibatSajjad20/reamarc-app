@@ -52,6 +52,8 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
 
   return (
     <div
+      data-testid="logged-this-week"
+      aria-busy={isLoading ? true : undefined}
       className={cn(
         'bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between',
         className
@@ -431,6 +433,8 @@ export const PresentInMonthCard: React.FC<PresentInMonthCardProps> = ({
 }) => {
   return (
     <div
+      data-testid="present-this-month"
+      aria-busy={isLoading ? true : undefined}
       className={cn(
         'bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between',
         className

@@ -417,7 +417,6 @@ async def get_dashboard_bootstrap(
     monday = (now_pkt - timedelta(days=now_pkt.weekday())).strftime("%Y-%m-%d")
     role = str(current_user.get("role") or "").lower()
     is_admin = role == UserRole.ADMIN.value
-    is_hr = role == UserRole.HR.value
     attendance_enabled = (not is_admin) and is_tracked(current_user, "attendance")
     daily_log_enabled = (not is_admin) and is_tracked(current_user, "daily_log")
 
@@ -448,16 +447,9 @@ async def get_dashboard_bootstrap(
             row["hours"] = round(float(row.get("hours") or 0), 2)
         return rows
 
-    async def _day_target():
-        if not daily_log_enabled:
-            return None
-        # Reuse the canonical calculation so relaxed-day and attendance behavior
-        # cannot diverge between the dashboard and daily-log module.
-        from app.routers.daily_log import get_day_target
-        return await get_day_target(date=today_iso, current_user=current_user)
-
+    # Critical path only: punch card, logged-this-week, present-this-month.
+    # Never include the full daily matrix or the dashboard summary here.
     tasks = {
-        "summary": get_dashboard_summary(current_user=current_user, db=db),
         "todayAttendance": attendance_service.get_today_status(
             user=current_user,
             client_ip=extract_client_ip(request),
@@ -466,13 +458,13 @@ async def get_dashboard_bootstrap(
         "timesheet": attendance_service.get_my_timesheet(
             user=current_user, year=now_pkt.year, month=now_pkt.month
         ) if attendance_enabled else _none(),
-        "matrix": attendance_service.get_daily_matrix(date_str=today_iso)
-        if (is_admin or is_hr) else _none(),
         "weeklyLogs": _weekly_logs(),
-        "dayTarget": _day_target(),
     }
     values = await asyncio.gather(*tasks.values())
     payload = dict(zip(tasks.keys(), values))
+    payload["matrix"] = None
+    payload["summary"] = None
+    payload["dayTarget"] = None
     payload["meta"] = {
         "generatedAt": _now_iso(),
         "companyId": current_user.get("company_id"),

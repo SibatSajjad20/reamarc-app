@@ -1,5 +1,5 @@
 import { brandNameOf } from './utils/branding';
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from 'react';
+import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
 import type { ClientPageState } from './components/views/ClientPage';
@@ -19,7 +19,30 @@ import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
+import { DashboardSkeleton } from './components/ui/Skeletons';
 import { removeBootSplash } from './utils/bootSplash';
+import {
+  DashboardView,
+  AttendanceView,
+  PerformanceMarketing,
+  AdminPanel,
+  DailyLogView,
+  ExceptionInboxView,
+  SettingsView,
+  ActiveClientsView,
+  ClientPage,
+  CrmView,
+  WonDealApprovalsView,
+  ContentCalendarView,
+  WebsitePipelineView,
+  FinanceContainer,
+  ClientPortalContainer,
+  AuthScreen,
+  PublicSchedulerView,
+  PublicClientReviewView,
+  PublicInvoiceView,
+  prefetchPrimaryViews,
+} from './routes/lazyViews';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 import { AppShell } from './components/layout/AppShell';
 import { TopBar } from './components/layout/TopBar';
@@ -37,35 +60,12 @@ import {
   resolveTheme,
 } from './utils/themePreference';
 
-const DashboardView = lazy(() => import('./components/views/DashboardView').then((m) => ({ default: m.DashboardView })));
-const AttendanceView = lazy(() => import('./components/views/AttendanceView').then((m) => ({ default: m.AttendanceView })));
-const PerformanceMarketing = lazy(() => import('./components/views/PerformanceMarketing').then((m) => ({ default: m.PerformanceMarketing })));
-const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((m) => ({ default: m.AdminPanel })));
-const DailyLogView = lazy(() => import('./components/views/DailyLogView').then((m) => ({ default: m.DailyLogView })));
-const ExceptionInboxView = lazy(() => import('./components/views/ExceptionInboxView').then((m) => ({ default: m.ExceptionInboxView })));
-const SettingsView = lazy(() => import('./components/settings/SettingsView').then((m) => ({ default: m.SettingsView })));
-const ActiveClientsView = lazy(() => import('./components/views/ActiveClientsView').then((m) => ({ default: m.ActiveClientsView })));
-const ClientPage = lazy(() => import('./components/views/ClientPage').then((m) => ({ default: m.ClientPage })));
-const CrmView = lazy(() => import('./components/views/CrmView').then((m) => ({ default: m.CrmView })));
-const WonDealApprovalsView = lazy(() => import('./components/views/WonDealApprovalsView').then((m) => ({ default: m.WonDealApprovalsView })));
-const ContentCalendarView = lazy(() => import('./components/views/ContentCalendarView').then((m) => ({ default: m.ContentCalendarView })));
-const WebsitePipelineView = lazy(() => import('./components/views/WebsitePipelineView').then((m) => ({ default: m.WebsitePipelineView })));
-const FinanceContainer = lazy(() => import('./components/finance/FinanceContainer').then((m) => ({ default: m.FinanceContainer })));
-const ClientPortalContainer = lazy(() => import('./components/portal/ClientPortalContainer').then((m) => ({ default: m.ClientPortalContainer })));
-const AuthScreen = lazy(() => import('./components/auth/AuthScreen').then((m) => ({ default: m.AuthScreen })));
-const PublicSchedulerView = lazy(() => import('./components/views/PublicSchedulerView').then((m) => ({ default: m.PublicSchedulerView })));
-const PublicClientReviewView = lazy(() => import('./components/views/PublicClientReviewView').then((m) => ({ default: m.PublicClientReviewView })));
-const PublicInvoiceView = lazy(() => import('./components/finance/PublicInvoiceView').then((m) => ({ default: m.PublicInvoiceView })));
-
 function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading, pendingBrand } = useAuth();
   const moduleClicksBlocked = useModuleLoadBlocked();
-  const [initialRouteReady, setInitialRouteReady] = useState(false);
-  const markInitialRouteReady = useCallback(() => setInitialRouteReady(true), []);
-
-  // One cold-boot episode: auth and the critical data for data-heavy landing
-  // routes both finish before the HTML splash performs its single fade.
+  // Splash never waits on dashboard/attendance data. Remove as soon as auth
+  // (or a public route) is ready, and force-remove at most 1.5s after auth.
   useEffect(() => {
     const path = (typeof window !== 'undefined' ? window.location.pathname : '').toLowerCase();
     const isPublic =
@@ -74,16 +74,26 @@ function AppInner() {
       path.startsWith('/review') ||
       path.startsWith('/client-review') ||
       path.startsWith('/invoice/');
-    const routeNeedsData = Boolean(user) && (
-      path === '' ||
-      path === '/' ||
-      path.startsWith('/dashboard') ||
-      path.startsWith('/attendance')
-    );
-    if (isPublic || (!isAuthLoading && !user) || (!isAuthLoading && (!routeNeedsData || initialRouteReady))) {
+    if (isPublic) {
       removeBootSplash();
+      return;
     }
-  }, [isAuthLoading, user, initialRouteReady]);
+    if (isAuthLoading) return;
+    removeBootSplash();
+    const cap = window.setTimeout(() => removeBootSplash(), 1500);
+    return () => window.clearTimeout(cap);
+  }, [isAuthLoading]);
+
+  useEffect(() => {
+    if (!user || isAuthLoading) return;
+    const ric = window.requestIdleCallback?.bind(window);
+    if (typeof ric === 'function') {
+      const id = ric(() => prefetchPrimaryViews(), { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(() => prefetchPrimaryViews(), 400);
+    return () => window.clearTimeout(t);
+  }, [user, isAuthLoading]);
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
@@ -703,7 +713,11 @@ function AppInner() {
     currentPathLower.startsWith('/schedule');
 
   if (isPublicBooking) {
-    return <PublicSchedulerView theme={theme} />;
+    return (
+      <Suspense fallback={null}>
+        <PublicSchedulerView theme={theme} />
+      </Suspense>
+    );
   }
 
   const isPublicReview =
@@ -711,12 +725,20 @@ function AppInner() {
     currentPathLower.startsWith('/client-review');
 
   if (isPublicReview) {
-    return <PublicClientReviewView theme={theme} />;
+    return (
+      <Suspense fallback={null}>
+        <PublicClientReviewView theme={theme} />
+      </Suspense>
+    );
   }
 
   const isPublicInvoice = currentPathLower.startsWith('/invoice/');
   if (isPublicInvoice) {
-    return <PublicInvoiceView />;
+    return (
+      <Suspense fallback={null}>
+        <PublicInvoiceView />
+      </Suspense>
+    );
   }
 
   if (isAuthLoading) {
@@ -735,7 +757,11 @@ function AppInner() {
   }
 
   if (!user) {
-    return <AuthScreen />;
+    return (
+      <Suspense fallback={null}>
+        <AuthScreen />
+      </Suspense>
+    );
   }
 
   if (user?.company?.status === 'suspended') {
@@ -909,11 +935,17 @@ function AppInner() {
         }
       >
         <ErrorBoundary onGoHome={() => handleSelectView(getDefaultViewForUser())}>
+          <Suspense
+            fallback={
+              <div data-testid="route-chunk-fallback" className="flex-1 min-h-0 p-6">
+                <DashboardSkeleton />
+              </div>
+            }
+          >
           {currentView === 'dashboard' && !isClient && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <DashboardView
                 onNavigateView={handleSelectView}
-                onInitialDataReady={markInitialRouteReady}
               />
             </div>
           )}
@@ -1013,7 +1045,6 @@ function AppInner() {
                 <AttendanceView
                   activeSection={activeAttendanceSection}
                   onSectionChange={setActiveAttendanceSection}
-                  onInitialDataReady={markInitialRouteReady}
                 />
               </div>
             ) : (
@@ -1104,6 +1135,7 @@ function AppInner() {
           )}
 
           {currentView === 'owner' && <AccessDenied module="Companies" />}
+          </Suspense>
         </ErrorBoundary>
       </AppShell>
 
@@ -1175,9 +1207,7 @@ export function App() {
         <BrandingProvider>
           <ModuleLoadGateProvider>
             <BreadcrumbProvider>
-              <Suspense fallback={null}>
-                <AppInner />
-              </Suspense>
+              <AppInner />
             </BreadcrumbProvider>
           </ModuleLoadGateProvider>
         </BrandingProvider>

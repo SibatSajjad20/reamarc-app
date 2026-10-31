@@ -14,8 +14,8 @@ import { logExceptionService } from '../../services/logExceptionService';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
-import { usePermissions } from '../../hooks/usePermissions';
 import { getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
+import { usePermissions } from '../../hooks/usePermissions';
 import { expectedHoursForStripDay } from '../../utils/logTimeChecks';
 
 import type {
@@ -164,10 +164,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
 
   // Summary loading state
   const [isLoadingSummary, setIsLoadingSummary] = useState(false);
+  const [isLoadingTeamMatrix, setIsLoadingTeamMatrix] = useState(() => !initialCache?.matrixData);
 
   // General state
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(() => initialCache?.todayAttendance ?? null);
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(() => !initialCache?.todayAttendance);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(() => {
+    if (user?.company_id && dashboardService.getCachedBootstrap(user.company_id)) return false;
+    return !initialCache;
+  });
   const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(() => initialCache?.matrixData ?? null);
   const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(() => initialCache?.timesheetData ?? null);
   const [dayTarget, setDayTarget] = useState<DayTarget | null>(() => initialCache?.dayTarget ?? null);
@@ -284,16 +288,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
       onInitialDataReady?.();
       return;
     }
-    const hasWarmData = Boolean(getDashboardCache(cacheKey));
+    const hasWarmData = Boolean(
+      dashboardService.getCachedBootstrap(user.company_id) || getDashboardCache(cacheKey),
+    );
     if (!hasWarmData) {
       setIsLoadingAttendance(true);
-      setIsLoadingSummary(true);
     }
     try {
       const data = await dashboardService.getBootstrap(user.company_id, force);
       setTodayAttendance(data.todayAttendance);
       setTimesheetData(data.timesheet);
-      setMatrixData(data.matrix);
       setDayTarget(data.dayTarget);
 
       const loggedByDate = new Map((data.weeklyLogs || []).map((row) => [row.date, Number(row.hours) || 0]));
@@ -317,41 +321,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
       setWeeklyLoggedHours(loggedTotal);
       setWeeklyLoggedDays(loggedDays);
       setPastDaysLoggedCount(loggedPast);
-
-      const summary = data.summary;
-      if (summary.crm) {
-        const labels: Array<[string, string]> = [
-          ['new', 'New'], ['contacted', 'Contacted'], ['qualified', 'Qualified'],
-          ['session_booked', 'Meeting Booked'], ['session_done', 'Meeting Completed'],
-        ];
-        setCrmStages(labels.map(([id, label]) => ({ label, count: summary.crm?.stages[id] || 0 })));
-        setOverdueFollowupsCount(summary.crm.overdueFollowUps || 0);
-        setUncontactedLeadsCount(summary.crm.unassigned || 0);
-      }
-      if (summary.content) {
-        setContentStages([
-          { label: 'Content', count: summary.content.stages.Content || 0 },
-          { label: 'Creative', count: summary.content.stages.Creative || 0 },
-          { label: 'Client Review', count: summary.content.stages.ClientReview || 0 },
-          { label: 'Revisions', count: summary.content.stages.Revisions || 0 },
-          { label: 'Ready to Post', count: summary.content.stages.ReadyToPost || 0 },
-        ]);
-      }
-      if (summary.website) {
-        const labels: Array<[string, string]> = [
-          ['strategy', 'Strategy'], ['content', 'Content'], ['design', 'Design'],
-          ['assets', 'Creative Assets'], ['development', 'Development'],
-          ['qa', 'Internal QA'], ['client_review', 'Client Review'], ['production', 'Production'],
-        ];
-        setWebsiteStages(labels.map(([id, label]) => ({ label, count: summary.website?.stages[id] || 0 })));
-      }
-      setYesterdayMissingLogCount(summary.logs?.missingYesterday || 0);
-      setLogExceptionsInboxCount(summary.approvals?.pendingLogExceptions || 0);
     } catch {
       // Keep warm data visible; cold failures render the stable empty state.
     } finally {
       setIsLoadingAttendance(false);
-      setIsLoadingSummary(false);
       onInitialDataReady?.();
     }
   }, [user?.id, user?.company_id, user?.needs_setup, cacheKey, weekDates, stableIsDateOff, onInitialDataReady]);
@@ -384,14 +357,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
 
   // 2. Load Matrix Data (Admin & HR only)
   const loadMatrix = useCallback(async () => {
-    if (!isAdmin && !isHR) return;
+    if (!isAdmin && !isHR) {
+      setIsLoadingTeamMatrix(false);
+      return;
+    }
+    if (!matrixData) setIsLoadingTeamMatrix(true);
     try {
       const data = await attendanceService.getDailyMatrix(todayIso);
       setMatrixData(data);
     } catch {
       // 403 or failure silent
+    } finally {
+      setIsLoadingTeamMatrix(false);
     }
-  }, [isAdmin, isHR, todayIso]);
+  }, [isAdmin, isHR, todayIso, matrixData]);
 
   // 3. Load Management Inboxes & Approvals (Admin, Ops, HR)
   const loadManagementData = useCallback(async () => {
@@ -786,9 +765,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
     }
   }, [isAdmin, user, perms]);
 
-  // Lightweight overdue alerts for Content and Website (deferred; not on critical path)
+
+  // Deferred overdue badges (never on critical path; limit scans, catch errors).
   const loadOverdueAlerts = useCallback(async () => {
-    const promises: Promise<any>[] = [];
+    const promises: Promise<unknown>[] = [];
     if (perms.can('content_calendar', 'view')) {
       promises.push(
         contentCalendarService.getItems().then((calRes) => {
@@ -799,8 +779,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
             const first = overdue[0];
             const dateStr = first.publish_date || first.design_due || '';
             setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+          } else {
+            setCalendarOverdueSubtext('');
           }
-        }).catch(() => {})
+        }).catch(() => {}),
       );
     }
     if (perms.can('website', 'view')) {
@@ -812,14 +794,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
             return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
           });
           setWebsiteOverdueCount(overdue.length);
-        }).catch(() => {})
+        }).catch(() => {}),
       );
     }
     await Promise.allSettled(promises);
-  }, [isAdmin, user, isLead, todayIso, perms]);
+  }, [user?.id, isLead, todayIso, perms]);
 
-  // Initial first paint is exactly one request. Secondary charts/inboxes wait
-  // until after paint and never block the boot splash.
+  // Critical path is bootstrap only. Summary, matrix, and inboxes wait until idle.
   useEffect(() => {
     if (!user?.id || user.needs_setup) {
       onInitialDataReady?.();
@@ -828,16 +809,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
 
     async function init() {
       await loadBootstrap();
-      const ric = (window as any).requestIdleCallback as
-        | ((cb: () => void, opts?: { timeout: number }) => number)
-        | undefined;
+      const ric = window.requestIdleCallback?.bind(window);
       const loadSecondary = () => {
         void Promise.allSettled([
+          loadPipelineStageCards(),
+          loadMatrix(),
           loadManagementData(),
           loadLoggerNeedsAttention(),
+          loadOverdueAlerts(),
           isLead ? loadTeamHours() : Promise.resolve(),
           !isAdmin && !isOps ? loadMyHours() : Promise.resolve(),
-          loadOverdueAlerts(),
         ]);
       };
       if (typeof ric === 'function') {
@@ -1369,7 +1350,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView, on
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
             <TeamDailyAttendanceCard
               matrixData={matrixData}
-              isLoading={isLoadingAttendance}
+              isLoading={isLoadingTeamMatrix}
               onNavigateView={onNavigateView}
               className="lg:col-span-2"
             />

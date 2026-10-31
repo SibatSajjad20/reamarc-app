@@ -1,4 +1,4 @@
-"""Dashboard bootstrap guardrails on an in-memory throwaway Mongo."""
+"""Dashboard/attendance bootstrap guardrails on an in-memory throwaway Mongo."""
 from __future__ import annotations
 
 import os
@@ -46,34 +46,73 @@ class TestDashboardBootstrapPerformance(unittest.IsolatedAsyncioTestCase):
             "department": "Engineering",
         }
 
-        summary = {
-            "meta": {"generatedAt": "2026-10-31T00:00:00Z", "role": "team_member"},
-            "crm": None,
-            "content": None,
-            "website": None,
-            "approvals": None,
-            "attendanceToday": None,
-            "logs": None,
-        }
-        # Match a warmed FastAPI worker: routers/config are imported during app startup.
-        import app.routers.daily_log  # noqa: F401
-        import app.routers.dashboard  # noqa: F401
-        import app.config  # noqa: F401
-        # Prime the event loop / import path before measuring the hot path.
-        await AsyncMock(return_value=None)()
-        started = time.perf_counter()
         with tenant_scope("company-a", user_id="user-a"):
             with (
-                patch("app.routers.dashboard.get_dashboard_summary", AsyncMock(return_value=summary)),
                 patch("app.services.access.is_tracked", side_effect=lambda _user, module: module == "daily_log"),
-                patch("app.routers.daily_log.get_day_target", AsyncMock(return_value={"logged_hours": 2.0})),
+                patch("app.services.attendance_service.get_daily_matrix", AsyncMock(side_effect=AssertionError("matrix must not be on dashboard bootstrap"))),
+                patch("app.routers.dashboard.get_dashboard_summary", AsyncMock(side_effect=AssertionError("summary must not be on dashboard bootstrap"))),
             ):
+                await get_dashboard_bootstrap(request=request, current_user=user, db=db)
+                started = time.perf_counter()
                 payload = await get_dashboard_bootstrap(request=request, current_user=user, db=db)
         wall_ms = (time.perf_counter() - started) * 1000
 
-        # One aggregate is the only unmocked Mongo command in this focused endpoint test.
+        self.assertIsNone(payload["matrix"])
+        self.assertIsNone(payload["summary"])
+        self.assertIsNone(payload["dayTarget"])
         self.assertEqual(len(payload["weeklyLogs"]), 2)
         self.assertEqual(sum(row["hours"] for row in payload["weeklyLogs"]), 5.0)
         self.assertTrue(all(row["hours"] < 99 for row in payload["weeklyLogs"]))
-        self.assertLessEqual(command_count, 1)
+        self.assertLessEqual(command_count, 2)
         self.assertLess(wall_ms, 250)
+
+    async def test_management_attendance_bootstrap_skips_matrix_at_scale(self):
+        from app.core.hot_cache import clear_matrix_cache, get_cached_matrix, set_cached_matrix
+        from app.routers.attendance import get_attendance_bootstrap, get_daily_attendance_matrix
+
+        clear_matrix_cache()
+        user = {
+            "id": "admin-a",
+            "company_id": "company-a",
+            "role": "admin",
+        }
+        other = {
+            "id": "admin-b",
+            "company_id": "company-b",
+            "role": "admin",
+        }
+
+        started = time.perf_counter()
+        with patch("app.services.attendance_service.get_daily_matrix", AsyncMock(side_effect=AssertionError("matrix must not block attendance bootstrap"))):
+            payload = await get_attendance_bootstrap(current_user=user)
+        wall_ms = (time.perf_counter() - started) * 1000
+
+        self.assertEqual(payload["kind"], "management")
+        self.assertIsNone(payload["matrix"])
+        self.assertLess(wall_ms, 100)
+
+        matrix_a = {"date": "2026-10-31", "rows": [{"company": "a"}], "present_count": 80}
+        matrix_b = {"date": "2026-10-31", "rows": [{"company": "b"}], "present_count": 1}
+        set_cached_matrix("company-a", "2026-10-31", None, matrix_a)
+        set_cached_matrix("company-b", "2026-10-31", None, matrix_b)
+        self.assertIs(get_cached_matrix("company-a", "2026-10-31", None), matrix_a)
+        self.assertIs(get_cached_matrix("company-b", "2026-10-31", None), matrix_b)
+
+        with patch(
+            "app.services.attendance_service.get_daily_matrix",
+            AsyncMock(return_value=matrix_a),
+        ) as mocked:
+            cached = await get_daily_attendance_matrix(
+                date="2026-10-31",
+                department=None,
+                current_user=user,
+            )
+            self.assertEqual(cached["rows"][0]["company"], "a")
+            mocked.assert_not_called()
+            isolated = await get_daily_attendance_matrix(
+                date="2026-10-31",
+                department=None,
+                current_user=other,
+            )
+            self.assertEqual(isolated["rows"][0]["company"], "b")
+            mocked.assert_not_called()

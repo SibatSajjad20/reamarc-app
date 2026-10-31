@@ -108,6 +108,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
 
   // Loading States - If already in session cache, do not show full-page blocking loader!
   const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (attendanceService.getCachedBootstrap()) return false;
     if (isManagementRole) {
       return !attendanceService.getCachedDailyMatrix(getTodayIso(), 'All');
     }
@@ -418,7 +419,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     matrixDate,
   ]);
 
-  // One first-paint bootstrap. Deeper tab data is fetched lazily.
+  // First paint is config (and employee timesheet). Management matrix loads after paint.
   useEffect(() => {
     const init = async () => {
       try {
@@ -429,10 +430,6 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             ? bootstrap.config.effective_start_date
             : prev
         );
-        if (bootstrap.matrix) {
-          attendanceService.setCachedDailyMatrix(bootstrap.meta.date, bootstrap.matrix);
-          setMatrixData(bootstrap.matrix);
-        }
         if (bootstrap.timesheet) {
           attendanceService.setCachedMyTimesheet(selectedYear, selectedMonth, bootstrap.timesheet);
           setTimesheetData(bootstrap.timesheet);
@@ -440,6 +437,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       } finally {
         setIsLoading(false);
         onInitialDataReady?.();
+      }
+      if (isManagementRole) {
+        void loadMatrix(matrixDate, selectedDepartment !== 'All' ? selectedDepartment : undefined);
       }
       window.setTimeout(() => {
         void loadPendingInquiries();

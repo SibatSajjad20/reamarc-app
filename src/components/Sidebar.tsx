@@ -65,6 +65,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { getGroupedVisibleSettings } from '@/utils/settingsAccess';
+import { prefetchView } from '@/routes/lazyViews';
 
 const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ className?: string; size?: number }>> = {
   profile: User,
@@ -809,6 +810,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   const buttonElement = (
                     <button
                       type="button"
+                      onMouseEnter={() => prefetchView(item.id)}
                       onClick={() => onSelectView(item.id)}
                       className={cn(
                         'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer relative focus-visible:focus-ring',
@@ -889,6 +891,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           ? 'text-fg font-medium hover:bg-hover'
                           : 'text-fg-2 hover:bg-hover hover:text-fg'
                       )}
+                      onMouseEnter={() => prefetchView(item.id)}
                       onClick={() => {
                         onSelectView(item.id);
                         if (item.hasSubItems && currentView === item.id) {
@@ -1100,6 +1103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {!isCollapsed ? (
           <button
             type="button"
+            onMouseEnter={() => prefetchView('settings')}
             onClick={() => {
               onSelectView('settings');
               if (onSelectSettingsSection) onSelectSettingsSection('profile');
@@ -1127,6 +1131,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <TooltipTrigger asChild>
               <button
                 type="button"
+                onMouseEnter={() => prefetchView('settings')}
                 onClick={() => {
                   onSelectView('settings');
                   if (onSelectSettingsSection) onSelectSettingsSection('profile');

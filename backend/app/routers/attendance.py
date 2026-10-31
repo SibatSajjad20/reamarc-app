@@ -57,6 +57,11 @@ router = APIRouter(
 )
 
 
+from app.core.hot_cache import clear_matrix_cache
+
+def _bust_matrix_cache(user: dict) -> None:
+    clear_matrix_cache(user.get("company_id"))
+
 class ManualAttendanceEntryRequest(BaseModel):
     user_id: str = Field(..., description="Target user ID")
     date: str = Field(..., description="Date in YYYY-MM-DD format")
@@ -126,11 +131,13 @@ async def check_in(
             request,
             check_in_req.client_ip,
         )
-    return await attendance_service.process_check_in(
+    result = await attendance_service.process_check_in(
         user=current_user,
         check_in_req=check_in_req,
         client_ip=client_ip,
     )
+    _bust_matrix_cache(current_user)
+    return result
 
 
 @router.post("/check-out", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
@@ -158,11 +165,13 @@ async def check_out(
         check_out_req.detected_public_ip = extract_detected_public_ip(
             request,
         )
-    return await attendance_service.process_check_out(
+    result = await attendance_service.process_check_out(
         user=current_user,
         check_out_req=check_out_req,
         client_ip=client_ip,
     )
+    _bust_matrix_cache(current_user)
+    return result
 
 
 @router.post("/break", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
@@ -299,12 +308,12 @@ async def get_attendance_bootstrap(
         "go_live_reached": is_go_live_reached(today),
     }
     if is_management:
-        matrix = await attendance_service.get_daily_matrix(date_str=today)
         return {
             "kind": "management",
-            "matrix": matrix,
+            "matrix": None,
             "timesheet": None,
             "config": config,
+            "kpis": None,
             "meta": {"company_id": current_user.get("company_id"), "date": today},
         }
 
@@ -379,10 +388,20 @@ async def get_daily_attendance_matrix(
     """
     Company-wide live attendance grid for a date (replicates physical register).
     """
-    return await attendance_service.get_daily_matrix(
-        date_str=date,
+    from app.core.hot_cache import get_cached_matrix, set_cached_matrix
+    from app.services.attendance_golive import pkt_today_str
+
+    date_str = date or pkt_today_str()
+    company_id = current_user.get("company_id")
+    cached = get_cached_matrix(company_id, date_str, department)
+    if cached is not None:
+        return cached
+    payload = await attendance_service.get_daily_matrix(
+        date_str=date_str,
         department=department,
     )
+    set_cached_matrix(company_id, date_str, department, payload)
+    return payload
 
 
 @router.get("/monthly-summary", response_model=MonthlyPunctualityResponse)
@@ -492,7 +511,7 @@ async def admin_manual_entry(
     current_user: dict = Depends(require_management_role),
 ):
     """HR / Admin manual attendance record creation or override."""
-    return await attendance_service.admin_manual_attendance_entry(
+    result = await attendance_service.admin_manual_attendance_entry(
         user_id=entry_req.user_id,
         date_str=entry_req.date,
         check_in=entry_req.check_in,
@@ -501,6 +520,8 @@ async def admin_manual_entry(
         notes=entry_req.notes,
         admin_user=current_user,
     )
+    _bust_matrix_cache(current_user)
+    return result
 
 
 @router.patch("/records/{record_id}/override", response_model=AttendanceRecordResponse)
@@ -510,11 +531,13 @@ async def override_attendance(
     current_user: dict = Depends(require_management_role),
 ):
     """HR / Admin attendance record override by record ID or employee ID."""
-    return await attendance_service.override_attendance_record(
+    result = await attendance_service.override_attendance_record(
         target_id=record_id,
         override_data=override_payload.model_dump(),
         admin_user=current_user,
     )
+    _bust_matrix_cache(current_user)
+    return result
 
 
 # ==============================================================================

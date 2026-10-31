@@ -3315,34 +3315,40 @@ async def get_daily_matrix(
         user_query["department"] = exact_ci(department)
 
     from app.services.company_members import member_active_during
-    users = await company_member_users(
-        user_query,
-        db=db,
-        include_inactive=True,
-        projection={"_id": 0, "hashed_password": 0},
-        sort=("full_name", 1),
-        limit=1000,
+    (
+        users,
+        records_list,
+        leaves_list,
+        calendar_event,
+        all_shifts,
+        all_assignments,
+        _relaxed,
+    ) = await asyncio.gather(
+        company_member_users(
+            user_query,
+            db=db,
+            include_inactive=True,
+            projection={"_id": 0, "hashed_password": 0},
+            sort=("full_name", 1),
+            limit=1000,
+        ),
+        db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000),
+        db.leave_requests.find({
+            "status": LeaveStatus.APPROVED.value,
+            "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
+            "start_date": {"$lte": target_date},
+            "end_date": {"$gte": target_date},
+        }, {"_id": 0}).to_list(1000),
+        db.company_calendar.find_one({"date": target_date}, {"_id": 0}),
+        db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100),
+        db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000),
+        bind_relaxed_days(target_date, target_date),
     )
     users = [u for u in users if member_active_during(u, target_date)]
     from app.services.access import was_tracked
     users = [u for u in users if was_tracked(u, "attendance")]
-
-    # 2. Fetch all attendance records for date
-    records_list = await db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000)
     records_by_user = {r["user_id"]: r for r in records_list}
-
-    # 3. Fetch approved leaves covering date (excluding non-leave requests)
-    leaves_list = await db.leave_requests.find({
-        "status": LeaveStatus.APPROVED.value,
-        "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
-        "start_date": {"$lte": target_date},
-        "end_date": {"$gte": target_date},
-    }, {"_id": 0}).to_list(1000)
     leaves_by_user = {l["user_id"]: l for l in leaves_list}
-
-    # 4. Check company calendar for holiday or workday override
-    calendar_event = await db.company_calendar.find_one({"date": target_date}, {"_id": 0})
-    await bind_relaxed_days(target_date, target_date)
     is_holiday = bool(
         calendar_event and (
             calendar_event.get("is_off_day") is True
@@ -3354,12 +3360,8 @@ async def get_daily_matrix(
     is_sunday = is_sunday_date(parsed_date)
     is_first_sat = is_first_saturday_of_month(parsed_date) and not is_workday_override
 
-    # 5. Batch-load shifts and user assignments for instant O(1) in-memory resolution
-    all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
-
-    all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
     user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     needed_shift_ids = set()

@@ -52,7 +52,7 @@ export interface DashboardCacheData {
 }
 
 const dashboardCache = new Map<string, DashboardCacheData>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const CACHE_TTL_MS = 60 * 1000;
 
 export function getDashboardCache(key: string): DashboardCacheData | undefined {
   const entry = dashboardCache.get(key);

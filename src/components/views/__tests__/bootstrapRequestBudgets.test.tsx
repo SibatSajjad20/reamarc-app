@@ -9,7 +9,7 @@ const user = {
   company_id: 'company-a',
   role: 'team_member',
   full_name: 'Test User',
-  effective_access: { attendance: false, daily_log: false },
+  effective_access: { attendance: true, daily_log: true },
 };
 
 vi.mock('../../../context/AuthContext', () => ({
@@ -18,10 +18,10 @@ vi.mock('../../../context/AuthContext', () => ({
 vi.mock('../../../hooks/usePermissions', () => ({
   usePermissions: () => ({
     can: () => false,
-    canAccessAttendance: false,
-    canAccessDailyLog: false,
-    isAttendanceTracked: false,
-    isDailyLogTracked: false,
+    canAccessAttendance: true,
+    canAccessDailyLog: true,
+    isAttendanceTracked: true,
+    isDailyLogTracked: true,
     canApproveWonDeal: false,
     canSeeWonDealApprovals: false,
   }),
@@ -35,6 +35,12 @@ vi.mock('../../../context/ModuleLoadGate', () => ({
 vi.mock('../../../context/ToastContext', () => ({
   useToast: () => ({ addToast: vi.fn() }),
 }));
+vi.mock('../../attendance/EmployeePunchCard', () => ({
+  EmployeePunchCard: () => <div>punch-card</div>,
+}));
+vi.mock('../../dashboard/MyHoursChart', () => ({
+  MyHoursChart: () => <div>my-hours</div>,
+}));
 vi.mock('../../attendance/PersonalTimesheetTable', () => ({
   PersonalTimesheetTable: ({ isLoading }: { isLoading: boolean }) => (
     <div>{isLoading ? 'attendance-loading' : 'attendance-ready'}</div>
@@ -47,10 +53,17 @@ const summary = {
 const dashboardPayload = {
   summary,
   todayAttendance: null,
-  timesheet: null,
+  timesheet: {
+    user_id: 'user-a',
+    employee_name: 'Test User',
+    year: 2026,
+    month: 10,
+    records: [],
+    summary: { days_present: 4, late_count: 0 },
+  },
   matrix: null,
   dayTarget: null,
-  weeklyLogs: [],
+  weeklyLogs: [{ date: '2026-10-27', hours: 8 }],
   meta: {
     generatedAt: new Date().toISOString(),
     companyId: 'company-a',
@@ -81,6 +94,14 @@ const attendancePayload = {
 
 describe('first-paint request budgets and warm-cache revisits', () => {
   beforeEach(() => {
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    );
     dashboardService.clearCache();
     attendanceService.clearAllCaches();
     attendanceService.setCompanyScope('company-a');
@@ -95,21 +116,24 @@ describe('first-paint request budgets and warm-cache revisits', () => {
     vi.restoreAllMocks();
   });
 
-  it('DashboardView uses one cold request and zero requests on a warm revisit', async () => {
+  it('DashboardView uses at most three cold requests and a warm revisit is non-blocking', async () => {
     const { DashboardView } = await import('../DashboardView');
     const first = render(<DashboardView onNavigateView={vi.fn()} />);
-    await waitFor(() => expect(apiClient.get).toHaveBeenCalledTimes(1));
-    expect(screen.queryByText(/loading/i)).toBeNull();
+    await waitFor(() => expect(screen.getByTestId('logged-this-week')).toBeTruthy());
+    expect(vi.mocked(apiClient.get).mock.calls.length).toBeLessThanOrEqual(3);
+    expect(screen.getByTestId('logged-this-week').getAttribute('aria-busy')).not.toBe('true');
+    expect(screen.getByTestId('present-this-month').getAttribute('aria-busy')).not.toBe('true');
     first.unmount();
 
     vi.mocked(apiClient.get).mockClear();
     render(<DashboardView onNavigateView={vi.fn()} />);
     await act(async () => {});
     expect(apiClient.get).not.toHaveBeenCalled();
-    expect(screen.queryByText(/loading/i)).toBeNull();
+    expect(screen.getByTestId('logged-this-week').getAttribute('aria-busy')).not.toBe('true');
+    expect(screen.getByTestId('present-this-month').getAttribute('aria-busy')).not.toBe('true');
   });
 
-  it('AttendanceView uses one cold request and zero requests on a warm revisit', async () => {
+  it('AttendanceView uses one cold request and zero blocking requests on a warm revisit', async () => {
     const { AttendanceView } = await import('../AttendanceView');
     const first = render(<AttendanceView />);
     await waitFor(() => expect(screen.getByText('attendance-ready')).toBeTruthy());
