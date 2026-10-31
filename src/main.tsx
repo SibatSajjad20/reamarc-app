@@ -33,12 +33,9 @@ const isGallery =
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('ui-gallery');
 
-function removeBootSplash() {
-  document.getElementById('boot-splash')?.remove();
-}
-
 function mount() {
-  removeBootSplash();
+  // Keep #boot-splash until App signals ready (auth done / public route).
+  // Removing it here caused a blank gap + LoadingScreen opacity-0 blink.
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <LucideProvider strokeWidth={1.5} size={16} absoluteStrokeWidth={false}>

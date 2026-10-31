@@ -34,6 +34,7 @@ import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
+import { removeBootSplash } from './utils/bootSplash';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
 import { PublicClientReviewView } from './components/views/PublicClientReviewView';
 import { PublicInvoiceView } from './components/finance/PublicInvoiceView';
@@ -58,6 +59,21 @@ function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading, pendingBrand } = useAuth();
   const moduleClicksBlocked = useModuleLoadBlocked();
+
+  // Keep the HTML #boot-splash up through auth bootstrap (and under React's
+  // LoadingScreen). Removing it in main.tsx caused blank gaps + remount blinks.
+  useEffect(() => {
+    const path = (typeof window !== 'undefined' ? window.location.pathname : '').toLowerCase();
+    const isPublic =
+      path.startsWith('/book') ||
+      path.startsWith('/schedule') ||
+      path.startsWith('/review') ||
+      path.startsWith('/client-review') ||
+      path.startsWith('/invoice/');
+    if (isPublic || !isAuthLoading) {
+      removeBootSplash();
+    }
+  }, [isAuthLoading]);
 
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);

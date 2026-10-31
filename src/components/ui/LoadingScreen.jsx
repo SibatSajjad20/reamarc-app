@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Skeleton } from './skeleton';
 
 /**
@@ -8,6 +8,9 @@ import { Skeleton } from './skeleton';
  *
  * Full-screen mode is brand-neutral (Worklane W mark + spinner, no company name)
  * so Worklane hosts never flash Reamarc on first load.
+ *
+ * Full-screen is immediately visible (no opacity delay). The HTML #boot-splash
+ * covers first paint; a delayed fade-in here used to blink the W loader ~4×.
  *
  * @param {Object} props
  * @param {string} [props.message]
@@ -25,22 +28,11 @@ export function LoadingScreen({
   fullScreen = false,
   className = '',
 }) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    // 300ms visual delay so fast sessions never flash the screen
-    const timer = setTimeout(() => {
-      setMounted(true);
-    }, 300);
-    return () => clearTimeout(timer);
-  }, []);
-
   if (fullScreen) {
     return (
       <div
-        className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-canvas text-fg select-none transition-opacity duration-160 ease-[var(--ease-standard)] ${
-          mounted ? 'opacity-100' : 'opacity-0 pointer-events-none'
-        } ${className}`}
+        data-testid="fullscreen-loader"
+        className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-canvas text-fg select-none ${className}`}
         aria-busy="true"
         aria-label={message || 'Loading'}
       >

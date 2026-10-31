@@ -30,7 +30,7 @@
     })();
   </script>
   <style>
-    /* Neutral first-paint loader (no brand name). Removed when React mounts. */
+    /* Neutral first-paint loader (no brand name). Kept until auth/public ready. */
     #boot-splash {
       position: fixed;
       inset: 0;
@@ -62,6 +62,11 @@
     }
     @keyframes boot-spin {
       to { transform: rotate(360deg); }
+    }
+    #boot-splash.boot-splash-hide {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 160ms ease;
     }
   </style>
 </head>
