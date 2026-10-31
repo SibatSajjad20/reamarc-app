@@ -121,10 +121,12 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     if (record?.is_late && record.late_minutes) {
       return `Checked in ${record.late_minutes} min after shift start.`;
     }
-    if (!isWfh && enforceGps && gpsQuality === 'out_of_range') {
+    // After check-out these location checks no longer matter (and look like
+    // false warnings on the completed Your day card, including relaxed days).
+    if (!isCheckedOut && !isWfh && enforceGps && gpsQuality === 'out_of_range') {
       return 'Outside office radius. GPS check-in blocked.';
     }
-    if (!isWfh && enforceIp && !wifiOk) {
+    if (!isCheckedOut && !isWfh && enforceIp && !wifiOk) {
       return 'Not connected to office Wi-Fi.';
     }
     if (hasPendingInquiry) {

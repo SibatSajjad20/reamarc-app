@@ -657,6 +657,12 @@ async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -
     stamped template, move the reason onto overtime and create the missing request.
     """
     db = get_database()
+    date_str = str(rec.get("date") or "")
+    # Always bind before recomputing hours. Callers (Your day, matrix, timesheet)
+    # used to heal before bind_relaxed_days, which dropped count_from_actual_check_in
+    # and clamped early arrivals back to shift start on cricket / relaxed days.
+    if date_str:
+        await bind_relaxed_days(date_str, date_str)
     cin, cout = record_punch_times(rec)
     if not cin or not cout or not rec.get("user_id") or not rec.get("date"):
         apply_daily_calc_fields(rec, shift)
@@ -2749,6 +2755,7 @@ async def get_today_status(
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
     show_absent_record = record_status == AttendanceStatus.ABSENT.value and shift_ended
+    await bind_relaxed_days(target_date, target_date)
     if record_doc and cin:
         record_doc = await _heal_overtime_request_for_record(user, record_doc, shift)
         cin = record_doc.get("check_in") or record_doc.get("punch_in")
@@ -3335,6 +3342,7 @@ async def get_daily_matrix(
 
     # 4. Check company calendar for holiday or workday override
     calendar_event = await db.company_calendar.find_one({"date": target_date}, {"_id": 0})
+    await bind_relaxed_days(target_date, target_date)
     is_holiday = bool(
         calendar_event and (
             calendar_event.get("is_off_day") is True
@@ -3457,6 +3465,7 @@ async def get_daily_matrix(
                         "is_wfh": is_wfh_flag,
                         "is_short_leave": is_short_leave_flag,
                         "short_leave_hours": short_leave_hours_val,
+                        **extra_for_record(rec, raw_shift),
                     }),
                 )
 
@@ -4423,6 +4432,8 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
     cin = rec.get("check_in") or rec.get("punch_in")
     cout = rec.get("check_out") or rec.get("punch_out")
     now_iso = datetime.now(timezone.utc).isoformat()
+    await bind_relaxed_days(date_str, date_str)
+    relaxed_extra = extra_for_record({**rec, "user_id": user_id, "date": date_str, "is_wfh": is_wfh}, shift)
 
     if cin and cout:
         _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
@@ -4433,6 +4444,7 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
                 "is_wfh": is_wfh,
                 "is_short_leave": bool(rec.get("is_short_leave")),
                 "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+                **relaxed_extra,
             },
             auto_approve=True,
         )
@@ -4440,7 +4452,7 @@ async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[di
         calc_res = calculate_daily_attendance(
             check_in_time=cin,
             check_out_time=cout,
-            **shift_calc_kwargs(shift, {"is_wfh": is_wfh}),
+            **shift_calc_kwargs(shift, {"is_wfh": is_wfh, **relaxed_extra}),
         )
         status_val = AttendanceStatus.WFH if is_wfh else calc_res.status
     elif cin:
@@ -5114,11 +5126,23 @@ async def _sync_attendance_record_for_request(
                 reg_in = req.get("regularization_check_in") or req.get("regularization_punch_in") or shift.start_time
                 reg_out = req.get("regularization_check_out") or req.get("regularization_punch_out") or (existing_rec.get("check_out") if existing_rec else None)
 
+            await bind_relaxed_days(str(reg_date), str(reg_date))
+            reg_extra = extra_for_record(
+                {
+                    "user_id": target_user_id,
+                    "date": reg_date,
+                    "is_wfh": bool((existing_rec or {}).get("is_wfh")),
+                    "check_in": reg_in,
+                    "check_out": reg_out,
+                },
+                shift,
+            )
             if reg_in and reg_out:
                 _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
                     reg_in,
                     reg_out,
                     shift,
+                    extra=reg_extra,
                     auto_approve=True,
                 )
                 hour_fields = settled_to_record_fields(settled)
@@ -5126,7 +5150,7 @@ async def _sync_attendance_record_for_request(
                 calc_res = calculate_daily_attendance(
                     check_in_time=reg_in,
                     check_out_time=reg_out,
-                    **shift_calc_kwargs(shift),
+                    **shift_calc_kwargs(shift, reg_extra),
                 )
                 hour_fields = {
                     "working_hours_minutes": calc_res.work_minutes,
@@ -5153,7 +5177,7 @@ async def _sync_attendance_record_for_request(
             preview = calculate_daily_attendance(
                 check_in_time=reg_in,
                 check_out_time=reg_out,
-                **shift_calc_kwargs(shift),
+                **shift_calc_kwargs(shift, reg_extra),
             )
 
             att_doc = {
@@ -6084,12 +6108,25 @@ async def admin_manual_attendance_entry(
         check_in = None
         check_out = None
 
+    await bind_relaxed_days(date_str, date_str)
+    manual_extra = extra_for_record(
+        {
+            "user_id": user_id,
+            "date": date_str,
+            "is_wfh": status_override == AttendanceStatus.WFH,
+            "check_in": check_in,
+            "check_out": check_out,
+        },
+        shift,
+    )
+
     if check_in and not is_absent_override and not is_leave_override:
         if check_out:
             calc_res, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
                 check_in,
                 check_out,
                 shift,
+                extra=manual_extra,
                 auto_approve=True,
             )
             work_hours = settled.work_hours
@@ -6103,7 +6140,7 @@ async def admin_manual_attendance_entry(
             calc_res = calculate_daily_attendance(
                 check_in_time=check_in,
                 check_out_time=check_out,
-                **shift_calc_kwargs(shift),
+                **shift_calc_kwargs(shift, manual_extra),
             )
             work_hours = calc_res.work_hours
             work_duration_formatted = calc_res.work_duration_formatted

@@ -477,6 +477,26 @@ export function usePunchFlow(
 
   const elapsedAtWork = useMemo(() => {
     if (isCheckedOut) {
+      const punchInStr = punchIn ? (typeof punchIn === 'string' ? punchIn : String(punchIn)) : null;
+      const punchOutStr = punchOut ? (typeof punchOut === 'string' ? punchOut : String(punchOut)) : null;
+      // Relaxed / cricket day: always prefer actual in→out so a stale stored
+      // clamp to shift start cannot show "2h 21m" when the person arrived early.
+      if (todayData?.count_from_actual_check_in && punchInStr && punchOutStr) {
+        const netMinutes = provisionalNetWorkMinutes({
+          checkIn: punchInStr,
+          checkOut: punchOutStr,
+          shiftStart: shift?.start_time,
+          shiftEnd: shift?.end_time,
+          breakDurationMinutes: shift?.break_duration_minutes ?? 0,
+          breakStart: shift?.break_start_time,
+          breakEnd: shift?.break_end_time,
+          isNightShift: Boolean(shift?.is_night_shift),
+          countFromActualCheckIn: true,
+        });
+        const hrs = Math.floor(netMinutes / 60);
+        const mins = netMinutes % 60;
+        return `${hrs}h ${mins}m`;
+      }
       const workMins = record?.working_hours_minutes ?? 0;
       if (workMins > 0) {
         const hrs = Math.floor(workMins / 60);
@@ -509,7 +529,7 @@ export function usePunchFlow(
     const hrs = Math.floor(netMinutes / 60);
     const mins = netMinutes % 60;
     return `${hrs}h ${mins}m`;
-  }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes, record?.work_duration_formatted, shift, nowTick, todayData?.count_from_actual_check_in]);
+  }, [isCheckedIn, isCheckedOut, punchIn, punchOut, record?.working_hours_minutes, record?.work_duration_formatted, shift, nowTick, todayData?.count_from_actual_check_in]);
 
   const renderVarianceModal = () => {
     return (
