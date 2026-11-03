@@ -7,7 +7,7 @@ import type { Workspace } from '../../types';
 import { FinanceReportFilters, ReportDownloadButton } from './financeUi';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useCacheInvalidation } from '../../utils/cacheBus';
-import { TableSkeletonRows } from '../ui/Skeletons';
+import { KpiRowSkeleton, TableSkeletonRows } from '../ui/Skeletons';
 
 export const SummaryAccountsView: React.FC = () => {
   const [dateFrom, setDateFrom] = useState<string>('2026-01-01');
@@ -85,6 +85,13 @@ export const SummaryAccountsView: React.FC = () => {
     [rows],
   );
 
+  const displayCurrency = useMemo(() => {
+    if (rows.length > 0 && rows.every((r) => r.currency === rows[0].currency)) {
+      return rows[0].currency;
+    }
+    return 'PKR';
+  }, [rows]);
+
   return (
     <div className="p-6 w-full space-y-6">
       <div>
@@ -119,6 +126,32 @@ export const SummaryAccountsView: React.FC = () => {
         }
       />
 
+      {/* KPI Cards */}
+      {loading ? (
+        <KpiRowSkeleton count={3} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="bg-surface p-4 rounded-lg border border-border">
+            <p className="text-caption text-fg-muted">Invoice Amount</p>
+            <p className="text-h2 font-semibold font-numeric text-fg mt-1">
+              {formatMinorMoney(totals.invoice, displayCurrency)}
+            </p>
+          </div>
+          <div className="bg-surface p-4 rounded-lg border border-border">
+            <p className="text-caption text-fg-muted">Amount Recieved</p>
+            <p className="text-h2 font-semibold font-numeric text-emerald-700 dark:text-emerald-400 mt-1">
+              {formatMinorMoney(totals.received, displayCurrency)}
+            </p>
+          </div>
+          <div className="bg-surface p-4 rounded-lg border border-border">
+            <p className="text-caption text-fg-muted">Balance Due</p>
+            <p className="text-h2 font-semibold font-numeric text-fg mt-1">
+              {formatMinorMoney(totals.due, displayCurrency)}
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="bg-surface rounded-lg border border-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
@@ -128,7 +161,7 @@ export const SummaryAccountsView: React.FC = () => {
                 <th className="py-3 px-4">Date</th>
                 <th className="py-3 px-4">Client Name</th>
                 <th className="py-3 px-4 text-right">Invoice Amount</th>
-                <th className="py-3 px-4 text-right">Amount Receive</th>
+                <th className="py-3 px-4 text-right">Amount Recieved</th>
                 <th className="py-3 px-4 text-right">Balance Due</th>
               </tr>
             </thead>
@@ -160,9 +193,9 @@ export const SummaryAccountsView: React.FC = () => {
               <tfoot>
                 <tr className="bg-subtle font-bold border-t-2 border-border-strong">
                   <td className="py-3 px-4" colSpan={3}>Total</td>
-                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.invoice, 'PKR')}</td>
-                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.received, 'PKR')}</td>
-                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.due, 'PKR')}</td>
+                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.invoice, displayCurrency)}</td>
+                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.received, displayCurrency)}</td>
+                  <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(totals.due, displayCurrency)}</td>
                 </tr>
               </tfoot>
             )}

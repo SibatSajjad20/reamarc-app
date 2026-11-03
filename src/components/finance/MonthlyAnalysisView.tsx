@@ -529,15 +529,14 @@ export const MonthlyAnalysisView: React.FC = () => {
                 <th className="py-3 px-4 text-right">Billed (PKR)</th>
                 <th className="py-3 px-4 text-right">Pending</th>
                 <th className="py-3 px-4 text-right">WHT</th>
-                <th className="py-3 px-4 text-right">3-{shownUnit} avg</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading && !data ? (
-                <TableSkeletonRows rows={6} columns={6} />
+                <TableSkeletonRows rows={6} columns={5} />
               ) : !data?.months.length ? (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-fg-muted">No data in this range.</td>
+                  <td colSpan={5} className="py-8 text-center text-fg-muted">No data in this range.</td>
                 </tr>
               ) : (
                 data.months.map((row) => (
@@ -553,7 +552,6 @@ export const MonthlyAnalysisView: React.FC = () => {
                     <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(row.billed_pkr, 'PKR')}</td>
                     <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(row.pending_pkr, 'PKR')}</td>
                     <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(row.wht_pkr, 'PKR')}</td>
-                    <td className="py-3 px-4 text-right font-numeric">{formatMinorMoney(row.avg_3m_pkr, 'PKR')}</td>
                   </tr>
                 ))
               )}
