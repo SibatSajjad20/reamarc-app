@@ -36,9 +36,21 @@ def _is_crm_kind(kind: str) -> bool:
 
 
 def _is_blocked_crm_kind(kind: str) -> bool:
-    """Sales pipeline alerts other than the 60-minute uncontacted SLA are suppressed."""
+    """Sales pipeline alerts other than the 60-minute uncontacted SLA are suppressed for admin/owner."""
     k = (kind or "").strip().lower()
     return _is_crm_kind(k) and k != "crm_sla"
+
+
+def _notification_company_id(item: Optional[dict] = None) -> Optional[str]:
+    if isinstance(item, dict):
+        cid = item.get("company_id")
+        if cid:
+            return str(cid)
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        return str(ctx.company_id)
+    return None
 
 
 async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Optional[dict] = None) -> List[str]:
@@ -46,8 +58,6 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     if not user_ids:
         return []
     k = (kind or "").strip().lower()
-    if _is_blocked_crm_kind(k):
-        return []
 
     db = get_database()
     if db is None:
@@ -101,13 +111,21 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     user_map = {u.get("id"): u for u in users_list if u.get("id")}
 
     classified = bool(req_module or req_tracking or k in STAFF_ATT_KINDS)
+    notify_cid = _notification_company_id(item)
+    crm_kind = _is_crm_kind(k)
 
     allowed = []
     for uid in user_ids:
         u = user_map.get(uid)
         if not u:
             continue
+        if crm_kind and notify_cid:
+            ucid = u.get("company_id")
+            if ucid and str(ucid) != notify_cid:
+                continue
         role = str(u.get("role") or "").lower()
+        if crm_kind and _is_blocked_crm_kind(k) and role in ("admin", "super_admin", "owner"):
+            continue
         if role in ("admin", "super_admin"):
             if k in ADMIN_NOTIFICATION_KINDS:
                 allowed.append(uid)
