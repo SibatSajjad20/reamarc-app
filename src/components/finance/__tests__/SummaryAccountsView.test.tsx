@@ -55,8 +55,8 @@ const sampleInvoices = [
     status: 'paid',
     currency: 'PKR',
     total: 5000000, // PKR 50,000
-    amount_paid: 5000000,
-    wht_settled: 0,
+    amount_paid: 4000000,
+    wht_settled: 1000000,
     balance_due: 0,
   },
 ];
@@ -77,14 +77,17 @@ describe('SummaryAccountsView', () => {
     // Check KPI card labels
     expect(screen.getAllByText('Invoice Amount').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Amount Recieved').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText('WHT')).toBeTruthy();
     expect(screen.getAllByText('Balance Due').length).toBeGreaterThanOrEqual(1);
 
     // Check KPI card calculated amounts
     // Total invoice: 70,000 + 50,000 = PKR 120,000
-    // Total received: 0 + 50,000 = PKR 50,000
+    // Total received: 0 + (40,000 + 10,000 WHT) = PKR 50,000
+    // Total WHT: 0 + 10,000 = PKR 10,000
     // Total due: 70,000 + 0 = PKR 70,000
     expect(screen.getAllByText('PKR 120,000').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('PKR 50,000').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('PKR 10,000').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('PKR 70,000').length).toBeGreaterThanOrEqual(1);
   });
 

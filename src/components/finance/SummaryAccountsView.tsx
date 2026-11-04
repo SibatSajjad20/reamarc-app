@@ -77,10 +77,11 @@ export const SummaryAccountsView: React.FC = () => {
         (acc, inv) => {
           acc.invoice += inv.total;
           acc.received += inv.amount_paid + inv.wht_settled;
+          acc.wht += inv.wht_settled;
           acc.due += inv.balance_due;
           return acc;
         },
-        { invoice: 0, received: 0, due: 0 },
+        { invoice: 0, received: 0, wht: 0, due: 0 },
       ),
     [rows],
   );
@@ -128,9 +129,9 @@ export const SummaryAccountsView: React.FC = () => {
 
       {/* KPI Cards */}
       {loading ? (
-        <KpiRowSkeleton count={3} />
+        <KpiRowSkeleton count={4} />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <div className="bg-surface p-4 rounded-lg border border-border">
             <p className="text-caption text-fg-muted">Invoice Amount</p>
             <p className="text-h2 font-semibold font-numeric text-fg mt-1">
@@ -141,6 +142,12 @@ export const SummaryAccountsView: React.FC = () => {
             <p className="text-caption text-fg-muted">Amount Recieved</p>
             <p className="text-h2 font-semibold font-numeric text-emerald-700 dark:text-emerald-400 mt-1">
               {formatMinorMoney(totals.received, displayCurrency)}
+            </p>
+          </div>
+          <div className="bg-surface p-4 rounded-lg border border-border">
+            <p className="text-caption text-fg-muted">WHT</p>
+            <p className="text-h2 font-semibold font-numeric text-fg mt-1">
+              {formatMinorMoney(totals.wht, displayCurrency)}
             </p>
           </div>
           <div className="bg-surface p-4 rounded-lg border border-border">

@@ -56,7 +56,7 @@ from app.services.finance_ledger import (
     transfer_cash_to_bank,
 )
 from app.services.finance_pdf import generate_invoice_pdf, generate_receipt_pdf
-from app.services.finance_receipts import confirm_receipt, delete_receipt, get_receipts, post_receipt, void_receipt
+from app.services.finance_receipts import confirm_receipt, delete_receipt, get_receipts, post_receipt, update_receipt, void_receipt
 from app.services.finance_reports import (
     export_ageing_summary_excel,
     export_ageing_summary_pdf,
@@ -537,6 +537,21 @@ async def post_receipt_endpoint(
     uid = current_user.get("id") or current_user.get("_id")
     uname = current_user.get("full_name") or current_user.get("name")
     rcpt = await post_receipt(db, cid, payload, user_id=uid, user_name=uname)
+    rcpt.pop("_id", None)
+    return rcpt
+
+
+@router.patch("/receipts/{receipt_id}")
+async def patch_receipt_endpoint(
+    receipt_id: str,
+    payload: ReceiptCreate,
+    current_user: Dict[str, Any] = Depends(require_permission("finance", "create")),
+):
+    db = get_database()
+    cid = _extract_company_id(current_user)
+    uid = current_user.get("id") or current_user.get("_id")
+    uname = current_user.get("full_name") or current_user.get("name")
+    rcpt = await update_receipt(db, cid, receipt_id, payload, user_id=uid, user_name=uname)
     rcpt.pop("_id", None)
     return rcpt
 

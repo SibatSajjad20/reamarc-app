@@ -49,29 +49,23 @@ async def _pending_reserved_for_invoice(
     return reserved
 
 
-async def post_receipt(
+def _compute_pkr_amount(payload: ReceiptCreate) -> int:
+    if payload.currency == "PKR":
+        return payload.amount_received
+    if not payload.exchange_rate or payload.exchange_rate <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Foreign currency ({payload.currency}) receipt requires a positive exchange rate",
+        )
+    return int(round(payload.amount_received * payload.exchange_rate))
+
+
+async def _validate_and_enrich_allocations(
     db,
     company_id: str,
     payload: ReceiptCreate,
-    user_id: Optional[str] = None,
-    user_name: Optional[str] = None,
-) -> Dict[str, Any]:
-    """Record payment receipt with invoice allocations, currency conversions, and ledger posting."""
-    receipt_id = f"rcp_{uuid.uuid4().hex[:12]}"
-    now = _now_iso()
-
-    # 1. Currency & PKR Amount Calculation
-    if payload.currency == "PKR":
-        pkr_amount = payload.amount_received
-    else:
-        if not payload.exchange_rate or payload.exchange_rate <= 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Foreign currency ({payload.currency}) receipt requires a positive exchange rate",
-            )
-        pkr_amount = int(round(payload.amount_received * payload.exchange_rate))
-
-    # 2. Validate Allocations against Invoices
+    exclude_receipt_id: Optional[str] = None,
+) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     alloc_invoice_docs: List[Dict[str, Any]] = []
     enriched_allocations: List[Dict[str, Any]] = []
 
@@ -98,7 +92,9 @@ async def post_receipt(
 
         alloc_settle = alloc.amount + alloc.wht
         curr_balance = inv.get("balance_due", 0)
-        reserved = await _pending_reserved_for_invoice(db, company_id, alloc.invoice_id)
+        reserved = await _pending_reserved_for_invoice(
+            db, company_id, alloc.invoice_id, exclude_receipt_id=exclude_receipt_id
+        )
         available = max(0, curr_balance - reserved)
         if alloc_settle > available:
             raise HTTPException(
@@ -120,6 +116,109 @@ async def post_receipt(
             "amount": alloc.amount,
             "wht": alloc.wht,
         })
+    return alloc_invoice_docs, enriched_allocations
+
+
+def _alloc_tuples(allocs: Any) -> List[tuple]:
+    out: List[tuple] = []
+    for a in allocs or []:
+        if hasattr(a, "invoice_id"):
+            out.append((a.invoice_id, int(a.amount), int(a.wht)))
+        else:
+            out.append((
+                a.get("invoice_id"),
+                int(a.get("amount", 0) or 0),
+                int(a.get("wht", 0) or 0),
+            ))
+    return out
+
+
+def _posted_restricted_changed(existing: Dict[str, Any], payload: ReceiptCreate) -> bool:
+    if int(existing.get("amount_received", 0) or 0) != payload.amount_received:
+        return True
+    if int(existing.get("wht_amount", 0) or 0) != payload.wht_amount:
+        return True
+    if _alloc_tuples(existing.get("allocations")) != _alloc_tuples(payload.allocations):
+        return True
+    if (existing.get("date") or "") != payload.date:
+        return True
+    if (existing.get("currency") or "PKR") != payload.currency:
+        return True
+    if (existing.get("method") or "") != payload.method:
+        return True
+    if (existing.get("bank") or None) != (payload.bank or None):
+        return True
+    if (existing.get("reference_number") or "") != (payload.reference_number or ""):
+        return True
+    if (existing.get("client_name") or "") != payload.client_name:
+        return True
+    if (existing.get("workspace_id") or None) != (payload.workspace_id or None):
+        return True
+    if existing.get("exchange_rate") != payload.exchange_rate:
+        return True
+    if bool(existing.get("is_cheque")) != bool(payload.is_cheque):
+        return True
+    return False
+
+
+def _receipt_audit_snapshot(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "date": doc.get("date"),
+        "amount_received": doc.get("amount_received"),
+        "wht_amount": doc.get("wht_amount"),
+        "allocations": _alloc_tuples(doc.get("allocations")),
+        "memo": doc.get("memo") or "",
+        "proof_file_ids": list(doc.get("proof_file_ids") or []),
+        "wht_certificate_file_id": doc.get("wht_certificate_file_id"),
+    }
+
+
+async def _write_receipt_edit_audit(
+    db,
+    company_id: str,
+    receipt_id: str,
+    number: Any,
+    old_values: Dict[str, Any],
+    new_values: Dict[str, Any],
+    user_id: Optional[str],
+    user_name: Optional[str],
+) -> None:
+    now = _now_iso()
+    await db["finance_audit"].insert_one({
+        "id": f"aud_{uuid.uuid4().hex[:12]}",
+        "company_id": company_id,
+        "action": "receipt_edit",
+        "entity_type": "receipt",
+        "entity_id": receipt_id,
+        "details": {
+            "number": number,
+            "old": old_values,
+            "new": new_values,
+        },
+        "user_id": user_id,
+        "user_name": user_name,
+        "created_at": now,
+    })
+
+
+async def post_receipt(
+    db,
+    company_id: str,
+    payload: ReceiptCreate,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Record payment receipt with invoice allocations, currency conversions, and ledger posting."""
+    receipt_id = f"rcp_{uuid.uuid4().hex[:12]}"
+    now = _now_iso()
+
+    # 1. Currency & PKR Amount Calculation
+    pkr_amount = _compute_pkr_amount(payload)
+
+    # 2. Validate Allocations against Invoices
+    alloc_invoice_docs, enriched_allocations = await _validate_and_enrich_allocations(
+        db, company_id, payload
+    )
 
     # 3. Reserve Sequential Receipt Number
     settings = await get_or_init_finance_settings(db, company_id)
@@ -258,6 +357,114 @@ async def post_receipt(
     })
 
     return receipt_doc
+
+
+POSTED_RECEIPT_EDIT_DETAIL = "Posted receipts can only have notes and attachments edited"
+
+
+async def update_receipt(
+    db,
+    company_id: str,
+    receipt_id: str,
+    payload: ReceiptCreate,
+    user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Edit a receipt. Pending receipts re-run post validations; posted receipts allow notes/attachments only."""
+    coll = db["receipts"]
+    existing = await coll.find_one({"company_id": company_id, "id": receipt_id})
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Receipt not found")
+
+    status_value = (existing.get("status") or "").lower()
+    old_values = _receipt_audit_snapshot(existing)
+    now = _now_iso()
+
+    if status_value == "posted":
+        if _posted_restricted_changed(existing, payload):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=POSTED_RECEIPT_EDIT_DETAIL,
+            )
+        await coll.update_one(
+            {"company_id": company_id, "id": receipt_id},
+            {
+                "$set": {
+                    "memo": payload.memo or "",
+                    "proof_file_ids": payload.proof_file_ids,
+                    "wht_certificate_file_id": payload.wht_certificate_file_id,
+                    "updated_at": now,
+                    "updated_by": user_id,
+                    "updated_by_name": user_name,
+                }
+            },
+        )
+        updated = await coll.find_one({"company_id": company_id, "id": receipt_id})
+        await _write_receipt_edit_audit(
+            db,
+            company_id,
+            receipt_id,
+            existing.get("number"),
+            old_values,
+            _receipt_audit_snapshot(updated or existing),
+            user_id,
+            user_name,
+        )
+        return updated
+
+    if status_value != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only pending or posted receipts can be edited",
+        )
+
+    pkr_amount = _compute_pkr_amount(payload)
+    _alloc_docs, enriched_allocations = await _validate_and_enrich_allocations(
+        db, company_id, payload, exclude_receipt_id=receipt_id
+    )
+    total_alloc_amount = sum(a.amount for a in payload.allocations)
+    total_alloc_wht = sum(a.wht for a in payload.allocations)
+    unapplied_amount = (payload.amount_received - total_alloc_amount) + (payload.wht_amount - total_alloc_wht)
+
+    await coll.update_one(
+        {"company_id": company_id, "id": receipt_id},
+        {
+            "$set": {
+                "workspace_id": payload.workspace_id,
+                "client_name": payload.client_name,
+                "date": payload.date,
+                "currency": payload.currency,
+                "amount_received": payload.amount_received,
+                "wht_amount": payload.wht_amount,
+                "settles_total": payload.amount_received + payload.wht_amount,
+                "method": payload.method,
+                "bank": payload.bank,
+                "reference_number": payload.reference_number or "",
+                "exchange_rate": payload.exchange_rate,
+                "pkr_amount": pkr_amount,
+                "allocations": enriched_allocations,
+                "unapplied_amount": unapplied_amount,
+                "memo": payload.memo or "",
+                "proof_file_ids": payload.proof_file_ids,
+                "wht_certificate_file_id": payload.wht_certificate_file_id,
+                "updated_at": now,
+                "updated_by": user_id,
+                "updated_by_name": user_name,
+            }
+        },
+    )
+    updated = await coll.find_one({"company_id": company_id, "id": receipt_id})
+    await _write_receipt_edit_audit(
+        db,
+        company_id,
+        receipt_id,
+        existing.get("number"),
+        old_values,
+        _receipt_audit_snapshot(updated or existing),
+        user_id,
+        user_name,
+    )
+    return updated
 
 
 async def void_receipt(*_args, **_kwargs) -> Dict[str, Any]:

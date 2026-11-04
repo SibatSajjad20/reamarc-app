@@ -6,6 +6,7 @@ import {
   ShieldCheck,
   Check,
   Paperclip,
+  Pencil,
 } from 'lucide-react';
 import { financeService } from '../../services/financeService';
 import { workspaceService } from '../../services/workspaceService';
@@ -35,6 +36,44 @@ import type { Workspace } from '../../types';
 interface ReceiptsViewProps {
   initialInvoiceToPay?: Invoice | null;
   onPaymentSuccess?: () => void;
+}
+
+export interface AllocRowState {
+  invoice: Invoice;
+  selected: boolean;
+  amountMajor: number;
+  whtMajor: number;
+  manual?: boolean;
+}
+
+export function distributeReceiptAllocRows(
+  rows: AllocRowState[],
+  cashMinor: number,
+  whtMinor: number,
+): AllocRowState[] {
+  let remainingCash = cashMinor;
+  let remainingWht = whtMinor;
+  return rows.map((row) => {
+    if (!row.selected) {
+      if (row.manual) return row;
+      if (row.amountMajor === 0 && row.whtMajor === 0) return row;
+      return { ...row, amountMajor: 0, whtMajor: 0 };
+    }
+    if (row.manual) {
+      remainingCash -= majorToMinor(row.amountMajor);
+      remainingWht -= majorToMinor(row.whtMajor);
+      return row;
+    }
+    const balance = row.invoice.balance_due;
+    const cash = Math.min(Math.max(0, remainingCash), balance);
+    remainingCash -= cash;
+    const wht = Math.min(Math.max(0, remainingWht), Math.max(0, balance - cash));
+    remainingWht -= wht;
+    const amountMajor = minorToMajor(cash);
+    const whtMajor = minorToMajor(wht);
+    if (row.amountMajor === amountMajor && row.whtMajor === whtMajor) return row;
+    return { ...row, amountMajor, whtMajor };
+  });
 }
 
 export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
@@ -72,15 +111,10 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const [memo, setMemo] = useState<string>('');
   const [proofFile, setProofFile] = useState<{ id: string; filename: string } | null>(null);
   const [whtCert, setWhtCert] = useState<{ id: string; filename: string } | null>(null);
+  const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
 
-  // Allocations mapping: invoiceId -> { selected: bool, amountMajor: number, whtMajor: number }
-  interface AllocRowState {
-    invoice: Invoice;
-    selected: boolean;
-    amountMajor: number;
-    whtMajor: number;
-  }
   const [allocRows, setAllocRows] = useState<AllocRowState[]>([]);
+  const fieldsLocked = editingReceipt?.status === 'posted';
 
   const fetchReceipts = useCallback(async (opts?: { silent?: boolean }) => {
     loadAbortRef.current?.abort();
@@ -156,24 +190,71 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
         );
         setOpenInvoices(clientMatches);
 
-        // Pre-fill allocation rows
-        const initialRows: AllocRowState[] = clientMatches.map((inv) => ({
-          invoice: inv,
-          selected: initialInvoiceToPay ? inv.id === initialInvoiceToPay.id : true,
-          amountMajor: initialInvoiceToPay
-            ? inv.id === initialInvoiceToPay.id
-              ? minorToMajor(inv.balance_due)
-              : 0
-            : minorToMajor(inv.balance_due),
-          whtMajor: 0,
-        }));
+        const allocByInv = new Map(
+          (editingReceipt?.allocations || []).map((a) => [a.invoice_id, a]),
+        );
+        const usedIds = new Set<string>();
+        const initialRows: AllocRowState[] = clientMatches.map((inv) => {
+          usedIds.add(inv.id);
+          const existingAlloc = allocByInv.get(inv.id);
+          if (existingAlloc) {
+            return {
+              invoice: inv,
+              selected: true,
+              amountMajor: minorToMajor(existingAlloc.amount),
+              whtMajor: minorToMajor(existingAlloc.wht),
+              manual: true,
+            };
+          }
+          return {
+            invoice: inv,
+            selected: initialInvoiceToPay ? inv.id === initialInvoiceToPay.id : true,
+            amountMajor: 0,
+            whtMajor: 0,
+          };
+        });
+        if (editingReceipt) {
+          for (const alloc of editingReceipt.allocations || []) {
+            if (usedIds.has(alloc.invoice_id)) continue;
+            const restoredBalance =
+              (alloc.invoice_balance_due || 0) + (alloc.amount || 0) + (alloc.wht || 0);
+            initialRows.push({
+              invoice: {
+                id: alloc.invoice_id,
+                number: alloc.invoice_number || alloc.invoice_id,
+                due_date: alloc.invoice_date || '',
+                total: alloc.invoice_total || 0,
+                currency: editingReceipt.currency,
+                balance_due: restoredBalance,
+                client_name: editingReceipt.client_name,
+                status: 'issued',
+                issue_date: alloc.invoice_date || '',
+                amount_paid: 0,
+                wht_settled: 0,
+                line_items: [],
+                subtotal: alloc.invoice_total || 0,
+                discount_type: 'amount',
+                discount_value: 0,
+                discount_amount: 0,
+                terms: '',
+                company_id: editingReceipt.company_id,
+                created_at: '',
+                updated_at: '',
+              } as Invoice,
+              selected: true,
+              amountMajor: minorToMajor(alloc.amount),
+              whtMajor: minorToMajor(alloc.wht),
+              manual: true,
+            });
+          }
+        }
         setAllocRows(initialRows);
       } catch (err) {
         console.error('Error loading open invoices for client:', err);
       }
     };
     loadOpenInvoices();
-  }, [clientName, initialInvoiceToPay]);
+  }, [clientName, initialInvoiceToPay, editingReceipt]);
 
   // Handle client selection from dropdown
   const handleSelectWorkspace = (wsId: string) => {
@@ -204,12 +285,16 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const totalAllocatedSettlementMinor = totalAllocatedAmountMinor + totalAllocatedWhtMinor;
   const unappliedCreditMinor = Math.max(0, settlesTotalMinor - totalAllocatedSettlementMinor);
 
+  const autoFillKey = allocRows.map((r) => `${r.invoice.id}:${r.selected}:${r.manual ? 1 : 0}`).join('|');
   useEffect(() => {
-    const selected = allocRows.filter((r) => r.selected);
-    if (selected.length === 0) return;
-    setAmountReceivedMajor(selected.reduce((sum, r) => sum + r.amountMajor, 0));
-    setWhtAmountMajor(selected.reduce((sum, r) => sum + r.whtMajor, 0));
-  }, [allocRows]);
+    setAllocRows((prev) => {
+      const next = distributeReceiptAllocRows(prev, amountReceivedMinor, whtAmountMinor);
+      if (next.length === prev.length && next.every((row, i) => row === prev[i])) {
+        return prev;
+      }
+      return next;
+    });
+  }, [amountReceivedMinor, whtAmountMinor, autoFillKey]);
 
   // Live PKR amount calculation for Foreign Currency receipts
   const pkrCreditedMajor = useMemo(() => {
@@ -313,20 +398,28 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
         allocations: allocationsPayload,
         proof_file_ids: proofFile ? [proofFile.id] : [],
         wht_certificate_file_id: whtCert?.id || null,
-        is_cheque: isCheque,
+        is_cheque: editingReceipt ? Boolean(editingReceipt.is_cheque) : isCheque,
       };
 
-      const created = await financeService.postReceipt(payload);
-      if (isCheque) {
+      const saved = editingReceipt
+        ? await financeService.updateReceipt(editingReceipt.id, payload)
+        : await financeService.postReceipt(payload);
+      if (editingReceipt) {
+        addToast(
+          'Receipt updated',
+          saved.number ? `${saved.number} was saved.` : 'Receipt changes were saved.',
+          'success',
+        );
+      } else if (isCheque) {
         addToast(
           'Cheque receipt created',
-          created.number ? `${created.number} is waiting for approval.` : 'Sent to pending requests.',
+          saved.number ? `${saved.number} is waiting for approval.` : 'Sent to pending requests.',
           'success',
         );
       } else {
         addToast(
           'Receipt recorded',
-          created.number ? `${created.number} was posted to the ledger.` : 'Payment posted to the ledger.',
+          saved.number ? `${saved.number} was posted to the ledger.` : 'Payment posted to the ledger.',
           'success',
         );
       }
@@ -338,6 +431,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       setProofFile(null);
       setWhtCert(null);
       setIsCheque(false);
+      setEditingReceipt(null);
       fetchReceipts();
       onPaymentSuccess?.();
     } catch (err: any) {
@@ -345,6 +439,29 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
     } finally {
       setPosting(false);
     }
+  };
+
+  const handleEditReceipt = (rcpt: Receipt) => {
+    setEditingReceipt(rcpt);
+    setClientName(rcpt.client_name || '');
+    setSelectedWorkspaceId(rcpt.workspace_id || '');
+    setPaymentDate(rcpt.date);
+    setCurrency(rcpt.currency || 'PKR');
+    setMethod(rcpt.method);
+    setBank(rcpt.bank || 'meezan');
+    setReferenceNumber(rcpt.reference_number || '');
+    setAmountReceivedMajor(minorToMajor(rcpt.amount_received));
+    setWhtAmountMajor(minorToMajor(rcpt.wht_amount));
+    setExchangeRate(rcpt.exchange_rate || (rcpt.currency === 'PKR' ? 1.0 : 278.5));
+    setMemo(rcpt.memo || '');
+    setProofFile(rcpt.proof_file_ids?.[0] ? { id: rcpt.proof_file_ids[0], filename: 'proof' } : null);
+    setWhtCert(
+      rcpt.wht_certificate_file_id
+        ? { id: rcpt.wht_certificate_file_id, filename: 'wht-certificate' }
+        : null,
+    );
+    setIsCheque(Boolean(rcpt.is_cheque));
+    setError(null);
   };
 
   const handleApproveReceipt = async (id: string) => {
@@ -501,6 +618,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
               <AmountInput
                 value={amountReceivedMajor || ''}
                 onChange={(raw) => setAmountReceivedMajor(parseMajorGrouped(raw))}
+                disabled={fieldsLocked}
               />
             </div>
 
@@ -511,6 +629,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
               <AmountInput
                 value={whtAmountMajor || ''}
                 onChange={(raw) => setWhtAmountMajor(parseMajorGrouped(raw))}
+                disabled={fieldsLocked}
               />
             </div>
 
@@ -577,13 +696,11 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                       <td className="py-2.5 px-3 align-middle">
                         <Checkbox
                           checked={row.selected}
+                          disabled={fieldsLocked}
                           onCheckedChange={(checked) => {
                             const sel = checked === true;
                             const next = [...allocRows];
-                            next[idx].selected = sel;
-                            if (sel && next[idx].amountMajor === 0) {
-                              next[idx].amountMajor = minorToMajor(row.invoice.balance_due);
-                            }
+                            next[idx] = { ...next[idx], selected: sel };
                             setAllocRows(next);
                           }}
                           aria-label={`Allocate ${formatInvoiceNumber(row.invoice.number)}`}
@@ -596,11 +713,15 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <AmountInput
-                          disabled={!row.selected}
+                          disabled={!row.selected || fieldsLocked}
                           value={row.amountMajor}
                           onChange={(raw) => {
                             const next = [...allocRows];
-                            next[idx].amountMajor = parseMajorGrouped(raw);
+                            next[idx] = {
+                              ...next[idx],
+                              amountMajor: parseMajorGrouped(raw),
+                              manual: true,
+                            };
                             setAllocRows(next);
                           }}
                           className="h-8 px-2 py-1 text-right text-xs"
@@ -608,18 +729,28 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <AmountInput
-                          disabled={!row.selected}
+                          disabled={!row.selected || fieldsLocked}
                           value={row.whtMajor}
                           onChange={(raw) => {
                             const next = [...allocRows];
-                            next[idx].whtMajor = parseMajorGrouped(raw);
+                            next[idx] = {
+                              ...next[idx],
+                              whtMajor: parseMajorGrouped(raw),
+                              manual: true,
+                            };
                             setAllocRows(next);
                           }}
                           className="h-8 px-2 py-1 text-right text-xs"
                         />
                       </td>
                       <td className="py-2.5 px-3 text-right font-bold text-fg">
-                        {formatMinorMoney(row.invoice.balance_due, row.invoice.currency)}
+                        {formatMinorMoney(
+                          Math.max(
+                            0,
+                            row.invoice.balance_due - majorToMinor(row.amountMajor) - majorToMinor(row.whtMajor),
+                          ),
+                          row.invoice.currency,
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -691,7 +822,13 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
               className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
-              {posting ? 'Posting Receipt & Ledger…' : 'Post Receipt'}
+              {posting
+                ? editingReceipt
+                  ? 'Saving Receipt…'
+                  : 'Posting Receipt & Ledger…'
+                : editingReceipt
+                  ? 'Save Receipt'
+                  : 'Post Receipt'}
             </button>
           </div>
         </form>
@@ -796,6 +933,15 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                             <ShieldCheck className="w-4 h-4" />
                           </button>
                         )}
+                        <button
+                          type="button"
+                          onClick={() => handleEditReceipt(rcpt)}
+                          className="inline-flex h-7 items-center gap-1 px-2.5 text-xs font-semibold rounded-md text-fg-muted hover:text-accent-text hover:bg-hover transition"
+                          title="Edit receipt"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                          Edit
+                        </button>
                         <a
                           href={financeService.getReceiptPdfUrl(rcpt.id)}
                           target="_blank"

@@ -308,6 +308,13 @@ export const financeService = {
     return res;
   },
 
+  async updateReceipt(id: string, payload: ReceiptCreatePayload): Promise<Receipt> {
+    const res = await apiClient.patch<Receipt>(`/finance/receipts/${id}`, payload);
+    bustOperationalCaches();
+    emitInvalidation(['finance', 'dashboard']);
+    return res;
+  },
+
   async confirmReceipt(id: string): Promise<Receipt> {
     const res = await apiClient.post<Receipt>(`/finance/receipts/${id}/confirm`);
     bustOperationalCaches();
