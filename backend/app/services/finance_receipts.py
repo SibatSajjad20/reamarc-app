@@ -418,8 +418,8 @@ async def update_receipt(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=POSTED_RECEIPT_EDIT_DETAIL,
             )
-        await coll.update_one(
-            {"company_id": company_id, "id": receipt_id},
+        result = await coll.update_one(
+            {"company_id": company_id, "id": receipt_id, "status": "posted"},
             {
                 "$set": {
                     "memo": payload.memo or "",
@@ -431,6 +431,11 @@ async def update_receipt(
                 }
             },
         )
+        if result.matched_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The receipt is no longer posted or was changed. Refresh and try again.",
+            )
         updated = await coll.find_one({"company_id": company_id, "id": receipt_id})
         await _write_receipt_edit_audit(
             db,
@@ -456,8 +461,8 @@ async def update_receipt(
     )
     unapplied_amount = _assert_settlement_application(payload)
 
-    await coll.update_one(
-        {"company_id": company_id, "id": receipt_id},
+    result = await coll.update_one(
+        {"company_id": company_id, "id": receipt_id, "status": "pending"},
         {
             "$set": {
                 "workspace_id": payload.workspace_id,
@@ -483,6 +488,14 @@ async def update_receipt(
             }
         },
     )
+    if result.matched_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "The receipt is no longer pending (e.g. it was approved at the same time). "
+                "Refresh and try again."
+            ),
+        )
     updated = await coll.find_one({"company_id": company_id, "id": receipt_id})
     await _write_receipt_edit_audit(
         db,

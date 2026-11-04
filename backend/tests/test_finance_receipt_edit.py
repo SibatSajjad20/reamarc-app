@@ -4,8 +4,10 @@ from __future__ import annotations
 import os
 import unittest
 
+from unittest.mock import patch
+
 from fastapi import HTTPException
-from mongomock_motor import AsyncMongoMockClient
+from mongomock_motor import AsyncMongoMockClient, AsyncMongoMockCollection
 
 os.environ.setdefault("SECRET_KEY", "test-finance-receipt-edit-secret-0123456789")
 
@@ -215,3 +217,75 @@ class TestFinanceReceiptEdit(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(updated["unapplied_amount"], 100000)
         self.assertEqual(updated["status"], "pending")
+
+    async def test_pending_edit_409_if_status_flipped_before_update(self):
+        orig_update_one = AsyncMongoMockCollection.update_one
+        flipped = {"done": False}
+
+        async def racing_update_one(self, filter, *args, **kwargs):
+            if not flipped["done"] and filter.get("id") == "rcp-pending":
+                flipped["done"] = True
+                await orig_update_one(
+                    self,
+                    {"company_id": COMPANY_A, "id": "rcp-pending"},
+                    {"$set": {"status": "posted"}},
+                )
+            return await orig_update_one(self, filter, *args, **kwargs)
+
+        with patch.object(AsyncMongoMockCollection, "update_one", racing_update_one):
+            with self.assertRaises(HTTPException) as ctx:
+                await update_receipt(
+                    self.db,
+                    COMPANY_A,
+                    "rcp-pending",
+                    _payload(
+                        amount_received=500000,
+                        wht_amount=200000,
+                        memo="should not persist",
+                        allocations=[
+                            ReceiptAllocation(invoice_id="inv-1", amount=500000, wht=200000)
+                        ],
+                    ),
+                    user_id="user-1",
+                    user_name="Tester",
+                )
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertIn("no longer pending", ctx.exception.detail)
+
+        stored = await self.db["receipts"].find_one({"id": "rcp-pending"})
+        self.assertEqual(stored["amount_received"], 700000)
+        self.assertEqual(stored["wht_amount"], 300000)
+        self.assertEqual(stored["memo"], "original memo")
+        self.assertEqual(stored["status"], "posted")
+
+    async def test_posted_memo_edit_409_if_status_flipped_before_update(self):
+        orig_update_one = AsyncMongoMockCollection.update_one
+        flipped = {"done": False}
+
+        async def racing_update_one(self, filter, *args, **kwargs):
+            if not flipped["done"] and filter.get("id") == "rcp-posted":
+                flipped["done"] = True
+                await orig_update_one(
+                    self,
+                    {"company_id": COMPANY_A, "id": "rcp-posted"},
+                    {"$set": {"status": "pending"}},
+                )
+            return await orig_update_one(self, filter, *args, **kwargs)
+
+        with patch.object(AsyncMongoMockCollection, "update_one", racing_update_one):
+            with self.assertRaises(HTTPException) as ctx:
+                await update_receipt(
+                    self.db,
+                    COMPANY_A,
+                    "rcp-posted",
+                    _payload(memo="posted notes should not persist", is_cheque=False),
+                    user_id="user-1",
+                    user_name="Tester",
+                )
+            self.assertEqual(ctx.exception.status_code, 409)
+            self.assertIn("no longer posted", ctx.exception.detail)
+
+        stored = await self.db["receipts"].find_one({"id": "rcp-posted"})
+        self.assertEqual(stored["memo"], "original memo")
+        self.assertEqual(stored["amount_received"], 700000)
+        self.assertEqual(stored["status"], "pending")
