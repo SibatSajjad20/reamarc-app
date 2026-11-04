@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { majorToMinor, minorToMajor } from '../../../utils/money';
-import type { Invoice } from '../../../types/finance';
+import type { Invoice, Receipt } from '../../../types/finance';
 
 class MockResizeObserver {
   observe() {}
@@ -25,6 +25,7 @@ vi.mock('../../../services/financeService', () => ({
     updateReceipt: vi.fn(),
     uploadProofFile: vi.fn(),
     getProofFileUrl: vi.fn(),
+    getReceiptPdfUrl: vi.fn(() => 'http://example.test/receipt.pdf'),
   },
 }));
 
@@ -193,5 +194,89 @@ describe('ReceiptsView extra cash and WHT mismatch', () => {
       ),
     ).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Post Receipt' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('disables Post Receipt and shows an error when extra cash is not ticked as client credit', async () => {
+    render(<ReceiptsView initialInvoiceToPay={sampleInvoice} />);
+    await screen.findByText('INV-001');
+
+    const amountInputs = screen.getAllByPlaceholderText('0.00');
+    fireEvent.change(amountInputs[0], { target: { value: '160000' } });
+
+    expect(
+      await screen.findByText("Tick 'Record extra as client credit' or allocate the full amount"),
+    ).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Post Receipt' }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /Record extra as client credit/i }));
+    await waitFor(() => {
+      expect(
+        screen.queryByText("Tick 'Record extra as client credit' or allocate the full amount"),
+      ).toBeNull();
+      expect((screen.getByRole('button', { name: 'Post Receipt' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+});
+
+const postedReceipt: Receipt = {
+  id: 'rcp-posted',
+  company_id: 'co-1',
+  number: 'RCT-0002',
+  workspace_id: 'ws-1',
+  client_name: 'Acme',
+  date: '2026-01-15',
+  currency: 'PKR',
+  amount_received: majorToMinor(150000),
+  wht_amount: 0,
+  settles_total: majorToMinor(150000),
+  method: 'bank',
+  bank: 'meezan',
+  reference_number: 'FT-1',
+  pkr_amount: majorToMinor(150000),
+  allocations: [{ invoice_id: 'inv-1', amount: majorToMinor(150000), wht: 0 }],
+  unapplied_amount: 0,
+  memo: 'original memo',
+  proof_file_ids: [],
+  status: 'posted',
+  created_at: '',
+};
+
+describe('ReceiptsView posted receipt edit lock', () => {
+  beforeEach(() => {
+    mockGetReceipts.mockReset();
+    mockGetInvoices.mockReset();
+    mockGetReceipts.mockResolvedValue({ items: [postedReceipt], total: 1 });
+    mockGetInvoices.mockResolvedValue({ items: [sampleInvoice], total: 1 });
+  });
+
+  it('disables every field except memo and attachments when editing a posted receipt', async () => {
+    render(<ReceiptsView />);
+    await screen.findByText('RCT-0002');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    await screen.findByDisplayValue('original memo');
+
+    expect((screen.getByPlaceholderText('Or type client name...') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByLabelText('Payment date') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByPlaceholderText('FT-9912048 or Cheque 0881...') as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole('radio', { name: /Bank Transfer \/ Cheque/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('radio', { name: /Cash in Hand/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('radio', { name: /Meezan Bank/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('radio', { name: /Allied Bank \(ABL\)/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('checkbox', { name: /Cheque \(send to pending requests\)/i }) as HTMLButtonElement).disabled).toBe(true);
+
+    const amountInputs = screen.getAllByPlaceholderText('0.00') as HTMLInputElement[];
+    expect(amountInputs.length).toBeGreaterThan(0);
+    expect(amountInputs.every((input) => input.disabled)).toBe(true);
+
+    const allocateBox = await screen.findByRole('checkbox', { name: /Allocate INV-001/i });
+    expect((allocateBox as HTMLButtonElement).disabled).toBe(true);
+
+    expect((screen.getByDisplayValue('original memo') as HTMLInputElement).disabled).toBe(false);
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    expect(fileInputs.length).toBe(2);
+    fileInputs.forEach((input) => {
+      expect((input as HTMLInputElement).disabled).toBe(false);
+    });
   });
 });

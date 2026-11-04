@@ -170,6 +170,7 @@ export interface ReceiptCreatePayload {
   proof_file_ids?: string[];
   wht_certificate_file_id?: string | null;
   is_cheque?: boolean;
+  allow_client_credit?: boolean;
 }
 
 export interface FinanceAccount {

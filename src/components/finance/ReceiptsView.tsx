@@ -286,6 +286,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const totalAllocatedSettlementMinor = totalAllocatedAmountMinor + totalAllocatedWhtMinor;
   const unappliedCreditMinor = Math.max(0, settlesTotalMinor - totalAllocatedSettlementMinor);
   const unappliedCashMinor = Math.max(0, amountReceivedMinor - totalAllocatedAmountMinor);
+  const unappliedCashBlocked = unappliedCashMinor > 0 && !allowClientCredit && !fieldsLocked;
   const whtMismatch = whtAmountMinor !== totalAllocatedWhtMinor;
 
   const autoFillKey = allocRows.map((r) => `${r.invoice.id}:${r.selected}:${r.manual ? 1 : 0}`).join('|');
@@ -390,7 +391,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           wht: majorToMinor(r.whtMajor),
         }));
 
-      const payload: ReceiptCreatePayload & { allow_client_credit?: boolean } = {
+      const payload: ReceiptCreatePayload = {
         workspace_id: selectedWorkspaceId || null,
         client_name: clientName.trim(),
         date: paymentDate,
@@ -515,6 +516,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value={selectedWorkspaceId}
                     onChange={handleSelectWorkspace}
                     searchable
+                    disabled={fieldsLocked}
                     placeholder="Select client"
                     options={[
                       { value: '', label: 'Type a client name' },
@@ -527,6 +529,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                   onChange={(e) => setClientName(e.target.value)}
                   placeholder="Or type client name..."
                   className="w-1/2"
+                  disabled={fieldsLocked}
                 />
               </div>
             </div>
@@ -538,6 +541,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 onChange={setPaymentDate}
                 clearable={false}
                 offDayMode="none"
+                disabled={fieldsLocked}
                 aria-label="Payment date"
               />
             </div>
@@ -548,6 +552,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={currency}
                 onChange={(value) => setCurrency(value as Currency)}
                 options={CURRENCY_OPTIONS}
+                disabled={fieldsLocked}
               />
             </div>
           </div>
@@ -560,6 +565,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 value={method}
                 onValueChange={(value) => setMethod(value as PaymentMethod)}
                 className="flex flex-wrap items-center gap-4"
+                disabled={fieldsLocked}
               >
                 <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
                   <RadioGroupItem value="bank" />
@@ -574,6 +580,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 <Checkbox
                   checked={isCheque}
                   onCheckedChange={(checked) => setIsCheque(checked === true)}
+                  disabled={fieldsLocked}
                 />
                 Cheque (send to pending requests)
               </label>
@@ -587,6 +594,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value={bank}
                     onValueChange={(value) => setBank(value as BankId)}
                     className="flex flex-wrap items-center gap-4"
+                    disabled={fieldsLocked}
                   >
                     <label className="inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
                       <RadioGroupItem value="meezan" />
@@ -608,7 +616,8 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                     value={referenceNumber}
                     onChange={(e) => setReferenceNumber(e.target.value)}
                     placeholder="FT-9912048 or Cheque 0881..."
-                    className="w-full text-xs rounded-lg border border-border-strong px-3 py-1.5 bg-surface font-medium"
+                    disabled={fieldsLocked}
+                    className="w-full text-xs rounded-lg border border-border-strong px-3 py-1.5 bg-surface font-medium disabled:bg-subtle disabled:text-fg-faint disabled:cursor-not-allowed"
                   />
                 </div>
               </>
@@ -650,6 +659,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 <AmountInput
                   value={exchangeRate || ''}
                   onChange={(raw) => setExchangeRate(parseMajorGrouped(raw))}
+                  disabled={fieldsLocked}
                 />
               </div>
             )}
@@ -834,6 +844,12 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
                 WHT withheld must be fully applied to invoices; WHT cannot be held as client credit.
               </p>
             )}
+            {unappliedCashBlocked && (
+              <p className="w-full text-xs text-rose-600 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                Tick 'Record extra as client credit' or allocate the full amount
+              </p>
+            )}
             {error && (
               <p ref={formErrorRef} className="w-full text-xs text-rose-600 flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -842,7 +858,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             )}
             <button
               type="submit"
-              disabled={posting || whtMismatch}
+              disabled={posting || whtMismatch || unappliedCashBlocked}
               className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />
