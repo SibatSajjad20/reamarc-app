@@ -166,3 +166,52 @@ class TestFinanceReceiptEdit(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(audit["user_name"], "Tester")
         self.assertEqual(audit["details"]["old"]["memo"], "original memo")
         self.assertEqual(audit["details"]["new"]["memo"], "audited memo")
+
+    async def test_pending_edit_rejects_unapplied_wht(self):
+        from app.services.finance_receipts import WHT_MUST_BE_APPLIED_DETAIL
+
+        with self.assertRaises(HTTPException) as ctx:
+            await update_receipt(
+                self.db,
+                COMPANY_A,
+                "rcp-pending",
+                _payload(
+                    amount_received=1000000,
+                    wht_amount=60000,
+                    allocations=[ReceiptAllocation(invoice_id="inv-1", amount=1000000, wht=0)],
+                ),
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.detail, WHT_MUST_BE_APPLIED_DETAIL)
+
+    async def test_pending_edit_rejects_unapplied_cash_without_flag(self):
+        from app.services.finance_receipts import UNAPPLIED_CASH_DETAIL
+
+        with self.assertRaises(HTTPException) as ctx:
+            await update_receipt(
+                self.db,
+                COMPANY_A,
+                "rcp-pending",
+                _payload(
+                    amount_received=1100000,
+                    wht_amount=0,
+                    allocations=[ReceiptAllocation(invoice_id="inv-1", amount=1000000, wht=0)],
+                ),
+            )
+        self.assertEqual(ctx.exception.status_code, 400)
+        self.assertEqual(ctx.exception.detail, UNAPPLIED_CASH_DETAIL)
+
+    async def test_pending_edit_allows_unapplied_cash_with_flag(self):
+        updated = await update_receipt(
+            self.db,
+            COMPANY_A,
+            "rcp-pending",
+            _payload(
+                amount_received=1100000,
+                wht_amount=0,
+                allocations=[ReceiptAllocation(invoice_id="inv-1", amount=1000000, wht=0)],
+                allow_client_credit=True,
+            ),
+        )
+        self.assertEqual(updated["unapplied_amount"], 100000)
+        self.assertEqual(updated["status"], "pending")

@@ -114,6 +114,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
   const [editingReceipt, setEditingReceipt] = useState<Receipt | null>(null);
 
   const [allocRows, setAllocRows] = useState<AllocRowState[]>([]);
+  const [allowClientCredit, setAllowClientCredit] = useState(false);
   const fieldsLocked = editingReceipt?.status === 'posted';
 
   const fetchReceipts = useCallback(async (opts?: { silent?: boolean }) => {
@@ -284,6 +285,8 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
 
   const totalAllocatedSettlementMinor = totalAllocatedAmountMinor + totalAllocatedWhtMinor;
   const unappliedCreditMinor = Math.max(0, settlesTotalMinor - totalAllocatedSettlementMinor);
+  const unappliedCashMinor = Math.max(0, amountReceivedMinor - totalAllocatedAmountMinor);
+  const whtMismatch = whtAmountMinor !== totalAllocatedWhtMinor;
 
   const autoFillKey = allocRows.map((r) => `${r.invoice.id}:${r.selected}:${r.manual ? 1 : 0}`).join('|');
   useEffect(() => {
@@ -295,6 +298,10 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       return next;
     });
   }, [amountReceivedMinor, whtAmountMinor, autoFillKey]);
+
+  useEffect(() => {
+    if (unappliedCashMinor <= 0) setAllowClientCredit(false);
+  }, [unappliedCashMinor]);
 
   // Live PKR amount calculation for Foreign Currency receipts
   const pkrCreditedMajor = useMemo(() => {
@@ -383,7 +390,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
           wht: majorToMinor(r.whtMajor),
         }));
 
-      const payload: ReceiptCreatePayload = {
+      const payload: ReceiptCreatePayload & { allow_client_credit?: boolean } = {
         workspace_id: selectedWorkspaceId || null,
         client_name: clientName.trim(),
         date: paymentDate,
@@ -399,6 +406,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
         proof_file_ids: proofFile ? [proofFile.id] : [],
         wht_certificate_file_id: whtCert?.id || null,
         is_cheque: editingReceipt ? Boolean(editingReceipt.is_cheque) : isCheque,
+        allow_client_credit: unappliedCashMinor > 0 && allowClientCredit,
       };
 
       const saved = editingReceipt
@@ -431,6 +439,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
       setProofFile(null);
       setWhtCert(null);
       setIsCheque(false);
+      setAllowClientCredit(false);
       setEditingReceipt(null);
       fetchReceipts();
       onPaymentSuccess?.();
@@ -810,6 +819,21 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
 
           {/* Form Actions */}
           <div className="flex flex-col items-end gap-2 pt-2">
+            {unappliedCashMinor > 0 && !fieldsLocked && (
+              <label className="w-full inline-flex items-center gap-2 cursor-pointer text-ui text-fg">
+                <Checkbox
+                  checked={allowClientCredit}
+                  onCheckedChange={(checked) => setAllowClientCredit(checked === true)}
+                />
+                Record extra as client credit
+              </label>
+            )}
+            {whtMismatch && (
+              <p className="w-full text-xs text-rose-600 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                WHT withheld must be fully applied to invoices; WHT cannot be held as client credit.
+              </p>
+            )}
             {error && (
               <p ref={formErrorRef} className="w-full text-xs text-rose-600 flex items-center gap-1.5">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -818,7 +842,7 @@ export const ReceiptsView: React.FC<ReceiptsViewProps> = ({
             )}
             <button
               type="submit"
-              disabled={posting}
+              disabled={posting || whtMismatch}
               className="px-6 py-2.5 bg-accent hover:bg-accent-hover text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-2 disabled:opacity-50"
             >
               <Check className="w-4 h-4" />

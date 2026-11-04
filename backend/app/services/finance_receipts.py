@@ -17,6 +17,14 @@ from app.services.finance_settings import get_or_init_finance_settings
 
 logger = logging.getLogger(__name__)
 
+WHT_MUST_BE_APPLIED_DETAIL = (
+    "WHT withheld must be fully applied to invoices; WHT cannot be held as client credit."
+)
+UNAPPLIED_CASH_DETAIL = (
+    "Amount received exceeds invoice allocations. Tick 'Record extra as client credit' "
+    "to keep the difference as an advance."
+)
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -119,6 +127,33 @@ async def _validate_and_enrich_allocations(
     return alloc_invoice_docs, enriched_allocations
 
 
+def _assert_settlement_application(payload: ReceiptCreate) -> int:
+    """Reject unapplied WHT and accidental unapplied cash; return unapplied cash if allowed."""
+    total_alloc_amount = sum(a.amount for a in payload.allocations)
+    total_alloc_wht = sum(a.wht for a in payload.allocations)
+
+    if payload.wht_amount != total_alloc_wht:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=WHT_MUST_BE_APPLIED_DETAIL,
+        )
+
+    unapplied_cash = payload.amount_received - total_alloc_amount
+    allow_credit = bool(payload.allow_client_credit)
+    if not payload.allocations:
+        if not allow_credit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=UNAPPLIED_CASH_DETAIL,
+            )
+    elif unapplied_cash > 0 and not allow_credit:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=UNAPPLIED_CASH_DETAIL,
+        )
+    return max(0, unapplied_cash)
+
+
 def _alloc_tuples(allocs: Any) -> List[tuple]:
     out: List[tuple] = []
     for a in allocs or []:
@@ -219,16 +254,13 @@ async def post_receipt(
     alloc_invoice_docs, enriched_allocations = await _validate_and_enrich_allocations(
         db, company_id, payload
     )
+    unapplied_amount = _assert_settlement_application(payload)
 
     # 3. Reserve Sequential Receipt Number
     settings = await get_or_init_finance_settings(db, company_id)
     prefix = settings.get("receipt_prefix", "RCT-")
     rcpt_year = datetime.strptime(payload.date or _today_str(), "%Y-%m-%d").year
     rcpt_number = await get_next_number(db, company_id, "receipt", prefix=prefix, year=rcpt_year)
-
-    total_alloc_amount = sum(a.amount for a in payload.allocations)
-    total_alloc_wht = sum(a.wht for a in payload.allocations)
-    unapplied_amount = (payload.amount_received - total_alloc_amount) + (payload.wht_amount - total_alloc_wht)
 
     receipt_doc = {
         "id": receipt_id,
@@ -422,9 +454,7 @@ async def update_receipt(
     _alloc_docs, enriched_allocations = await _validate_and_enrich_allocations(
         db, company_id, payload, exclude_receipt_id=receipt_id
     )
-    total_alloc_amount = sum(a.amount for a in payload.allocations)
-    total_alloc_wht = sum(a.wht for a in payload.allocations)
-    unapplied_amount = (payload.amount_received - total_alloc_amount) + (payload.wht_amount - total_alloc_wht)
+    unapplied_amount = _assert_settlement_application(payload)
 
     await coll.update_one(
         {"company_id": company_id, "id": receipt_id},

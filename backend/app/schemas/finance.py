@@ -276,6 +276,7 @@ class ReceiptCreate(BaseModel):
     proof_file_ids: List[str] = Field(default_factory=list)
     wht_certificate_file_id: Optional[str] = None
     is_cheque: bool = False
+    allow_client_credit: bool = False
 
     @field_validator("currency")
     @classmethod
