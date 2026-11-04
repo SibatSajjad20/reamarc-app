@@ -79,6 +79,8 @@ export const CollectionsView: React.FC = () => {
   };
 
   const summary = data?.summary;
+  const totalCollectionPkr = summary?.total_collected_pkr || 0;
+  const totalReceivedPkr = totalCollectionPkr + (summary?.total_wht_pkr || 0);
 
   return (
     <div className="p-6 w-full space-y-6">
@@ -117,13 +119,19 @@ export const CollectionsView: React.FC = () => {
       {error && <p className="text-xs text-rose-600">{error}</p>}
 
       {loading && !data ? (
-        <KpiRowSkeleton count={2} />
+        <KpiRowSkeleton count={3} />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-surface p-5 rounded-lg border border-border">
             <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Total Collection</p>
             <p className="text-xl font-bold text-fg mt-1">
-              {formatMinorMoney(summary?.total_collected_pkr || 0, 'PKR')}
+              {formatMinorMoney(totalCollectionPkr, 'PKR')}
+            </p>
+          </div>
+          <div className="bg-surface p-5 rounded-lg border border-border">
+            <p className="text-xs font-semibold text-fg-muted uppercase tracking-wider">Total Received</p>
+            <p className="text-xl font-bold text-fg mt-1">
+              {formatMinorMoney(totalReceivedPkr, 'PKR')}
             </p>
           </div>
           <div className="bg-surface p-5 rounded-lg border border-border">
