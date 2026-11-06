@@ -108,6 +108,21 @@ def _parse_hhmm(value: Optional[str]) -> Optional[Tuple[int, int]]:
     return hour, minute
 
 
+def loggable_work_hours(work_hours: float, pending_overtime_minutes: int = 0) -> float:
+    """Daily Log comparison hours: settled work_hours plus still-pending OT."""
+    try:
+        hours = float(work_hours or 0)
+    except (TypeError, ValueError):
+        hours = 0.0
+    try:
+        pending = int(pending_overtime_minutes or 0)
+    except (TypeError, ValueError):
+        pending = 0
+    if pending < 0:
+        pending = 0
+    return round(hours + (pending / 60.0), 2)
+
+
 def compute_time_at_work_hours(
     *,
     date_str: str,
@@ -126,6 +141,7 @@ def compute_time_at_work_hours(
     break_end_time: Optional[str] = None,
     is_night_shift: bool = False,
     count_from_actual_check_in: bool = False,
+    pending_overtime_minutes: int = 0,
 ) -> float:
     """
     Hours already spent at work for the tracker banner / daily-log pill.
@@ -139,7 +155,7 @@ def compute_time_at_work_hours(
     """
     if has_checkout:
         if float(work_hours or 0) > 0:
-            return round(float(work_hours), 2)
+            return loggable_work_hours(work_hours, pending_overtime_minutes)
         cin = _parse_hhmm(check_in)
         cout = _parse_hhmm(check_out)
         if cin and cout:
@@ -556,6 +572,8 @@ async def get_attendance_worked(user_id: str, date_str: str) -> Dict[str, Any]:
         "status": "",
         "check_in": None,
         "check_out": None,
+        "pending_overtime_minutes": 0,
+        "overtime_status": "",
     }
     if db is None:
         return empty
@@ -568,6 +586,10 @@ async def get_attendance_worked(user_id: str, date_str: str) -> Dict[str, Any]:
         hours = float(rec.get("work_hours") or 0)
     except (TypeError, ValueError):
         hours = 0.0
+    try:
+        pending_ot = int(rec.get("pending_overtime_minutes") or 0)
+    except (TypeError, ValueError):
+        pending_ot = 0
     return {
         "has_checkin": bool(cin),
         "has_checkout": bool(cout),
@@ -576,6 +598,8 @@ async def get_attendance_worked(user_id: str, date_str: str) -> Dict[str, Any]:
         "status": str(rec.get("status") or ""),
         "check_in": cin,
         "check_out": cout,
+        "pending_overtime_minutes": pending_ot,
+        "overtime_status": str(rec.get("overtime_status") or ""),
     }
 
 
@@ -824,10 +848,11 @@ async def live_day_hours(user_id: str, date_str: str) -> Dict[str, Any]:
     has_checkin = bool(punch.get("has_checkin"))
     has_checkout = bool(punch.get("has_checkout"))
     try:
-        worked = float(punch.get("work_hours") or 0)
+        settled = float(punch.get("work_hours") or 0)
     except (TypeError, ValueError):
-        worked = 0.0
-    compare_ready = has_checkout or worked > 0
+        settled = 0.0
+    worked = loggable_work_hours(settled, punch.get("pending_overtime_minutes") or 0)
+    compare_ready = has_checkout or settled > 0
     signed = signed_hours_gap(logged, worked) if compare_ready else 0.0
     return {
         "logged_hours": logged,
@@ -898,14 +923,15 @@ async def recompute_day_score(
     has_log = logged > 0 or len(entries) > 0
     is_full_leave = person_day_is_leave(target, punch)
 
+    pending_ot = punch.get("pending_overtime_minutes") or 0
     if has_checkout:
-        worked = float(punch.get("work_hours") or 0)
+        worked = loggable_work_hours(punch.get("work_hours") or 0, pending_ot)
         compare_ready = True
     elif is_wfh and not has_checkin:
         worked = float(target.get("expected_hours") or 0)
         compare_ready = True
     else:
-        worked = float(punch.get("work_hours") or 0)
+        worked = loggable_work_hours(punch.get("work_hours") or 0, pending_ot)
         compare_ready = False
 
     status, exceptions = classify_day_status(

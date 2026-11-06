@@ -530,6 +530,7 @@ async def get_day_target(
         live_day_hours,
         format_hours_hm,
         compute_time_at_work_hours,
+        loggable_work_hours,
     )
 
     user_role = current_user.get("role", "team_member")
@@ -553,14 +554,16 @@ async def get_day_target(
     is_wfh = bool(target.get("is_wfh") or punch.get("is_wfh"))
     has_checkout = bool(punch.get("has_checkout"))
     has_checkin = bool(punch.get("has_checkin"))
+    pending_ot = punch.get("pending_overtime_minutes") or 0
+    overtime_status = str(punch.get("overtime_status") or "")
     if has_checkout:
-        worked = float(punch.get("work_hours") or 0)
+        worked = loggable_work_hours(punch.get("work_hours") or 0, pending_ot)
         compare_ready = True
     elif is_wfh and not has_checkin:
         worked = float(target.get("expected_hours") or 0)
         compare_ready = True
     else:
-        worked = float(punch.get("work_hours") or 0)
+        worked = loggable_work_hours(punch.get("work_hours") or 0, pending_ot)
         compare_ready = False
 
     on_leave = person_day_is_leave(target, punch)
@@ -599,6 +602,7 @@ async def get_day_target(
         break_end_time=target.get("break_end_time"),
         is_night_shift=bool(target.get("is_night_shift")),
         count_from_actual_check_in=count_early,
+        pending_overtime_minutes=pending_ot,
     )
     pending_action = None
     pending_message = None
@@ -677,6 +681,8 @@ async def get_day_target(
         "check_in": check_in,
         "check_out": check_out,
         "time_at_work_hours": time_at_work,
+        "pending_overtime_minutes": int(pending_ot or 0),
+        "overtime_status": overtime_status,
         "shift_name": target.get("shift_name"),
         "shift_start": target.get("shift_start"),
         "shift_end": target.get("shift_end"),

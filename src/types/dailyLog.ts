@@ -136,6 +136,8 @@ export interface DayTarget {
    * settled work_hours after checkout; expected_hours for WFH with no punch.
    */
   time_at_work_hours?: number;
+  pending_overtime_minutes?: number;
+  overtime_status?: string;
   shift_name?: string;
   shift_start?: string;
   shift_end?: string;

@@ -273,6 +273,11 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
         <div className="text-h2 font-semibold font-numeric tabular-nums text-fg leading-tight">
           {atWorkDisplay}
         </div>
+        {Number(dayTarget?.pending_overtime_minutes) > 0 ? (
+          <div className="text-small text-fg-muted">
+            includes {formatTrackerHours(Number(dayTarget?.pending_overtime_minutes) / 60)} OT pending
+          </div>
+        ) : null}
       </div>
 
       <div>
