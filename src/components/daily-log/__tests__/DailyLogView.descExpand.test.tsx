@@ -133,11 +133,11 @@ vi.mock('../../../services/logExceptionService', () => ({
 
 import { DailyLogView } from '../../views/DailyLogView';
 
-const queryHidden = { hidden: true } as const;
-
 async function renderSheet() {
   render(<DailyLogView />);
-  await screen.findByText('Showing 2 entries', queryHidden);
+  await waitFor(() => {
+    expect(document.querySelector('[data-desc-expand="row-default"]')).toBeTruthy();
+  });
 }
 
 describe('DailyLogView description expand and row resize', () => {
