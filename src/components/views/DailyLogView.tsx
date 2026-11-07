@@ -46,6 +46,7 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../ui/ConfirmProvider';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
+import { Modal } from '../ui/Modal';
 import { DailyLogForm } from '../daily-log/DailyLogForm';
 import { ShiftTasksTracker } from '../daily-log/ShiftTasksTracker';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
@@ -329,6 +330,11 @@ export const DailyLogView: React.FC = () => {
     } catch {}
     return {};
   });
+
+  const [descPreview, setDescPreview] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const tableInnerRef = useRef<HTMLDivElement>(null);
@@ -1040,6 +1046,40 @@ export const DailyLogView: React.FC = () => {
     virtualRows.length > 0
       ? totalVirtualSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
       : 0;
+
+  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const zoomLevel = 100;
+
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      moveEvent.preventDefault();
+      const delta = (moveEvent.clientY - startY) * (100 / zoomLevel);
+      const newHeight = Math.max(34, Math.min(200, currentH + delta));
+      setRowHeights((prev) => {
+        const next = { ...prev, [rowId]: Math.round(newHeight) };
+        try {
+          localStorage.setItem('reamarc_daily_log_row_heights', JSON.stringify(next));
+        } catch {}
+        return next;
+      });
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      rowVirtualizer.measure();
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
 
   const totalTableWidth = useMemo(() => {
     return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
@@ -1920,16 +1960,17 @@ export const DailyLogView: React.FC = () => {
                             key={row.id}
                             ref={rowVirtualizer.measureElement}
                             data-index={virtualRow.index}
-                            style={{ height: `${rowH}px` }}
+                            data-row-id={row.id}
+                            style={{ height: `${rowH}px`, position: 'relative' }}
                             onDoubleClick={(e) => {
                               const target = e.target as HTMLElement;
-                              if (target && target.closest('button, a, input, select')) return;
+                              if (target && target.closest('button, a, input, select, [data-row-resize-handle]')) return;
                               if (canEditEntry(row)) {
                                 handleOpenEditModal(row);
                               }
                             }}
                             className={cn(
-                              'hover:bg-hover transition-colors group',
+                              'hover:bg-hover transition-colors group relative',
                               canEditEntry(row) && 'cursor-pointer',
                               rowFollowUp && 'bg-warning-bg/40'
                             )}
@@ -2005,14 +2046,35 @@ export const DailyLogView: React.FC = () => {
 
                               if (col.key === 'task_description') {
                                 const desc = String(val || '');
+                                const isTallRow = rowH > DEFAULT_ROW_HEIGHT;
+                                const openDescPreview = (e: React.SyntheticEvent) => {
+                                  e.stopPropagation();
+                                  setDescPreview({
+                                    title: `${row.client_project || 'Task'} · ${row.date}`,
+                                    description: desc,
+                                  });
+                                };
                                 return (
                                   <td
                                     key={col.key}
-                                    className="p-2 border-b border-r border-border"
+                                    className="p-2 border-b border-r border-border h-full overflow-hidden"
                                     title={desc}
                                   >
                                     {desc ? (
-                                      <span className="line-clamp-2 text-fg leading-snug">{desc}</span>
+                                      <button
+                                        type="button"
+                                        data-desc-expand={row.id}
+                                        onClick={openDescPreview}
+                                        onMouseDown={(e) => e.stopPropagation()}
+                                        className={cn(
+                                          'block w-full text-left cursor-pointer rounded-sm text-fg leading-snug hover:bg-hover/70',
+                                          isTallRow
+                                            ? 'h-full max-h-full overflow-y-auto break-words whitespace-pre-wrap'
+                                            : 'line-clamp-2'
+                                        )}
+                                      >
+                                        {desc}
+                                      </button>
                                     ) : (
                                       <span className="text-fg-faint italic">—</span>
                                     )}
@@ -2195,6 +2257,14 @@ export const DailyLogView: React.FC = () => {
                               ) : (
                                 <span className="text-fg-faint italic text-small">—</span>
                               )}
+                              <div
+                                data-row-resize-handle={row.id}
+                                onMouseDown={(e) => handleRowResizeStart(e, row.id, rowH)}
+                                onClick={(e) => e.stopPropagation()}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                className="absolute left-0 bottom-0 h-1 z-10 cursor-row-resize hover:bg-accent/50"
+                                style={{ width: `${totalTableWidth}px` }}
+                              />
                             </td>
                           </tr>
                         );
@@ -2234,6 +2304,15 @@ export const DailyLogView: React.FC = () => {
       )}
 
       {/* ─── Create / Edit Daily Log Modal ─── */}
+      <Modal
+        isOpen={Boolean(descPreview)}
+        onClose={() => setDescPreview(null)}
+        title={descPreview?.title || ''}
+        maxWidth="lg"
+      >
+        <p className="whitespace-pre-wrap break-words">{descPreview?.description}</p>
+      </Modal>
+
       <DailyLogModal
         isOpen={isEntryModalOpen && (!isAdmin && !isOperations || entryModalMode === 'edit')}
         mode={entryModalMode}
