@@ -44,12 +44,12 @@ export const deriveClientAbbr = (clientName?: string): string => {
 };
 
 interface RawImportItem {
-  rawNum?: number;
+  sheetRef?: string;
   detectedClient?: string;
   item: Partial<ContentCalendarItem>;
 }
 
-const prepareItems = (
+export const prepareItems = (
   rawList: RawImportItem[],
   selectedClient: string,
   forceSelectedClient: boolean,
@@ -81,16 +81,14 @@ const prepareItems = (
       next.client_name = effectiveClient;
     }
 
-    const abbr = deriveClientAbbr(next.client_name);
-    const num = raw.rawNum !== undefined ? raw.rawNum : idx + 1;
-    next.serial = `C${abbr}-${String(num).padStart(3, '0')}`;
+    delete next.serial;
 
     if (!next.content_concept) {
       next.content_concept =
         next.content_on_creative?.slice(0, 100) ||
         next.production_direction?.slice(0, 100) ||
         next.primary_text?.split('\n')[0]?.slice(0, 100) ||
-        `Asset ${next.serial}`;
+        `Asset ${idx + 1}`;
     }
 
     (Object.keys(limits) as (keyof ContentCalendarItem)[]).forEach((field) => {
@@ -146,7 +144,6 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Import settings
-  const [upsertBySerial, setUpsertBySerial] = useState(true);
   const [overrideClient, setOverrideClient] = useState(true);
   const [defaultClient, setDefaultClient] = useState(
     activeClients.length > 0 ? activeClients[0].name : ''
@@ -430,13 +427,8 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
         // Must have at least a serial, creative type, creative copy, or concept to be a valid campaign record
         if (hasAnyValue && (item.content_concept || item.serial || item.content_on_creative || item.primary_text)) {
-          let rawNum: number | undefined = undefined;
-          if (item.serial) {
-            const numMatch = String(item.serial).match(/(\d+)/);
-            if (numMatch) {
-              rawNum = parseInt(numMatch[1], 10);
-            }
-          }
+          const sheetRef = item.serial ? String(item.serial).trim() : undefined;
+          delete item.serial;
 
           if (item.publish_date) {
             item.publish_date = parseDateValue(item.publish_date);
@@ -454,7 +446,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
           }
 
           rawExtracted.push({
-            rawNum,
+            sheetRef,
             detectedClient: item.client_name || currentSectionClient || undefined,
             item,
           });
@@ -499,22 +491,34 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
       let processed = 0;
       let inserted = 0;
       let updated = 0;
+      const chunkErrors: string[] = [];
       const chunkSize = 500;
       for (let offset = 0; offset < parsedItems.length; offset += chunkSize) {
         const res = await contentCalendarService.bulkImport({
           items: parsedItems.slice(offset, offset + chunkSize),
-          upsert_by_serial: upsertBySerial,
+          upsert_by_serial: false,
           default_client_name: defaultClient,
         });
         processed += res.total_processed;
         inserted += res.inserted_count;
         updated += res.updated_count;
+        if (Array.isArray(res.errors) && res.errors.length > 0) {
+          chunkErrors.push(...res.errors);
+        }
       }
 
+      const summary = [`${inserted} added`];
+      if (updated > 0) summary.push(`${updated} updated`);
+      if (processed > 0 && processed !== inserted + updated) {
+        summary.push(`${processed} processed`);
+      }
+      const errorSuffix = chunkErrors.length
+        ? ` ${chunkErrors.length} rejected: ${chunkErrors.join('; ')}`
+        : '';
       addToast(
-        'Import Completed',
-        `Processed ${processed} items (${inserted} added, ${updated} updated).`,
-        'success'
+        chunkErrors.length ? 'Import completed with rejections' : 'Import Completed',
+        `${summary.join(', ')}.${errorSuffix}`,
+        chunkErrors.length ? 'warning' : 'success'
       );
       onSuccess();
       onClose();
@@ -579,13 +583,6 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                     onCheckedChange={(c) => handleOverrideClientChange(Boolean(c))}
                     label="Apply to all imported records"
                     description="Standardize all campaigns and serial IDs to selected client"
-                  />
-
-                  <Checkbox
-                    checked={upsertBySerial}
-                    onCheckedChange={(c) => setUpsertBySerial(Boolean(c))}
-                    label="Upsert by serial"
-                    description="Update existing campaigns if serial ID matches"
                   />
                 </div>
               </div>
@@ -707,6 +704,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                   <thead className="bg-subtle font-medium text-fg-muted text-label">
                     <tr>
                       <th className="p-2">Serial</th>
+                      <th className="p-2">Sheet ref</th>
                       <th className="p-2">Client</th>
                       <th className="p-2">Creative</th>
                       <th className="p-2">Concept / title</th>
@@ -717,7 +715,10 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                     {parsedItems.slice(0, 10).map((it, idx) => (
                       <tr key={idx} className="hover:bg-subtle/50 transition-colors">
                         <td className="p-2 font-numeric font-medium text-accent">
-                          {it.serial || '—'}
+                          {it.serial || 'Auto'}
+                        </td>
+                        <td className="p-2 font-numeric text-fg-muted truncate max-w-[140px]" title={rawItems[idx]?.sheetRef || ''}>
+                          {rawItems[idx]?.sheetRef || '—'}
                         </td>
                         <td className="p-2 truncate max-w-[140px]" title={it.client_name || defaultClient}>
                           {it.client_name || defaultClient}

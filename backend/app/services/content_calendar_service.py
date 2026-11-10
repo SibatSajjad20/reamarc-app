@@ -19,7 +19,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from fastapi import UploadFile, HTTPException, status, Request
 from fastapi.responses import Response
 from pymongo import UpdateOne, IndexModel, ASCENDING
-from pymongo.errors import DuplicateKeyError, PyMongoError
+from pymongo.errors import BulkWriteError, DuplicateKeyError, PyMongoError
 
 from app.schemas.content_calendar import (
     ContentCalendarItemCreate,
@@ -493,9 +493,9 @@ def format_client_serial(raw_serial: Optional[str], client_name: Optional[str], 
     if re.match(rf"^{prefix}-\d{{3,}}$", s, re.IGNORECASE):
         return s.upper()
 
-    m = re.search(r"(\d+)", s)
-    if m:
-        num = int(m.group(1))
+    nums = re.findall(r"(\d+)", s)
+    if nums:
+        num = int(nums[-1])
         return f"{prefix}-{num:03d}"
 
     return f"{prefix}-{fallback_num:03d}"
@@ -2402,10 +2402,15 @@ async def bulk_import_items(
 ) -> Dict[str, Any]:
     """
     Imports a batch of content calendar items from an Excel upload.
-    Supports upserting by serial or appending new records, auto-linking workspaces.
+    Always inserts new documents. Incoming Excel serials are ignored; the system
+    assigns the next C{ABBR}-{NNN} numbers per client. upsert_by_serial is kept
+    for API compatibility and is ignored.
     """
     if db is None or not items:
         return {"total_processed": 0, "inserted_count": 0, "updated_count": 0, "errors": []}
+
+    _ = upsert_by_serial
+    _ = viewer
 
     coll = db[COLLECTION_NAME]
     now = _now_iso()
@@ -2438,114 +2443,89 @@ async def bulk_import_items(
     inserted_count = 0
     updated_count = 0
     errors: List[str] = []
+    next_by_prefix: Dict[str, int] = {}
+    docs = []
+    doc_rows: List[int] = []
 
-    if upsert_by_serial:
-        operations = []
-        for idx, item in enumerate(items):
+    for idx, item in enumerate(items):
+        try:
+            doc = item.model_dump()
+            c_name = doc.get("client_name") or client_default
+            doc["client_name"] = c_name
+            doc["stage"] = DEFAULT_STAGE
+            doc["approval_status"] = "Content Draft"
+            doc["design_owner"] = stage_owner(DEFAULT_STAGE)
+
+            if not doc.get("workspace_id"):
+                matched_ws_id = _match_ws(c_name)
+                if matched_ws_id:
+                    doc["workspace_id"] = matched_ws_id
+
+            abbr = get_client_abbreviation(c_name)
+            prefix = f"C{abbr}"
+            if prefix not in next_by_prefix:
+                next_by_prefix[prefix] = await _scan_max_serial(coll, prefix)
+            next_by_prefix[prefix] += 1
+            doc["serial"] = f"{prefix}-{next_by_prefix[prefix]:03d}"
+
+            for k, v in doc.items():
+                if isinstance(v, str):
+                    doc[k] = sanitize_spreadsheet_string(v)
+
+            doc["id"] = f"cc_{uuid.uuid4().hex[:12]}"
+            doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
+            doc["created_by"] = user_id
+            doc["created_by_name"] = user_name
+            doc["created_at"] = now
+            doc["updated_at"] = now
+            docs.append(doc)
+            doc_rows.append(idx + 1)
+        except Exception as e:
+            errors.append(f"Row {idx + 1}: {str(e)}")
+
+    if docs:
+        counter_coll = None
+        if isinstance(db, dict):
+            counter_coll = db.get("content_calendar_counters")
+        else:
             try:
-                doc = item.model_dump()
-                c_name = doc.get("client_name") or client_default
-                doc["client_name"] = c_name
+                counter_coll = db["content_calendar_counters"]
+            except Exception:
+                counter_coll = None
 
-                if not doc.get("workspace_id"):
-                    matched_ws_id = _match_ws(c_name)
-                    if matched_ws_id:
-                        doc["workspace_id"] = matched_ws_id
-
-                serial = doc.get("serial")
-                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await reserve_next_serial(db, c_name)
-                    doc["serial"] = serial
-                else:
-                    doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
-
-                existing = None
-                if hasattr(coll, "find_one"):
+        if counter_coll is not None and hasattr(counter_coll, "update_one"):
+            try:
+                from app.core.tenant import company_singleton_id
+                for prefix, highest in next_by_prefix.items():
+                    abbr = prefix[1:] if prefix.startswith("C") else prefix
+                    counter_id = company_singleton_id(f"serial_{abbr.upper()}")
                     try:
-                        found = await coll.find_one({"serial": doc["serial"]})
-                        if isinstance(found, dict):
-                            existing = found
+                        await counter_coll.update_one(
+                            {"_id": counter_id},
+                            {"$max": {"seq": highest}},
+                            upsert=True,
+                        )
                     except Exception:
-                        existing = None
+                        pass
+            except Exception:
+                pass
 
-                if existing and viewer is not None and not can_edit_item(viewer, _present_doc(dict(existing))):
-                    errors.append(f"Row {idx + 1} ({doc['serial']}): Not permitted to edit item in stage '{existing.get('stage')}'.")
-                    continue
-
-                # Strip workflow, identity, and locked fields from update ($set)
-                for locked in ("stage", "approval_status", "design_owner", "attachments", "share_token", "created_by", "created_by_name", "created_at"):
-                    doc.pop(locked, None)
-
-                for k, v in doc.items():
-                    if isinstance(v, str):
-                        doc[k] = sanitize_spreadsheet_string(v)
-
-                doc["updated_at"] = now
-
-                # Prepare insert-only fields (must have ZERO overlap with doc to prevent Mongo error 40)
-                insert_fields = {
-                    "id": f"cc_{uuid.uuid4().hex[:12]}",
-                    "share_token": f"cc_tok_{uuid.uuid4().hex}",
-                    "stage": DEFAULT_STAGE,
-                    "approval_status": "Content Draft",
-                    "design_owner": stage_owner(DEFAULT_STAGE),
-                    "created_by": user_id,
-                    "created_by_name": user_name,
-                    "created_at": now,
-                }
-                # Defensive check: ensure no keys in insert_fields conflict with doc
-                insert_fields = {k: v for k, v in insert_fields.items() if k not in doc}
-
-                operations.append(
-                    UpdateOne(
-                        {"serial": doc["serial"]},
-                        {"$set": doc, "$setOnInsert": insert_fields},
-                        upsert=True,
-                    )
-                )
-            except Exception as e:
-                errors.append(f"Row {idx + 1}: {str(e)}")
-
-        if operations:
-            res = await coll.bulk_write(operations, ordered=False)
-            inserted_count = res.upserted_count
-            updated_count = res.modified_count
-    else:
-        docs = []
-        for idx, item in enumerate(items):
-            try:
-                doc = item.model_dump()
-                c_name = doc.get("client_name") or client_default
-                doc["client_name"] = c_name
-                doc["stage"] = DEFAULT_STAGE
-                doc["approval_status"] = "Content Draft"
-                doc["design_owner"] = stage_owner(DEFAULT_STAGE)
-
-                if not doc.get("workspace_id"):
-                    matched_ws_id = _match_ws(c_name)
-                    if matched_ws_id:
-                        doc["workspace_id"] = matched_ws_id
-
-                serial = doc.get("serial")
-                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
-                    serial = await reserve_next_serial(db, c_name)
-                    doc["serial"] = serial
-                else:
-                    doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
-
-                doc["id"] = f"cc_{uuid.uuid4().hex[:12]}"
-                doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
-                doc["created_by"] = user_id
-                doc["created_by_name"] = user_name
-                doc["created_at"] = now
-                doc["updated_at"] = now
-                docs.append(doc)
-            except Exception as e:
-                errors.append(f"Row {idx + 1}: {str(e)}")
-
-        if docs:
+        try:
             res = await coll.insert_many(docs, ordered=False)
             inserted_count = len(res.inserted_ids)
+        except BulkWriteError as bwe:
+            details = bwe.details or {}
+            inserted_count = int(details.get("nInserted") or 0)
+            for we in details.get("writeErrors") or []:
+                we_idx = int(we.get("index") or 0)
+                row_no = doc_rows[we_idx] if 0 <= we_idx < len(doc_rows) else we_idx + 1
+                serial = docs[we_idx].get("serial") if 0 <= we_idx < len(docs) else ""
+                reason = we.get("errmsg") or we.get("err") or "write failed"
+                label = f" ({serial})" if serial else ""
+                errors.append(f"Row {row_no}{label}: {reason}")
+        except Exception as e:
+            for row_no, doc in zip(doc_rows, docs):
+                errors.append(f"Row {row_no} ({doc.get('serial')}): {str(e)}")
 
     return {
         "total_processed": len(items),
