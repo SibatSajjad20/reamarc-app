@@ -50,6 +50,7 @@ MODULE_LEVELS: Dict[str, List[str]] = {
     "active_clients": ["none", "view", "manage"],
     "ads": ["none", "view", "manage"],
     "finance": ["none", "view", "create", "manage"],
+    "tasks": ["none", "own", "team", "all"],
 }
 
 LOG_LIKE_MODULES: Set[str] = {"daily_log", "attendance", "exceptions"}

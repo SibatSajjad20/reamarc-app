@@ -16,6 +16,8 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { usePermissions } from './hooks/usePermissions';
 import { viewFromNotificationPath } from './utils/notificationRoute';
+import { useTaskCounts } from './hooks/useTaskCounts';
+import { TaskChatWidget } from './components/task-manager/TaskChatWidget';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
@@ -35,6 +37,7 @@ import {
   WonDealApprovalsView,
   ContentCalendarView,
   WebsitePipelineView,
+  TaskManagerView,
   FinanceContainer,
   ClientPortalContainer,
   AuthScreen,
@@ -188,6 +191,8 @@ function AppInner() {
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
+  const { canSeeTasks: countsOk } = useTaskCounts();
+  const canSeeTasks = Boolean(user && !isClient && countsOk);
   const canSeeAttendance = !isClient && (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance));
   const canSeeDailyLog = !isClient && (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog));
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
@@ -206,6 +211,7 @@ function AppInner() {
     'won-deal-approvals',
     'content-calendar',
     'website-pipeline',
+    'tasks',
     'finance',
     'portal',
     'settings',
@@ -360,6 +366,29 @@ function AppInner() {
       } else if (currentPath === 'content-calendar' || currentPath === 'calendar' || currentPath === 'content_calendar') {
         setCurrentView('content-calendar');
         localStorage.setItem('reamarc_active_view', 'content-calendar');
+      } else if (currentPath === 'tasks' || currentPath.startsWith('tasks/')) {
+        const segments = currentPath.split('/');
+        const sub = segments[1];
+        if (sub) {
+          try {
+            sessionStorage.setItem('reamarc_tasks_section', sub);
+            window.dispatchEvent(new Event('reamarc-tasks-section'));
+          } catch {
+            /* ignore */
+          }
+        }
+        const params = new URLSearchParams(window.location.search);
+        const taskId = params.get('task');
+        if (taskId) {
+          try {
+            sessionStorage.setItem('reamarc_open_task_id', taskId);
+            window.dispatchEvent(new Event('reamarc-open-task'));
+          } catch {
+            /* ignore */
+          }
+        }
+        setCurrentView('tasks');
+        localStorage.setItem('reamarc_active_view', 'tasks');
       } else if (
         currentPath === 'website-pipeline' ||
         currentPath.startsWith('website-pipeline/') ||
@@ -446,6 +475,11 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'tasks' && !canSeeTasks) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'content-calendar' && !canSeeContentCalendar) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -503,7 +537,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeFinance, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeFinance, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeWebsitePipeline, canSeeTasks, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
     void (async () => {
@@ -523,6 +557,7 @@ function AppInner() {
     if (canSeeWonDealApprovals) allowedViews.push('won-deal-approvals');
     if (canSeeContentCalendar) allowedViews.push('content-calendar');
     if (canSeeWebsitePipeline) allowedViews.push('website-pipeline');
+    if (canSeeTasks) allowedViews.push('tasks');
     if (canSeeAttendance) allowedViews.push('attendance');
     if (canSeeDailyLog) allowedViews.push('daily-log');
     if (canSeeExceptions) allowedViews.push('exceptions');
@@ -1096,6 +1131,16 @@ function AppInner() {
             )
           )}
 
+          {currentView === 'tasks' && (
+            canSeeTasks ? (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <TaskManagerView />
+            </div>
+            ) : (
+              <AccessDenied module="Tasks" />
+            )
+          )}
+
           {currentView === 'exceptions' && (
             canSeeExceptions ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
@@ -1138,6 +1183,7 @@ function AppInner() {
           </Suspense>
         </ErrorBoundary>
       </AppShell>
+      {canSeeTasks && <TaskChatWidget onSelectTasks={() => handleSelectView('tasks')} />}
 
       {/* Global Command Palette (⌘K) */}
       <CommandPalette

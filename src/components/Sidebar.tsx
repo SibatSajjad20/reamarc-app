@@ -61,11 +61,13 @@ import {
   Tags,
   Megaphone,
   Receipt,
+  CheckSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { getGroupedVisibleSettings } from '@/utils/settingsAccess';
 import { prefetchView } from '@/routes/lazyViews';
+import { useTaskCounts } from '@/hooks/useTaskCounts';
 
 const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ className?: string; size?: number }>> = {
   profile: User,
@@ -182,6 +184,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(() => currentView === 'attendance');
   const [isAdminExpanded, setIsAdminExpanded] = useState(() => currentView === 'admin');
   const [isWebsiteExpanded, setIsWebsiteExpanded] = useState(() => currentView === 'website-pipeline');
+  const [isTasksExpanded, setIsTasksExpanded] = useState(() => currentView === 'tasks');
+  const { counts: taskCounts, canSeeTasks } = useTaskCounts();
+  const [activeTaskSection, setActiveTaskSection] = useState('todo');
   const [isPortalExpanded, setIsPortalExpanded] = useState(() => currentView === 'portal');
   const [requestCount, setRequestCount] = useState(0);
 
@@ -191,6 +196,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (currentView === 'attendance') setIsAttendanceExpanded(true);
     if (currentView === 'admin') setIsAdminExpanded(true);
     if (currentView === 'website-pipeline') setIsWebsiteExpanded(true);
+    if (currentView === 'tasks') setIsTasksExpanded(true);
     if (currentView === 'portal') setIsPortalExpanded(true);
   }, [currentView]);
 
@@ -277,6 +283,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'table' as const, label: 'Table view' },
   ];
 
+  const taskSubItems = [
+    { id: 'todo', label: 'To Do', count: taskCounts?.todo ?? 0 },
+    { id: 'in_progress', label: 'In Progress', count: taskCounts?.in_progress ?? 0 },
+    { id: 'in_review', label: 'In Review', count: taskCounts?.in_review ?? 0 },
+    { id: 'completed', label: 'Completed', count: taskCounts?.completed ?? 0 },
+    { id: 'follow-up', label: 'Follow-up', count: (taskCounts?.overdue || 0) + (taskCounts?.today || 0) },
+  ];
+
   const portalSubItems = [
     { id: 'content' as const, label: 'Content calendar' },
     { id: 'website' as const, label: 'Website portal' },
@@ -295,7 +309,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       hasSubItems?: boolean;
       isExpanded?: boolean;
       onToggleExpand?: () => void;
-      subItems?: { id: string; label: string; isActive: boolean; onSelect: () => void }[];
+      subItems?: { id: string; label: string; isActive: boolean; onSelect: () => void; badge?: number }[];
     }[];
   }
 
@@ -439,6 +453,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onSelect: () => {
                     if (currentView !== 'website-pipeline') onSelectView('website-pipeline');
                     onSelectWebsiteSection?.(sub.id);
+                  },
+                })),
+              },
+            ]
+          : []),
+        ...(canSeeTasks
+          ? [
+              {
+                id: 'tasks' as ViewType,
+                label: 'Tasks',
+                icon: CheckSquare,
+                hasSubItems: true,
+                isExpanded: isTasksExpanded,
+                onToggleExpand: () => setIsTasksExpanded(!isTasksExpanded),
+                badge: taskCounts?.open,
+                subItems: taskSubItems.map((sub) => ({
+                  id: sub.id,
+                  label: sub.label,
+                  badge: sub.count,
+                  isActive: currentView === 'tasks' && activeTaskSection === sub.id,
+                  onSelect: () => {
+                    setActiveTaskSection(sub.id);
+                    try {
+                      sessionStorage.setItem('reamarc_tasks_section', sub.id);
+                      window.dispatchEvent(new Event('reamarc-tasks-section'));
+                    } catch {
+                      /* ignore */
+                    }
+                    if (currentView !== 'tasks') onSelectView('tasks');
+                    else window.dispatchEvent(new Event('reamarc-tasks-section'));
                   },
                 })),
               },
@@ -860,7 +904,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 sub.isActive && 'bg-accent-soft text-accent-text font-medium'
                               )}
                             >
-                              {sub.label}
+                              <span className="truncate flex-1">{sub.label}</span>
+                              {sub.badge !== undefined && sub.badge > 0 && (
+                                <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
+                              )}
                             </DropdownMenuItem>
                           ))}
                         </DropdownMenuContent>
@@ -961,7 +1008,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
                             )}
                           >
-                            <span className="truncate">{sub.label}</span>
+                            <span className="truncate flex-1">{sub.label}</span>
+                            {sub.badge !== undefined && sub.badge > 0 && (
+                              <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
+                            )}
                           </button>
                         ))}
                       </div>

@@ -193,6 +193,14 @@ TENANT_COLLECTIONS: Set[str] = frozenset({
     "finance_audit",
     "recurring_invoices",
     "wht_certificates",
+    "tasks",
+    "task_comments",
+    "task_attachments",
+    "task_activities",
+    "task_counters",
+    "task_settings",
+    "task_saved_views",
+    "task_reads",
 })
 
 

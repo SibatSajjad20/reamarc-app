@@ -508,6 +508,12 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
     relative = normalize_upload_key(file_path)
     caller_cid = _caller_company_id(current_user)
 
+    if relative.startswith("tasks/"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
+        )
+
     if relative.startswith("gdrive/"):
         from app.services.content_calendar_workflow import can_view_item
         from app.services.google_drive_service import file_id_from_path

@@ -114,6 +114,7 @@ export function usePermissions() {
     isDailyLogTracked: Boolean(tracked.daily_log),
     canAccessContentCalendar: (modules.content_calendar ?? true) && can('content_calendar', 'view'),
     canAccessWebsitePipeline: (modules.website ?? true) && can('website', 'view'),
+    canAccessTasks: role === 'admin' ? true : Boolean(modules.tasks) && role !== 'client' && role !== 'hr' && role !== 'operations',
     canAccessCrm: (modules.sales ?? true) && can('sales', 'own'),
     isViewOnly: role === 'operations' || Boolean(permissions?.view_only),
     canApproveWonDeal: Boolean(capabilities.approve_won_deal),
