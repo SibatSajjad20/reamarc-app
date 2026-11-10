@@ -32,6 +32,9 @@ import {
   type AccessUserRow,
 } from '@/services/accessService';
 import { cn } from '@/lib/utils';
+import { taskService } from '@/services/taskService';
+import type { AccessModuleStatus } from '@/services/accessService';
+import type { TaskSettings } from '@/types/task';
 
 type ModuleKey =
   | 'attendance'
@@ -39,7 +42,8 @@ type ModuleKey =
   | 'sales'
   | 'content_calendar'
   | 'website'
-  | 'ads';
+  | 'ads'
+  | 'tasks';
 
 interface ModuleColumnMeta {
   key: ModuleKey;
@@ -54,6 +58,7 @@ const MODULE_COLUMNS: ModuleColumnMeta[] = [
   { key: 'content_calendar', label: 'Content calendar', shortLabel: 'Content' },
   { key: 'website', label: 'Website pipeline', shortLabel: 'Website' },
   { key: 'ads', label: 'Performance marketing', shortLabel: 'Marketing' },
+  { key: 'tasks', label: 'Tasks', shortLabel: 'Tasks' },
 ];
 
 const STAGE_OPTIONS = [
@@ -83,6 +88,8 @@ export const AccessSection: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<string>('');
   const [changedOnly, setChangedOnly] = useState<boolean>(false);
   const [mutatingUsers, setMutatingUsers] = useState<Record<string, boolean>>({});
+  const [taskSettings, setTaskSettings] = useState<TaskSettings | null>(null);
+  const [taskSettingsBusy, setTaskSettingsBusy] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -108,6 +115,14 @@ export const AccessSection: React.FC = () => {
   useEffect(() => {
     void loadUsers();
   }, [loadUsers]);
+
+  useEffect(() => {
+    if (currentUser?.role !== 'admin') return;
+    taskService
+      .getSettings()
+      .then(setTaskSettings)
+      .catch(() => setTaskSettings(null));
+  }, [currentUser?.role]);
 
   // Distinct department list from loaded users for the dropdown
   const departmentOptions = useMemo(() => {
@@ -139,9 +154,9 @@ export const AccessSection: React.FC = () => {
           modules: {
             ...u.modules,
             [mod]: {
-              ...u.modules[mod],
+              ...(u.modules as Record<string, AccessModuleStatus>)[mod],
               value: nextValue,
-              changed: nextValue !== u.modules[mod].default,
+              changed: nextValue !== (u.modules as Record<string, AccessModuleStatus>)[mod].default,
             },
           },
         };
@@ -458,7 +473,7 @@ export const AccessSection: React.FC = () => {
             <tbody className="divide-y divide-border/60">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-fg-muted">
+                  <td colSpan={9} className="py-12 text-center text-fg-muted">
                     <div className="inline-flex items-center gap-2">
                       <div className="w-4 h-4 border-2 border-accent border-t-transparent rounded-full animate-spin" />
                       <span>Loading access permissions...</span>
@@ -467,7 +482,7 @@ export const AccessSection: React.FC = () => {
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-fg-muted">
+                  <td colSpan={9} className="py-12 text-center text-fg-muted">
                     No employees matched the selected filters.
                   </td>
                 </tr>
@@ -509,7 +524,7 @@ export const AccessSection: React.FC = () => {
                       {/* Admin Row Spanning or Regular Module Cells */}
                       {isAdmin ? (
                         <td
-                          colSpan={6}
+                          colSpan={7}
                           className="py-3 px-3 text-center bg-subtle/10"
                         >
                           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-accent-soft text-accent-text border border-accent/20">
@@ -519,7 +534,10 @@ export const AccessSection: React.FC = () => {
                         </td>
                       ) : (
                         MODULE_COLUMNS.map((col) => {
-                          const status = row.modules[col.key];
+                          const status = (row.modules as Record<string, AccessModuleStatus | undefined>)[col.key];
+                          if (!status) {
+                            return <td key={col.key} className="py-3 px-3 text-center text-fg-muted">—</td>;
+                          }
                           const isMutating = Boolean(
                             mutatingUsers[`${row.id}:${col.key}`]
                           );
@@ -720,6 +738,41 @@ export const AccessSection: React.FC = () => {
           <div>{users.length} employee(s) listed</div>
         </div>
       </div>
+
+      {currentUser?.role === 'admin' && taskSettings && (
+        <div className="mt-4 p-4 bg-surface border border-border rounded-xl shadow-xs flex items-center justify-between gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-fg">Task Manager</h3>
+            <p className="text-xs text-fg-muted mt-0.5">
+              Hide Tasks from HR and Operations. Flip this on to grant access.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-xs text-fg-muted">Exclude HR / Ops</span>
+            <Switch
+              checked={(taskSettings.excluded_roles || []).includes('hr')}
+              disabled={taskSettingsBusy}
+              onCheckedChange={(checked) => {
+                setTaskSettingsBusy(true);
+                const next = {
+                  excluded_roles: checked ? ['hr', 'operations'] : [],
+                  excluded_departments: checked ? ['HR'] : [],
+                };
+                taskService
+                  .patchSettings(next)
+                  .then((saved) => {
+                    setTaskSettings(saved);
+                    addToast('Task access updated', checked ? 'HR and Operations are excluded' : 'HR and Operations can open Tasks', 'success');
+                  })
+                  .catch((err: any) => {
+                    addToast('Update failed', err?.message || 'Could not update Task Manager settings', 'error');
+                  })
+                  .finally(() => setTaskSettingsBusy(false));
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

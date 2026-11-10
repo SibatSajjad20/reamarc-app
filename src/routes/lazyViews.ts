@@ -9,6 +9,7 @@ export const loadSettingsView = () => import('../components/settings/SettingsVie
 export const loadFinanceContainer = () => import('../components/finance/FinanceContainer');
 export const loadContentCalendarView = () => import('../components/views/ContentCalendarView');
 export const loadWebsitePipelineView = () => import('../components/views/WebsitePipelineView');
+export const loadTaskManagerView = () => import('../components/views/TaskManagerView');
 export const loadPerformanceMarketing = () => import('../components/views/PerformanceMarketing');
 export const loadAdminPanel = () => import('../components/admin/AdminPanel');
 export const loadExceptionInboxView = () => import('../components/views/ExceptionInboxView');
@@ -46,6 +47,9 @@ export const ContentCalendarView = lazy(() =>
 export const WebsitePipelineView = lazy(() =>
   loadWebsitePipelineView().then((m) => ({ default: m.WebsitePipelineView })),
 );
+export const TaskManagerView = lazy(() =>
+  loadTaskManagerView().then((m) => ({ default: m.TaskManagerView })),
+);
 export const FinanceContainer = lazy(() =>
   loadFinanceContainer().then((m) => ({ default: m.FinanceContainer })),
 );
@@ -72,6 +76,7 @@ const PRIMARY_LOADERS: Partial<Record<ViewType, () => Promise<unknown>>> = {
   finance: loadFinanceContainer,
   'content-calendar': loadContentCalendarView,
   'website-pipeline': loadWebsitePipelineView,
+  tasks: loadTaskManagerView,
 };
 
 export function prefetchView(view: ViewType): void {

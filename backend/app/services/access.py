@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 logger = logging.getLogger(__name__)
 
-MODULES = ("attendance", "daily_log", "sales", "content_calendar", "website", "ads")
+MODULES = ("attendance", "daily_log", "sales", "content_calendar", "website", "ads", "tasks")
 
 VALID_CONTENT_STAGES = ("content", "creative", "social_media")
 
@@ -276,6 +276,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": True,
             "website": True,
             "ads": True,
+            "tasks": True,
         }
     if role == "operations":
         return {
@@ -285,6 +286,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": True,
             "website": True,
             "ads": True,
+            "tasks": False,
         }
     if role == "hr":
         return {
@@ -294,6 +296,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": False,
             "website": False,
             "ads": False,
+            "tasks": False,
         }
     if role == "client":
         return {m: False for m in MODULES}
@@ -310,6 +313,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": False,
             "website": False,
             "ads": False,
+            "tasks": True,
         }
     if norm in CONTENT_DEPTS:
         return {
@@ -319,6 +323,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": True,
             "website": False,
             "ads": False,
+            "tasks": True,
         }
     if norm in WEBSITE_DEPTS:
         return {
@@ -328,6 +333,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": False,
             "website": True,
             "ads": False,
+            "tasks": True,
         }
     if norm in ADS_DEPTS:
         return {
@@ -337,6 +343,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
             "content_calendar": False,
             "website": False,
             "ads": True,
+            "tasks": True,
         }
 
     # General / unmapped department default
@@ -347,6 +354,7 @@ def default_access(user: Optional[Dict[str, Any]]) -> Dict[str, bool]:
         "content_calendar": False,
         "website": False,
         "ads": False,
+        "tasks": True,
     }
 
 
@@ -399,7 +407,10 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     levels: Dict[str, str] = {}
     for m in MODULES:
         if role == "admin":
-            levels[m] = "all" if m in ("attendance", "daily_log", "sales") else "manage"
+            if m == "tasks":
+                levels[m] = "all"
+            else:
+                levels[m] = "all" if m in ("attendance", "daily_log", "sales") else "manage"
         elif not modules[m]:
             levels[m] = "none"
         else:
@@ -408,11 +419,15 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                     levels[m] = "all"
                 elif m == "daily_log":
                     levels[m] = "all"
+                elif m == "tasks":
+                    levels[m] = "own"
                 else:
                     levels[m] = "view"
             elif role == "hr":
                 if m in ("attendance", "daily_log"):
                     levels[m] = "all"
+                elif m == "tasks":
+                    levels[m] = "own"
                 else:
                     levels[m] = "view"
             elif role == "team_lead":
@@ -420,6 +435,8 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                     levels[m] = "department"
                 elif m == "sales":
                     levels[m] = "all"
+                elif m == "tasks":
+                    levels[m] = "team"
                 else:
                     levels[m] = "manage"
             elif role == "team_member":

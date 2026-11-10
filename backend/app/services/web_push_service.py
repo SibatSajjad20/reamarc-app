@@ -116,6 +116,11 @@ def notification_path(kind: str, data: Optional[dict] = None) -> str:
         return "/content-calendar"
     if kind_name.startswith("website_") or data_type.startswith("website_"):
         return "/portal" if payload.get("target") == "portal" or payload.get("for_client") else "/website-pipeline"
+    if kind_name.startswith("task_"):
+        task_id = payload.get("task_id")
+        if task_id:
+            return f"/tasks?task={task_id}"
+        return "/tasks"
     return "/"
 
 

@@ -38,6 +38,7 @@ import {
   LogOut,
   SearchX,
   Receipt,
+  CheckSquare,
 } from 'lucide-react';
 
 interface CommandPaletteProps {
@@ -137,6 +138,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     marketing: { label: 'Performance marketing', icon: TrendingUp },
     'content-calendar': { label: 'Content calendar', icon: CalendarDays },
     'website-pipeline': { label: 'Website pipeline', icon: Globe },
+    tasks: { label: 'Tasks', icon: CheckSquare },
     attendance: { label: 'Attendance', icon: Clock },
     'daily-log': { label: 'Daily log', icon: NotebookPen },
     exceptions: { label: 'Exceptions', icon: Inbox },

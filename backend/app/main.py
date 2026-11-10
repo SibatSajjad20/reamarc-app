@@ -15,7 +15,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive, finance, worklane_public
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive, finance, worklane_public, tasks
 
 _SECRET_QUERY_RE = re.compile(
     r'(?i)((?:access_token|client_secret|fb_exchange_token|appsecret_proof|refresh_token|key)=)[^&\s"\']+'
@@ -147,7 +147,7 @@ async def lifespan(app: FastAPI):
 
     run_schedulers = os.getenv("RUN_SCHEDULERS", "1") != "0"
     reminder_task = sla_task = lead_queue_task = meta_poll_task = None
-    meeting_reminder_task = website_scheduler_task = sync_task = None
+    meeting_reminder_task = website_scheduler_task = task_scheduler_task = sync_task = None
     drive_share_task = None
 
     if run_schedulers:
@@ -195,6 +195,9 @@ async def lifespan(app: FastAPI):
         from app.services.website_due_scheduler import start_website_due_scheduler
         website_scheduler_task = asyncio.create_task(start_website_due_scheduler())
 
+        from app.services.task_due_scheduler import start_task_due_scheduler
+        task_scheduler_task = asyncio.create_task(start_task_due_scheduler())
+
         sync_task = asyncio.create_task(periodic_marketing_sync())
 
         from app.services.drive_direct import start_drive_share_sweeper
@@ -210,6 +213,7 @@ async def lifespan(app: FastAPI):
         meta_poll_task,
         meeting_reminder_task,
         website_scheduler_task,
+        task_scheduler_task,
         sync_task,
         drive_share_task,
     ):
@@ -474,6 +478,7 @@ app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router)
 app.include_router(content_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(website_projects.router, prefix=settings.API_V1_STR)
+app.include_router(tasks.router, prefix=settings.API_V1_STR)
 app.include_router(drive.router, prefix=settings.API_V1_STR)
 app.include_router(users.router, prefix=settings.API_V1_STR)
 app.include_router(dashboard.router, prefix=settings.API_V1_STR)

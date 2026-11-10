@@ -6,6 +6,7 @@ import {
   Clock,
   CalendarCheck2,
   CalendarDays,
+  CheckSquare,
   ClipboardList,
 } from 'lucide-react';
 import type { ViewType } from '@/types';
@@ -31,7 +32,7 @@ interface InboxItem {
   created_at?: string;
   read?: boolean;
   company_id?: string;
-  data?: { company_id?: string; type?: string };
+  data?: { company_id?: string; type?: string; task_id?: string };
 }
 
 export interface NotificationBellProps {
@@ -97,6 +98,7 @@ function getNotificationIcon(kind?: string) {
   }
   if (k.includes('log')) return ClipboardList;
   if (k.startsWith('content_calendar') || k.startsWith('campaign')) return CalendarDays;
+  if (k.startsWith('task_')) return CheckSquare;
   return Bell;
 }
 
@@ -113,20 +115,50 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const [permission, setPermission] = useState(notificationPermission);
   const [enabling, setEnabling] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const taskSignalReady = useRef(false);
+  const lastTaskSignalKey = useRef<string | null>(null);
 
   const unreadCount = items.filter((item) => !item.read).length;
+
+  const emitTaskActivity = useCallback((kind?: string, taskId?: string) => {
+    if (!kind || !kind.startsWith('task_')) return;
+    window.dispatchEvent(
+      new CustomEvent('reamarc-task-activity', { detail: { kind, task_id: taskId } }),
+    );
+  }, []);
+
+  const noteNewestTask = useCallback((rows: InboxItem[]) => {
+    const newest = rows
+      .filter((item) => (item.kind || '').startsWith('task_'))
+      .reduce<InboxItem | null>((best, item) => {
+        if (!best) return item;
+        return String(item.created_at || '') > String(best.created_at || '') ? item : best;
+      }, null);
+    const key = newest ? String(newest.created_at || newest.id || '') : '';
+    if (!taskSignalReady.current) {
+      taskSignalReady.current = true;
+      lastTaskSignalKey.current = key || null;
+      return;
+    }
+    if (newest && key && key !== lastTaskSignalKey.current) {
+      lastTaskSignalKey.current = key;
+      emitTaskActivity(newest.kind, newest.data?.task_id);
+    }
+  }, [emitTaskActivity]);
 
   const load = useCallback(async () => {
     if (document.visibilityState === 'hidden') return;
     try {
       const rows = await apiClient.get<InboxItem[]>('/mobile/notifications?limit=30');
-      setItems(Array.isArray(rows) ? rows : []);
+      const list = Array.isArray(rows) ? rows : [];
+      setItems(list);
+      noteNewestTask(list);
     } catch {
       // Keep previous list
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [noteNewestTask]);
 
   useEffect(() => {
     setLoading(true);
@@ -139,6 +171,18 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
     const onPush = (e: MessageEvent) => {
       if (e.data?.type === 'reamarc-push-received') {
+        const kind = typeof e.data?.kind === 'string' ? e.data.kind : '';
+        if (kind.startsWith('task_')) {
+          let taskId: string | undefined = e.data?.task_id || e.data?.data?.task_id || undefined;
+          if (!taskId) {
+            try {
+              taskId = new URL(String(e.data.path || ''), window.location.origin).searchParams.get('task') || undefined;
+            } catch {
+              taskId = undefined;
+            }
+          }
+          emitTaskActivity(kind, taskId);
+        }
         void load();
       }
     };
@@ -153,7 +197,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       navigator.serviceWorker?.removeEventListener('message', onPush);
       window.removeEventListener('reamarc-notification-refresh', onCustomRefresh);
     };
-  }, [load]);
+  }, [load, emitTaskActivity]);
 
   useCacheInvalidation(['notifications', 'requests', 'approvals'], () => {
     void load();
@@ -214,6 +258,14 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       user?.companies,
     );
     const go = () => {
+      if ((item.kind || '').toLowerCase().startsWith('task_') && item.data?.task_id) {
+        try {
+          sessionStorage.setItem('reamarc_open_task_id', item.data.task_id);
+          window.dispatchEvent(new Event('reamarc-open-task'));
+        } catch {
+          /* ignore */
+        }
+      }
       onSelectView(viewForNotificationKind(item.kind, user?.role));
       setOpen(false);
       if (!item.read) {

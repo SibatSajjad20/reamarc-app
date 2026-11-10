@@ -88,6 +88,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
 
     req_module = None
     req_tracking = None
+    is_task_kind = k.startswith("task_")
     if k in employee_att_kinds:
         req_tracking = "attendance"
     elif k in log_kinds:
@@ -100,6 +101,8 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
         req_module = "website"
     elif k in ads_kinds:
         req_module = "ads"
+    elif is_task_kind:
+        req_module = "tasks"
 
     users_list = await company_member_users(
         {"id": {"$in": user_ids}},
@@ -113,6 +116,13 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     classified = bool(req_module or req_tracking or k in STAFF_ATT_KINDS)
     notify_cid = _notification_company_id(item)
     crm_kind = _is_crm_kind(k)
+    task_settings = None
+    if is_task_kind:
+        try:
+            from app.services.task_service import get_task_settings
+            task_settings = await get_task_settings(db)
+        except Exception:
+            task_settings = None
 
     allowed = []
     for uid in user_ids:
@@ -127,8 +137,16 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
         if crm_kind and _is_blocked_crm_kind(k) and role in ("admin", "super_admin", "owner"):
             continue
         if role in ("admin", "super_admin"):
-            if k in ADMIN_NOTIFICATION_KINDS:
+            if k in ADMIN_NOTIFICATION_KINDS or is_task_kind:
                 allowed.append(uid)
+            continue
+        if is_task_kind:
+            from app.services.task_access import can_open_module, is_task_excluded
+            if is_task_excluded(u, task_settings):
+                continue
+            if not can_open_module(u, task_settings):
+                continue
+            allowed.append(uid)
             continue
         if not classified:
             allowed.append(uid)
