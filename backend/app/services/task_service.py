@@ -350,14 +350,18 @@ async def _attach_subtask_counts(db, items: List[Dict[str, Any]]) -> None:
     ids = [t.get("id") for t in items if t.get("id")]
     if not ids:
         return
-    cursor = db.tasks.find({"parent_id": {"$in": ids}, "status": {"$ne": "cancelled"}}, {"parent_id": 1})
+    cursor = db.tasks.find({"parent_id": {"$in": ids}, "status": {"$ne": "cancelled"}}, {"parent_id": 1, "status": 1})
     counts: Dict[str, int] = {}
+    done: Dict[str, int] = {}
     async for row in cursor:
         pid = row.get("parent_id")
         if pid:
             counts[pid] = counts.get(pid, 0) + 1
+            if row.get("status") == "completed":
+                done[pid] = done.get(pid, 0) + 1
     for item in items:
         item["subtasks_count"] = counts.get(item.get("id"), item.get("subtasks_count") or 0)
+        item["subtasks_done"] = done.get(item.get("id"), item.get("subtasks_done") or 0)
 
 
 async def create_task(db, payload: Dict[str, Any], actor: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

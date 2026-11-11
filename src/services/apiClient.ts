@@ -493,8 +493,17 @@ class ApiClient {
   public async upload<T>(
     endpoint: string,
     formData: FormData,
-    options?: { headers?: HeadersInit; skipWorkspaceHeader?: boolean }
+    options?: {
+      headers?: HeadersInit;
+      skipWorkspaceHeader?: boolean;
+      signal?: AbortSignal;
+      onProgress?: (percent: number) => void;
+      _retried?: boolean;
+    }
   ): Promise<T> {
+    if (options?.onProgress || options?.signal) {
+      return this.uploadWithXhr<T>(endpoint, formData, options);
+    }
     const headers = this.buildHeaders(options?.headers, true, endpoint);
     if (options?.skipWorkspaceHeader) {
       delete headers['X-Workspace-ID'];
@@ -505,6 +514,7 @@ class ApiClient {
       headers,
       body: formData,
       credentials: 'include',
+      signal: options?.signal,
     });
 
     let data: any = null;
@@ -527,6 +537,74 @@ class ApiClient {
       throw new ApiError(data?.detail || data?.message || 'File upload failed.', response.status, data);
     }
     return data as T;
+  }
+
+  private uploadWithXhr<T>(
+    endpoint: string,
+    formData: FormData,
+    options: {
+      headers?: HeadersInit;
+      skipWorkspaceHeader?: boolean;
+      signal?: AbortSignal;
+      onProgress?: (percent: number) => void;
+      _retried?: boolean;
+    }
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${this.baseUrl}${endpoint}`);
+      xhr.withCredentials = true;
+      const headers = this.buildHeaders(options.headers, true, endpoint);
+      if (options.skipWorkspaceHeader) {
+        delete headers['X-Workspace-ID'];
+        delete headers['x-workspace-id'];
+      }
+      Object.entries(headers).forEach(([key, value]) => {
+        if (value) xhr.setRequestHeader(key, value);
+      });
+      xhr.upload.onprogress = (event) => {
+        if (!options.onProgress || !event.lengthComputable || !event.total) return;
+        options.onProgress(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
+      };
+      xhr.onload = () => {
+        let data: any = null;
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+        } catch {
+          data = null;
+        }
+        if (xhr.status >= 200 && xhr.status < 300) {
+          resolve(data as T);
+          return;
+        }
+        if (xhr.status === 401 && !options._retried) {
+          void this.tryRefreshSession().then((refreshed) => {
+            if (refreshed === 'ok') {
+              resolve(this.uploadWithXhr<T>(endpoint, formData, { ...options, _retried: true }));
+              return;
+            }
+            if (refreshed === 'unavailable') {
+              reject(new ApiError('Server is not responding. Retrying shortly.', 503, data));
+              return;
+            }
+            if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
+            reject(new ApiError(data?.detail || data?.message || 'File upload failed.', xhr.status, data));
+          });
+          return;
+        }
+        reject(new ApiError(data?.detail || data?.message || 'File upload failed.', xhr.status, data));
+      };
+      xhr.onerror = () => reject(new ApiError('File upload failed.', 500));
+      xhr.onabort = () => reject(new ApiError('Upload cancelled.', 499));
+      if (options.signal) {
+        if (options.signal.aborted) {
+          xhr.abort();
+          return;
+        }
+        options.signal.addEventListener('abort', () => xhr.abort(), { once: true });
+      }
+      xhr.send(formData);
+    });
   }
 
   public async getBlob(endpoint: string, options: RequestOptions = {}): Promise<Blob> {

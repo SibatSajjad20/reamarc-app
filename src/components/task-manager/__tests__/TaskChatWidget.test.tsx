@@ -86,6 +86,17 @@ describe('TaskChatWidget', () => {
     expect(screen.getByText('99+')).toBeTruthy();
   });
 
+  it('renders unread as a hanging tag label, not the overlapping count chip', () => {
+    render(<TaskChatWidget />);
+    const label = screen.getByTestId('task-chat-unread');
+    expect(label.textContent).toBe('2');
+    expect(label.className).toMatch(/rounded-sm/);
+    expect(label.className).toMatch(/bg-surface/);
+    expect(label.className).not.toMatch(/min-w-\[18px\]/);
+    expect(label.className).not.toMatch(/rounded-full/);
+    expect(screen.getByTestId('task-chat-fab').getAttribute('aria-label')).toBe('Task chat, 2 unread');
+  });
+
   it('applies bounce on unread increase and skips it under reduced motion', () => {
     const first = render(<TaskChatWidget />);
     chatState.unreadTotal = 5;

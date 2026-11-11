@@ -34,4 +34,27 @@ describe('TaskFollowUpView', () => {
     expect(screen.getByText('Overdue one')).toBeTruthy();
     expect(screen.getByText('No date')).toBeTruthy();
   });
+
+  it('does not render row checkboxes', () => {
+    render(
+      <TaskFollowUpView
+        tasks={[
+          task({
+            id: 'o',
+            serial: 'T-0001',
+            title: 'Overdue one',
+            due_date: '2020-01-01',
+            assignee_id: 'admin',
+            assigner_id: 'lead',
+            status: 'todo',
+          }),
+        ]}
+        actor={{ id: 'admin', role: 'admin', primary_department: 'Website' }}
+        onOpen={vi.fn()}
+        onAction={vi.fn()}
+      />,
+    );
+    expect(screen.queryByLabelText('Advance T-0001')).toBeNull();
+    expect(screen.getByTestId('task-follow-up-view').querySelectorAll('[role="checkbox"]')).toHaveLength(0);
+  });
 });

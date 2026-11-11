@@ -2,17 +2,23 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Activity,
   Calendar,
+  ChevronDown,
   Kanban,
   LayoutDashboard,
   List,
   Plus,
+  Rows3,
+  Rows4,
   Search,
   Trash2,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
+import { StatusPill } from '@/components/ui/StatusPill';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ErrorState } from '@/components/ui/ErrorState';
+import { CalendarSkeleton, CardListSkeleton, FollowUpSkeleton, KanbanSkeleton, KpiRowSkeleton } from '@/components/ui/Skeletons';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useConfirm, usePrompt } from '@/components/ui/ConfirmProvider';
@@ -41,11 +47,14 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
 import { isAdmin } from '@/utils/taskAccess';
+import type { BoardDensity } from '@/components/task-manager/TaskPipelineCard';
 
 const SCOPE_OPTIONS: { value: TaskScope; label: string }[] = [
   { value: 'mine', label: 'My tasks' },
@@ -54,6 +63,39 @@ const SCOPE_OPTIONS: { value: TaskScope; label: string }[] = [
   { value: 'watching', label: 'Watching' },
   { value: 'all', label: 'All visible' },
 ];
+
+const SUMMARY_CHIPS: { key: 'open' | 'overdue' | 'blocked' | 'in_review'; label: string; variant: 'accent' | 'danger' | 'info' }[] = [
+  { key: 'open', label: 'open', variant: 'accent' },
+  { key: 'overdue', label: 'overdue', variant: 'danger' },
+  { key: 'blocked', label: 'blocked', variant: 'danger' },
+  { key: 'in_review', label: 'in review', variant: 'info' },
+];
+
+function scopeLabel(scope?: TaskScope) {
+  return SCOPE_OPTIONS.find((opt) => opt.value === (scope || 'all'))?.label || 'All visible';
+}
+
+function TaskSummaryCounts({ counts }: { counts?: TaskCounts | null }) {
+  return (
+    <div
+      className="flex items-center gap-1.5 flex-wrap min-w-0"
+      data-testid="task-summary-counts"
+      role="group"
+      aria-label="Task summary"
+    >
+      {SUMMARY_CHIPS.map((chip) => (
+        <StatusPill
+          key={chip.key}
+          data-testid={`task-count-${chip.key.replace('_', '-')}`}
+          variant={chip.variant}
+          label={`${counts?.[chip.key] ?? 0} ${chip.label}`}
+          hasDot
+          className="font-sans font-numeric tabular-nums"
+        />
+      ))}
+    </div>
+  );
+}
 
 function actorFromUser(user: any): TaskActor | null {
   if (!user) return null;
@@ -116,6 +158,16 @@ export const TaskManagerView: React.FC = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [defaultDue, setDefaultDue] = useState<string | undefined>();
+  const [defaultStage, setDefaultStage] = useState<TaskStatus | undefined>();
+  const [boardDensity, setBoardDensity] = useState<BoardDensity>(() => {
+    try {
+      const saved = localStorage.getItem('reamarc_tasks_board_density');
+      if (saved === 'compact' || saved === 'comfortable') return saved;
+    } catch {
+      /* ignore */
+    }
+    return 'comfortable';
+  });
   const [focusAssignee, setFocusAssignee] = useState(false);
   const [stageCounts, setStageCounts] = useState<Partial<Record<TaskStatus, number>>>({});
   const [truncated, setTruncated] = useState(false);
@@ -204,13 +256,15 @@ export const TaskManagerView: React.FC = () => {
   const openTask = (task: Task, opts?: { focusAssignee?: boolean }) => {
     setActiveTask(task);
     setDefaultDue(undefined);
+    setDefaultStage(undefined);
     setFocusAssignee(Boolean(opts?.focusAssignee));
     setDialogOpen(true);
   };
 
-  const openCreate = (due?: string) => {
+  const openCreate = (due?: string, stage?: TaskStatus) => {
     setActiveTask(null);
     setDefaultDue(due);
+    setDefaultStage(stage);
     setFocusAssignee(false);
     setDialogOpen(true);
   };
@@ -265,19 +319,6 @@ export const TaskManagerView: React.FC = () => {
     }
   };
 
-  const handleBulk = async (ids: string[], patch: { stage?: string; priority?: string; cancel?: boolean }) => {
-    if (patch.cancel) {
-      const ok = await confirm({ title: 'Cancel selected tasks?', confirmLabel: 'Cancel tasks', tone: 'danger' });
-      if (!ok) return;
-      const reason = await prompt({ title: 'Cancel reason', label: 'Reason' });
-      if (!reason) return;
-      await taskService.batch(ids.map((id) => ({ id, cancel: true, cancel_reason: reason })));
-    } else {
-      await taskService.batch(ids.map((id) => ({ id, ...patch })));
-    }
-    await load();
-  };
-
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-surface overflow-hidden select-none" data-testid="task-manager-view">
       <div className="relative z-40 bg-surface border-b border-border shadow-2xs shrink-0">
@@ -298,7 +339,7 @@ export const TaskManagerView: React.FC = () => {
               }}
               options={[
                 { value: 'list', label: 'List', icon: List },
-                { value: 'kanban', label: 'Kanban', icon: Kanban },
+                { value: 'kanban', label: 'Task pipeline', icon: Kanban },
                 { value: 'calendar', label: 'Calendar', icon: Calendar },
                 { value: 'follow-up', label: 'Follow-up', icon: LayoutDashboard },
                 { value: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -329,12 +370,37 @@ export const TaskManagerView: React.FC = () => {
                   </button>
                 )}
               </div>
-              <SegmentedControl
-                size="sm"
-                value={filters.scope || 'all'}
-                onValueChange={(val) => setFilters((f) => ({ ...f, scope: val as TaskScope }))}
-                options={SCOPE_OPTIONS}
-              />
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    className="min-w-[8.5rem] justify-between"
+                    aria-label={`Task scope: ${scopeLabel(filters.scope)}`}
+                    data-testid="task-scope-select"
+                    trailingIcon={ChevronDown}
+                  >
+                    {scopeLabel(filters.scope)}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  <DropdownMenuRadioGroup
+                    value={filters.scope || 'all'}
+                    onValueChange={(val) => setFilters((f) => ({ ...f, scope: val as TaskScope }))}
+                  >
+                    {SCOPE_OPTIONS.map((opt) => (
+                      <DropdownMenuRadioItem
+                        key={opt.value}
+                        value={opt.value}
+                        data-testid={`task-scope-${opt.value}`}
+                      >
+                        {opt.label}
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <TaskFiltersPopover
                 filters={filters}
                 onChange={setFilters}
@@ -342,6 +408,7 @@ export const TaskManagerView: React.FC = () => {
                 departments={departments}
                 workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
               />
+              <TaskSummaryCounts counts={polledCounts || counts} />
               {savedViews.length > 0 && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -380,20 +447,69 @@ export const TaskManagerView: React.FC = () => {
                 </DropdownMenu>
               )}
             </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={async () => {
-                const name = await prompt({ title: 'Save view', label: 'Name' });
-                if (!name) return;
-                await taskService.createSavedView({ name, view: viewMode, filters });
-                addToast('View saved', name, 'success');
-                await load();
-              }}
-            >
-              Save view
-            </Button>
+            <div className="flex items-center gap-2 shrink-0">
+              {viewMode === 'kanban' && (
+                <SegmentedControl
+                  size="sm"
+                  aria-label="Board density"
+                  value={boardDensity}
+                  onValueChange={(val) => {
+                    const next = val === 'compact' ? 'compact' : 'comfortable';
+                    setBoardDensity(next);
+                    try {
+                      localStorage.setItem('reamarc_tasks_board_density', next);
+                    } catch {
+                      /* ignore */
+                    }
+                  }}
+                  options={[
+                    {
+                      value: 'compact',
+                      icon: (props) => (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex" aria-hidden>
+                              <Rows4 {...props} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Compact</TooltipContent>
+                        </Tooltip>
+                      ),
+                      label: <span className="md:max-[1439px]:sr-only">Compact</span>,
+                    },
+                    {
+                      value: 'comfortable',
+                      icon: (props) => (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="inline-flex" aria-hidden>
+                              <Rows3 {...props} />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>Comfortable</TooltipContent>
+                        </Tooltip>
+                      ),
+                      label: <span className="md:max-[1439px]:sr-only">Comfortable</span>,
+                    },
+                  ]}
+                />
+              )}
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                className="whitespace-nowrap"
+                onClick={async () => {
+                  const name = await prompt({ title: 'Save view', label: 'Name' });
+                  if (!name) return;
+                  await taskService.createSavedView({ name, view: viewMode, filters });
+                  addToast('View saved', name, 'success');
+                  await load();
+                }}
+              >
+                Save view
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -404,7 +520,22 @@ export const TaskManagerView: React.FC = () => {
       {error ? (
         <ErrorState title="Failed to load tasks" message={error} onRetry={() => void load()} />
       ) : loading ? (
-        <div className="flex-1 flex items-center justify-center text-sm text-fg-muted">Loading tasks…</div>
+        <div className="flex-1 min-h-0 overflow-auto p-4" data-testid="task-module-skeleton">
+          {viewMode === 'kanban' ? (
+            <KanbanSkeleton columns={4} />
+          ) : viewMode === 'calendar' ? (
+            <CalendarSkeleton />
+          ) : viewMode === 'follow-up' ? (
+            <FollowUpSkeleton className="p-0" />
+          ) : viewMode === 'overview' ? (
+            <div className="space-y-4">
+              <KpiRowSkeleton />
+              <CardListSkeleton rows={6} />
+            </div>
+          ) : (
+            <CardListSkeleton rows={8} />
+          )}
+        </div>
       ) : viewMode === 'list' ? (
         <TaskListView
           tasks={tasks}
@@ -412,21 +543,27 @@ export const TaskManagerView: React.FC = () => {
           onOpen={openTask}
           onAction={handleAction}
           onViewAll={(stage) => setFilters((f) => ({ ...f, stage }))}
-          onBulk={handleBulk}
           focusedStage={filters.stage}
           stageCounts={stageCounts}
         />
       ) : viewMode === 'kanban' ? (
         <TaskKanbanView
           tasks={tasks}
-          counts={polledCounts || counts}
           stageCounts={stageCounts}
           actor={actor}
+          density={boardDensity}
           onOpen={openTask}
           onStageChange={async (task, to) => {
-            const updated = await taskService.changeStage(task.id, to);
-            setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+            setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, status: to } : t)));
+            try {
+              const updated = await taskService.changeStage(task.id, to);
+              setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+            } catch (err) {
+              setTasks((cur) => cur.map((t) => (t.id === task.id ? task : t)));
+              throw err;
+            }
           }}
+          onAddToStage={(stage) => openCreate(undefined, stage)}
         />
       ) : viewMode === 'calendar' ? (
         <TaskCalendarView
@@ -469,22 +606,24 @@ export const TaskManagerView: React.FC = () => {
         actor={actor}
         assignable={assignable}
         defaultDue={defaultDue}
+        defaultStage={defaultStage}
         focusAssignee={focusAssignee}
         onClose={() => {
           setDialogOpen(false);
           setActiveTask(null);
+          setDefaultStage(undefined);
           setFocusAssignee(false);
         }}
-        onSaved={(task) => {
-          setActiveTask(task);
+        onSaved={(task, opts) => {
+          setActiveTask((cur) => (cur && cur.id !== task.id ? cur : task));
           setTasks((cur) => {
             const idx = cur.findIndex((t) => t.id === task.id);
-            if (idx === -1) return [task, ...cur];
+            if (idx === -1) return task.parent_id ? cur : [task, ...cur];
             const next = [...cur];
-            next[idx] = task;
+            next[idx] = { ...cur[idx], ...task };
             return next;
           });
-          void load();
+          if (opts?.refreshList !== false) void load();
         }}
       />
     </div>

@@ -49,12 +49,11 @@ export const TaskFollowUpView: React.FC<Props> = ({ tasks, buckets, actor, onOpe
           collapsed={false}
           onToggle={() => undefined}
           onViewAll={() => undefined}
-          selected={new Set()}
-          onToggleSelect={() => undefined}
           onOpen={onOpen}
           onAction={onAction}
           actor={actor}
           limitRows={false}
+          hideRowCheckboxes
         />
       ))}
     </div>

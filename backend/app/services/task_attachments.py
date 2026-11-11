@@ -115,9 +115,7 @@ async def _ensure_named_folder(db, gdrive, index_id: str, name: str, parent_id: 
     key = company_singleton_id(index_id)
     existing = await coll.find_one({"_id": key})
     if existing and existing.get("folder_id"):
-        alive = await asyncio.to_thread(gdrive._folder_alive, existing["folder_id"]) if hasattr(gdrive, "_folder_alive") else True
-        if alive:
-            return existing["folder_id"]
+        return existing["folder_id"]
     found = await asyncio.to_thread(gdrive._find_folder_by_name, name, parent_id)
     if not found:
         found = await asyncio.to_thread(gdrive._create_folder, name, parent_id)
@@ -457,7 +455,7 @@ async def stream_attachment(
         raise HTTPException(status_code=404, detail="Attachment not found")
     if doc.get("kind") != "upload" or not doc.get("storage_key"):
         raise HTTPException(status_code=404, detail="No file to stream")
-    if download and doc.get("drive_file_id"):
+    if download and doc.get("storage") == "drive" and doc.get("drive_file_id"):
         from app.services.drive_direct import direct_download_url
 
         direct = await direct_download_url(

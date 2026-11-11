@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { ChevronDown, ChevronRight, MoreHorizontal, Repeat, Paperclip, MessageSquare } from 'lucide-react';
 import {
   TableCard,
@@ -23,7 +23,7 @@ import {
 import { TASK_STAGES, type Task, type TaskStatus } from '@/types/task';
 import { TaskPriorityPill, TaskStagePill, stageBarClass } from './TaskPriorityPill';
 import { isOverdue, isDueToday } from '@/utils/taskFollowUp';
-import { canReassign, canTransitionTo } from '@/utils/taskAccess';
+import { canReassign, canTransitionTo, listRowAdvanceAction, listRowAdvanceTo } from '@/utils/taskAccess';
 import { useMemberAvatars } from '@/hooks/useMemberAvatars';
 import { cn } from '@/lib/utils';
 import type { TaskActor } from '@/types/task';
@@ -45,14 +45,13 @@ interface Props {
   collapsed: boolean;
   onToggle: () => void;
   onViewAll: () => void;
-  selected: Set<string>;
-  onToggleSelect: (id: string, checked: boolean) => void;
   onOpen: (task: Task) => void;
   onAction: (task: Task, action: string) => void;
   actor: TaskActor | null;
   limitRows?: boolean;
   headerLabel?: string;
   hideViewAll?: boolean;
+  hideRowCheckboxes?: boolean;
   count?: number;
 }
 
@@ -62,21 +61,23 @@ export const TaskStageSection: React.FC<Props> = ({
   collapsed,
   onToggle,
   onViewAll,
-  selected,
-  onToggleSelect,
   onOpen,
   onAction,
   actor,
   limitRows = true,
   headerLabel,
   hideViewAll = false,
+  hideRowCheckboxes = false,
   count,
 }) => {
   const { getAvatarUrl } = useMemberAvatars();
   const label = headerLabel || TASK_STAGES.find((s) => s.value === status)?.label || status;
   const shown = limitRows ? tasks.slice(0, PREVIEW) : tasks;
-  const allIds = useMemo(() => shown.map((t) => t.id), [shown]);
-  const allChecked = allIds.length > 0 && allIds.every((id) => selected.has(id));
+  const firedAdvance = useRef(new Set<string>());
+  const showAdvanceColumn = useMemo(() => {
+    if (hideRowCheckboxes) return false;
+    return shown.some((task) => Boolean(listRowAdvanceTo(actor, task)));
+  }, [hideRowCheckboxes, shown, actor]);
 
   return (
     <TableCard data-testid={`task-stage-${status}`}>
@@ -97,13 +98,7 @@ export const TaskStageSection: React.FC<Props> = ({
         <Table>
           <THead>
             <tr>
-              <TH className="w-10">
-                <Checkbox
-                  checked={allChecked}
-                  onCheckedChange={(c) => allIds.forEach((id) => onToggleSelect(id, c === true))}
-                  aria-label={`Select ${label}`}
-                />
-              </TH>
+              {showAdvanceColumn && <TH className="w-10" aria-label={`${label} advance`} />}
               <TH>Task ID</TH>
               <TH>Task Name</TH>
               <TH>Assignee</TH>
@@ -119,15 +114,27 @@ export const TaskStageSection: React.FC<Props> = ({
               const due = formatDue(task);
               const checklist = task.checklist || [];
               const done = checklist.filter((c) => c.done).length;
+              const next = showAdvanceColumn ? listRowAdvanceTo(actor, task) : null;
+              const action = next ? listRowAdvanceAction(next) : null;
               return (
                 <TR key={task.id} className="cursor-pointer" onClick={() => onOpen(task)}>
-                  <TD onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selected.has(task.id)}
-                      onCheckedChange={(c) => onToggleSelect(task.id, c === true)}
-                      aria-label={`Select ${task.serial}`}
-                    />
-                  </TD>
+                  {showAdvanceColumn && (
+                    <TD onClick={(e) => e.stopPropagation()}>
+                      {next && action ? (
+                        <Checkbox
+                          checked={false}
+                          onCheckedChange={(c) => {
+                            if (c !== true) return;
+                            if (firedAdvance.current.has(task.id)) return;
+                            firedAdvance.current.add(task.id);
+                            onAction(task, action);
+                          }}
+                          aria-label={`Advance ${task.serial}`}
+                          data-next-stage={next}
+                        />
+                      ) : null}
+                    </TD>
+                  )}
                   <TD className="text-fg-muted text-xs">{task.serial}</TD>
                   <TD>
                     <div className="flex flex-col gap-1 min-w-0">

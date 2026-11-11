@@ -175,10 +175,14 @@ export const taskService = {
   async getAttachments(id: string): Promise<{ items: TaskAttachment[] }> {
     return apiClient.get<{ items: TaskAttachment[] }>(`/tasks/${id}/attachments`);
   },
-  async uploadAttachment(id: string, file: File): Promise<TaskAttachment> {
+  async uploadAttachment(
+    id: string,
+    file: File,
+    options?: { signal?: AbortSignal; onProgress?: (percent: number) => void },
+  ): Promise<TaskAttachment> {
     const body = new FormData();
     body.append('file', file);
-    return apiClient.upload<TaskAttachment>(`/tasks/${id}/attachments`, body);
+    return apiClient.upload<TaskAttachment>(`/tasks/${id}/attachments`, body, options);
   },
   async addLink(id: string, name: string, url: string): Promise<TaskAttachment> {
     return apiClient.post<TaskAttachment>(`/tasks/${id}/attachments/link`, { name, url });

@@ -9,6 +9,7 @@ import {
   changedFields,
   isApprover,
   isViewOnly,
+  listRowAdvanceTo,
 } from './taskAccess';
 import type { Task, TaskActor } from '@/types/task';
 
@@ -118,6 +119,25 @@ describe('taskAccess', () => {
     });
     expect(canTransitionTo(memberC1, selfTask, 'completed')).toBe(true);
     expect(allowedTransitions(leadC, assigned)).toContain('completed');
+  });
+
+  it('list row checkbox: assignee starts/submits; lead/assigner approve in review', () => {
+    const todo = task({ status: 'todo' });
+    expect(listRowAdvanceTo(memberC1, todo)).toBe('in_progress');
+    expect(listRowAdvanceTo(memberC2, todo)).toBeNull();
+    expect(listRowAdvanceTo(leadC, todo)).toBeNull();
+    expect(listRowAdvanceTo(leadC, task({ status: 'todo', assignee_id: 'lead.content' }))).toBe('in_progress');
+
+    const wip = task({ status: 'in_progress' });
+    expect(listRowAdvanceTo(memberC1, wip)).toBe('in_review');
+    expect(listRowAdvanceTo(leadC, wip)).toBeNull();
+
+    const review = task({ status: 'in_review' });
+    expect(listRowAdvanceTo(memberC1, review)).toBeNull();
+    expect(listRowAdvanceTo(leadC, review)).toBe('completed');
+    expect(listRowAdvanceTo(leadW, review)).toBeNull();
+    expect(listRowAdvanceTo(memberC1, task({ status: 'completed' }))).toBeNull();
+    expect(listRowAdvanceTo(leadC, task({ status: 'completed' }))).toBeNull();
   });
 
   it('changedFields sends only diffs', () => {

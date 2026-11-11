@@ -8,6 +8,7 @@ import { useTaskChat } from '@/hooks/useTaskChat';
 import { useMemberAvatars } from '@/hooks/useMemberAvatars';
 import type { TaskConversation } from '@/types/task';
 import { cn } from '@/lib/utils';
+import { badgeVariants } from '@/components/ui/badge';
 import { TaskChatThread } from './TaskChatThread';
 
 function useIsMobile() {
@@ -163,7 +164,7 @@ export const TaskChatWidget: React.FC<Props> = ({ onSelectTasks }) => {
       <button
         type="button"
         data-testid="task-chat-fab"
-        aria-label="Task chat"
+        aria-label={badge ? `Task chat, ${badge} unread` : 'Task chat'}
         onClick={() => setOpen((v) => !v)}
         className={cn(
           'relative h-12 w-12 rounded-full bg-accent text-accent-fg border border-accent shadow-md flex items-center justify-center hover:bg-accent-hover',
@@ -175,7 +176,13 @@ export const TaskChatWidget: React.FC<Props> = ({ onSelectTasks }) => {
           <span className="absolute inset-0 rounded-full border-2 border-accent motion-safe:animate-pulse pointer-events-none" />
         )}
         {badge && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-accent-soft text-accent-text text-[10px] font-medium border border-accent/20 flex items-center justify-center">
+          <span
+            data-testid="task-chat-unread"
+            className={cn(
+              badgeVariants({ variant: 'tag' }),
+              'absolute -top-2 -right-2 h-5 min-w-5 justify-center px-1.5 text-accent-text font-numeric tabular-nums shadow-sm pointer-events-none',
+            )}
+          >
             {badge}
           </span>
         )}

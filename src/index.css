@@ -299,7 +299,10 @@
   }
   :focus-visible { outline: none; }
   ::selection { background: var(--accent-soft-2); color: var(--text); }
-  .font-numeric { font-variant-numeric: tabular-nums; }
+  .font-numeric {
+    font-family: var(--font-sans);
+    font-variant-numeric: tabular-nums;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { MoreHorizontal, Plus } from 'lucide-react';
+import { AlertDialog as AlertDialogPrimitive } from 'radix-ui';
+import { Info, MoreHorizontal, Plus, X } from 'lucide-react';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '@/components/ui/FormDialogLayout';
 import { FormFooter } from '@/components/ui/FormFooter';
 import { FormField } from '@/components/ui/FormField';
@@ -72,7 +73,7 @@ function draftFrom(task?: Task | null, defaults?: Partial<Draft>): Draft {
   return {
     title: task?.title || '',
     description: task?.description || '',
-    status: task?.status || 'todo',
+    status: task?.status || defaults?.status || 'todo',
     priority: task?.priority || 'medium',
     assignee_id: task?.assignee_id || '',
     start_date: task?.start_date || '',
@@ -93,10 +94,11 @@ interface Props {
   actor: TaskActor | null;
   assignable: TaskAssignableUser[];
   defaultDue?: string;
+  defaultStage?: TaskStatus;
   parentId?: string;
   focusAssignee?: boolean;
   onClose: () => void;
-  onSaved: (task: Task) => void;
+  onSaved: (task: Task, opts?: { refreshList?: boolean }) => void;
 }
 
 export const TaskDialog: React.FC<Props> = ({
@@ -105,6 +107,7 @@ export const TaskDialog: React.FC<Props> = ({
   actor,
   assignable,
   defaultDue,
+  defaultStage,
   parentId,
   focusAssignee,
   onClose,
@@ -115,8 +118,8 @@ export const TaskDialog: React.FC<Props> = ({
   const prompt = usePrompt();
   const { workspaces } = useWorkspaces();
   const isCreate = !task;
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(task, { due_date: defaultDue, parent_id: parentId }));
-  const [baseline, setBaseline] = useState<Draft>(() => draftFrom(task, { due_date: defaultDue, parent_id: parentId }));
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(task, { due_date: defaultDue, status: defaultStage, parent_id: parentId }));
+  const [baseline, setBaseline] = useState<Draft>(() => draftFrom(task, { due_date: defaultDue, status: defaultStage, parent_id: parentId }));
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const [activity, setActivity] = useState<Activity[]>([]);
@@ -124,21 +127,31 @@ export const TaskDialog: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [watchers, setWatchers] = useState<string[]>(task?.watcher_ids || []);
+  const [watchersBaseline, setWatchersBaseline] = useState<string[]>(task?.watcher_ids || []);
+  const [unsavedOpen, setUnsavedOpen] = useState(false);
   const [subtasks, setSubtasks] = useState<Task[]>(task?.subtasks || []);
   const [pickerUsers, setPickerUsers] = useState<TaskAssignableUser[]>(assignable);
   const [mentionable, setMentionable] = useState<TaskAssignableUser[]>(assignable);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [fileBusy, setFileBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    const next = draftFrom(task, { due_date: defaultDue, parent_id: parentId });
+    const next = draftFrom(task, { due_date: defaultDue, status: defaultStage, parent_id: parentId });
     setDraft(next);
     setBaseline(next);
+    setServerError(null);
+    setClientError(null);
+    setFileBusy(false);
+    setComments([]);
+    setAttachments([]);
+    setActivity([]);
     setChecklist(task?.checklist || []);
     setWatchers(task?.watcher_ids || []);
+    setWatchersBaseline(task?.watcher_ids || []);
+    setUnsavedOpen(false);
     setSubtasks(task?.subtasks || []);
-    setServerError(null);
-  }, [open, task?.id, defaultDue, parentId]);
+  }, [open, task?.id, defaultDue, defaultStage, parentId]);
 
   useEffect(() => {
     if (!open) return;
@@ -156,9 +169,14 @@ export const TaskDialog: React.FC<Props> = ({
     void loadSide(task.id);
   }, [open, task?.id]);
 
-  const loadSide = async (id: string) => {
+  const loadSide = async (id: string, opts?: { light?: boolean }) => {
     const settle = <T,>(value: Promise<T> | T, fallback: T): Promise<T> =>
       Promise.resolve(value).catch(() => fallback);
+    if (opts?.light) {
+      const act = await settle(taskService.getActivity(id), { items: [] as Activity[] });
+      setActivity(act.items || []);
+      return;
+    }
     const [c, a, act, full] = await Promise.all([
       settle(taskService.getComments(id), { items: [] as TaskComment[], total: 0 }),
       settle(taskService.getAttachments(id), { items: [] as TaskAttachment[] }),
@@ -171,7 +189,9 @@ export const TaskDialog: React.FC<Props> = ({
     if (full) {
       setChecklist(full.checklist || []);
       setSubtasks(full.subtasks || []);
-      setWatchers(full.watcher_ids || []);
+      const nextWatchers = full.watcher_ids || [];
+      setWatchers(nextWatchers);
+      setWatchersBaseline(nextWatchers);
     }
   };
 
@@ -179,8 +199,11 @@ export const TaskDialog: React.FC<Props> = ({
   const canEdit = isCreate || (task ? canEditTask(actor, task) : false);
   const canChangeAssignee = isCreate || (task ? canReassign(actor, task) : false);
   const canCheck = isCreate || (task ? canEditChecklist(actor, task) : false);
-  const dirty = JSON.stringify(draft) !== JSON.stringify(baseline);
+  const dirty =
+    JSON.stringify(draft) !== JSON.stringify(baseline) ||
+    JSON.stringify(watchers) !== JSON.stringify(watchersBaseline);
   const { confirmDiscard } = useUnsavedChangesGuard(dirty && open);
+  const showFieldSave = Boolean(!isCreate && dirty && !viewOnly);
 
   const selectedAssignee = pickerUsers.find((u) => u.id === draft.assignee_id);
   const departmentHint = selectedAssignee?.department || task?.department || actor?.primary_department || actor?.department || '';
@@ -224,9 +247,36 @@ export const TaskDialog: React.FC<Props> = ({
     };
   };
 
+  const markClean = () => {
+    setBaseline({ ...draft });
+    setWatchersBaseline([...watchers]);
+  };
+
   const handleClose = async () => {
+    if (fileBusy) return;
+    if (!dirty) {
+      onClose();
+      return;
+    }
+    if (!isCreate) {
+      setUnsavedOpen(true);
+      return;
+    }
     const ok = await confirmDiscard();
     if (ok) onClose();
+  };
+
+  const handleUnsavedStay = () => setUnsavedOpen(false);
+
+  const handleUnsavedDiscard = () => {
+    setUnsavedOpen(false);
+    onClose();
+  };
+
+  const handleUnsavedSave = async () => {
+    setUnsavedOpen(false);
+    const saved = await saveFields();
+    if (saved) onClose();
   };
 
   const validateClient = (): string | null => {
@@ -256,6 +306,18 @@ export const TaskDialog: React.FC<Props> = ({
     try {
       if (isCreate) {
         const created = await taskService.createTask(payloadFromDraft());
+        if (defaultStage && defaultStage !== 'todo') {
+          try {
+            const updated = await taskService.changeStage(created.id, defaultStage);
+            addToast('Task created', updated.serial, 'success');
+            onSaved(updated);
+            return updated;
+          } catch (err: any) {
+            addToast('Created in To Do', err?.message || 'Could not change stage', 'error');
+            onSaved(created);
+            return created;
+          }
+        }
         addToast('Task created', created.serial, 'success');
         onSaved(created);
         return created;
@@ -264,22 +326,22 @@ export const TaskDialog: React.FC<Props> = ({
       if (draft.assignee_id && draft.assignee_id !== task?.assignee_id) {
         const note = await prompt({ title: 'Reassign note (optional)', label: 'Note' });
         const assigned = await taskService.assign(task!.id, draft.assignee_id, note || undefined);
-        onSaved(assigned);
-        setBaseline(draftFrom(assigned));
+        onSaved(assigned, { refreshList: false });
         current = assigned;
       }
       const next = payloadFromDraft() as Record<string, unknown>;
       delete next.assignee_id;
-      const baselinePayload = payloadFromDraftFromBaseline(baseline, workspaces);
+      const baselinePayload = payloadFromDraftFromBaseline(baseline, workspaces, watchersBaseline);
       delete baselinePayload.assignee_id;
       const patch = changedFields(baselinePayload, next);
       if (Object.keys(patch).length) {
         patch.if_updated_at = current?.updated_at;
         const updated = await taskService.patchTask(task!.id, patch);
-        onSaved(updated);
-        setBaseline(draftFrom(updated));
+        onSaved(updated, { refreshList: false });
+        markClean();
         return updated;
       }
+      markClean();
       return current;
     } catch (err: any) {
       const message = err?.message || 'Could not save task';
@@ -308,47 +370,42 @@ export const TaskDialog: React.FC<Props> = ({
     }
   };
 
+  const stageAction = !isCreate && task
+    ? task.status === 'todo' && canTransitionTo(actor, task, 'in_progress')
+      ? { label: 'Start', to: 'in_progress' as const }
+      : task.status === 'in_progress' && canTransitionTo(actor, task, 'in_review')
+        ? { label: 'Submit for review', to: 'in_review' as const }
+        : task.status === 'in_review' && canTransitionTo(actor, task, 'completed')
+          ? { label: 'Approve', to: 'completed' as const }
+          : null
+    : null;
+
   const primaryLabel = isCreate
     ? 'Create task'
-    : task?.status === 'todo' && canTransitionTo(actor, task, 'in_progress')
-      ? 'Start'
-      : task?.status === 'in_progress' && canTransitionTo(actor, task, 'in_review')
-        ? 'Submit for review'
-        : task?.status === 'in_review' && canTransitionTo(actor, task, 'completed')
-          ? 'Approve'
-          : canEdit
-            ? 'Save'
-            : 'Close';
+    : showFieldSave
+      ? 'Save'
+      : stageAction?.label || (canEdit ? 'Save' : 'Close');
 
   const onPrimary = async () => {
     if (isCreate) {
       await saveFields();
       return;
     }
-    if (primaryLabel === 'Start') {
-      if (dirty) await saveFields();
-      await runStage('in_progress');
-      return;
-    }
-    if (primaryLabel === 'Submit for review') {
-      if (dirty) await saveFields();
-      await runStage('in_review');
-      return;
-    }
-    if (primaryLabel === 'Approve') {
-      if (dirty) await saveFields();
-      await runStage('completed');
-      return;
-    }
-    if (primaryLabel === 'Save') {
+    if (showFieldSave || primaryLabel === 'Save') {
       await saveFields();
+      return;
+    }
+    if (stageAction) {
+      if (dirty) await saveFields();
+      await runStage(stageAction.to);
       return;
     }
     onClose();
   };
 
   return (
-    <FormDialog isOpen={open} onClose={() => void handleClose()} maxWidth="2xl">
+    <>
+    <FormDialog isOpen={open} onClose={() => void handleClose()} maxWidth="2xl" showClose={false} dismissible={!fileBusy && !unsavedOpen}>
       <FormDialogHeader>
         <div className="flex items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2.5 flex-wrap min-w-0">
@@ -361,6 +418,7 @@ export const TaskDialog: React.FC<Props> = ({
             )}
             {task?.blocked && <StatusPill variant="danger" label="Blocked" hasDot={false} />}
           </div>
+          <div className="flex items-center gap-1 shrink-0">
           {task && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -420,6 +478,16 @@ export const TaskDialog: React.FC<Props> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
+            <button
+              type="button"
+              aria-label="Close"
+              disabled={fileBusy}
+              onClick={() => void handleClose()}
+              className="w-8 h-8 rounded-md flex items-center justify-center text-fg-muted hover:bg-hover hover:text-fg disabled:opacity-50 disabled:pointer-events-none"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </FormDialogHeader>
 
@@ -430,8 +498,8 @@ export const TaskDialog: React.FC<Props> = ({
           void onPrimary();
         }}
       >
-        <FormDialogBody className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-7 space-y-4">
+        <FormDialogBody className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-1 lg:items-stretch gap-6 overflow-y-auto lg:overflow-hidden">
+          <div className="lg:col-span-7 space-y-4 lg:min-h-0 lg:overflow-y-auto" data-testid="task-dialog-form">
             <FormField label="Title" required error={!draft.title.trim() && serverError ? 'Title is required' : undefined}>
               {(props) => (
                 <input
@@ -562,30 +630,58 @@ export const TaskDialog: React.FC<Props> = ({
               disabled={!canCheck || isCreate}
               onAdd={async (text) => {
                 if (!task) return;
-                const updated = await taskService.addChecklist(task.id, text);
-                setChecklist(updated.checklist || []);
-                onSaved(updated);
+                const temp: TaskChecklistItem = { id: `tmp_${Date.now()}`, text, done: false };
+                setChecklist((cur) => [...cur, temp]);
+                try {
+                  const updated = await taskService.addChecklist(task.id, text);
+                  setChecklist(updated.checklist || []);
+                  onSaved(updated, { refreshList: false });
+                } catch (err: any) {
+                  setChecklist((cur) => cur.filter((item) => item.id !== temp.id));
+                  addToast('Could not add item', err?.message || 'Try again', 'error');
+                }
               }}
-              onToggle={async (item, done) => {
+              onToggle={(item, done) => {
                 if (!task) return;
-                const updated = await taskService.patchChecklist(task.id, item.id, { done });
-                setChecklist(updated.checklist || []);
-                onSaved(updated);
+                setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, done } : row)));
+                void taskService
+                  .patchChecklist(task.id, item.id, { done })
+                  .then((updated) => {
+                    setChecklist(updated.checklist || []);
+                    onSaved(updated, { refreshList: false });
+                  })
+                  .catch((err: any) => {
+                    setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, done: !done } : row)));
+                    addToast('Could not update checklist', err?.message || 'Try again', 'error');
+                  });
               }}
               onRemove={async (item) => {
                 if (!task) return;
-                const updated = await taskService.deleteChecklist(task.id, item.id);
-                setChecklist(updated.checklist || []);
-                onSaved(updated);
+                const prev = checklist;
+                setChecklist((cur) => cur.filter((row) => row.id !== item.id));
+                try {
+                  const updated = await taskService.deleteChecklist(task.id, item.id);
+                  setChecklist(updated.checklist || []);
+                  onSaved(updated, { refreshList: false });
+                } catch (err: any) {
+                  setChecklist(prev);
+                  addToast('Could not remove item', err?.message || 'Try again', 'error');
+                }
               }}
             />
             {task && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-fg-muted">Subtasks</label>
+                <label className="text-xs font-medium text-fg-muted">Subtasks of {task.serial}</label>
                 <ul className="space-y-1">
                   {subtasks.map((s) => (
-                    <li key={s.id} className="text-sm text-fg flex items-center justify-between">
-                      <span>{s.serial} · {s.title}</span>
+                    <li key={s.id} className="text-sm text-fg flex items-center justify-between gap-2" data-subtask-id={s.id}>
+                      <span>
+                        <span className="font-mono text-micro text-fg-muted" data-subtask-serial={s.serial}>
+                          {s.serial || s.id}
+                        </span>
+                        {' · '}
+                        {s.title}
+                      </span>
                       <TaskStagePill status={s.status} />
                     </li>
                   ))}
@@ -598,8 +694,30 @@ export const TaskDialog: React.FC<Props> = ({
                     onClick={async () => {
                       const title = await prompt({ title: 'Add subtask', label: 'Title' });
                       if (!title) return;
-                      const created = await taskService.createTask({ title, parent_id: task.id, assignee_id: draft.assignee_id });
-                      setSubtasks((cur) => [...cur, created]);
+                      const temp: Task = {
+                        id: `tmp_sub_${Date.now()}`,
+                        serial: '…',
+                        title,
+                        status: 'todo',
+                        priority: task.priority || 'medium',
+                        parent_id: task.id,
+                      };
+                      setSubtasks((cur) => [...cur, temp]);
+                      try {
+                        const created = await taskService.createTask({
+                          title,
+                          parent_id: task.id,
+                          assignee_id: draft.assignee_id,
+                        });
+                        setSubtasks((cur) => cur.map((row) => (row.id === temp.id ? created : row)));
+                        onSaved(
+                          { ...task, subtasks_count: (task.subtasks_count || 0) + 1 },
+                          { refreshList: false },
+                        );
+                      } catch (err: any) {
+                        setSubtasks((cur) => cur.filter((row) => row.id !== temp.id));
+                        addToast('Could not add subtask', err?.message || 'Try again', 'error');
+                      }
                     }}
                   >
                     <Plus className="w-3.5 h-3.5 mr-1" />
@@ -610,14 +728,17 @@ export const TaskDialog: React.FC<Props> = ({
             )}
           </div>
 
-          <div className="lg:col-span-5 min-h-[280px]">
-            <Tabs defaultValue="discussion">
-              <TabsList>
+          <div
+            className="lg:col-span-5 min-h-[280px] lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden"
+            data-testid="task-dialog-side"
+          >
+            <Tabs defaultValue="discussion" className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+              <TabsList className="shrink-0 bg-surface">
                 <TabsTrigger value="discussion" count={comments.length || undefined}>Discussion</TabsTrigger>
                 <TabsTrigger value="files" count={attachments.length || undefined}>Files</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
-              <TabsContent value="discussion">
+              <TabsContent value="discussion" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 {task ? (
                   <TaskDiscussion
                     comments={comments}
@@ -633,19 +754,23 @@ export const TaskDialog: React.FC<Props> = ({
                   <p className="text-sm text-fg-muted">Save the task to start a discussion.</p>
                 )}
               </TabsContent>
-              <TabsContent value="files">
+              <TabsContent value="files" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 {task ? (
                   <TaskAttachments
                     taskId={task.id}
                     attachments={attachments}
                     disabled={viewOnly}
-                    onChanged={() => loadSide(task.id)}
+                    onBusy={setFileBusy}
+                    onChanged={(next) => {
+                      if (next) setAttachments(next);
+                      void loadSide(task.id, { light: true });
+                    }}
                   />
                 ) : (
                   <p className="text-sm text-fg-muted">Save the task to attach files.</p>
                 )}
               </TabsContent>
-              <TabsContent value="activity">
+              <TabsContent value="activity" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 <TaskActivity items={activity} />
               </TabsContent>
             </Tabs>
@@ -665,19 +790,86 @@ export const TaskDialog: React.FC<Props> = ({
               Send back
             </Button>
           )}
-          <Button type="button" variant="secondary" onClick={() => void handleClose()}>
+          <Button type="button" variant="secondary" disabled={fileBusy} onClick={() => void handleClose()}>
             Close
           </Button>
-          <Button type="submit" variant="primary" disabled={busy || (isCreate && !draft.title.trim())}>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={busy || ((isCreate || showFieldSave) && !draft.title.trim())}
+            data-testid={showFieldSave ? 'task-dialog-save' : 'task-dialog-primary'}
+          >
             {primaryLabel}
           </Button>
         </FormFooter>
       </form>
     </FormDialog>
+    <UnsavedChangesDialog
+      open={unsavedOpen}
+      busy={busy}
+      onStay={handleUnsavedStay}
+      onDiscard={handleUnsavedDiscard}
+      onSave={() => void handleUnsavedSave()}
+    />
+    </>
   );
 };
 
-function payloadFromDraftFromBaseline(draft: Draft, workspaces: { id: string; name: string }[]): Record<string, unknown> {
+function UnsavedChangesDialog({
+  open,
+  busy,
+  onStay,
+  onDiscard,
+  onSave,
+}: {
+  open: boolean;
+  busy: boolean;
+  onStay: () => void;
+  onDiscard: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <AlertDialogPrimitive.Root open={open} onOpenChange={(next) => { if (!next) onStay(); }}>
+      <AlertDialogPrimitive.Portal>
+        <AlertDialogPrimitive.Overlay className="fixed inset-0 z-[var(--z-overlay,50)] bg-overlay data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150" />
+        <AlertDialogPrimitive.Content
+          data-testid="task-unsaved-changes"
+          className="fixed left-[50%] top-[50%] z-[var(--z-dialog,51)] grid w-full max-w-[400px] translate-x-[-50%] translate-y-[-50%] bg-surface border border-border rounded-lg shadow-lg p-6 duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 outline-none"
+        >
+          <div className="space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-subtle flex items-center justify-center text-fg-muted shrink-0">
+                <Info size={20} />
+              </div>
+              <div className="flex-1 min-w-0 pt-0.5">
+                <AlertDialogPrimitive.Title className="text-h2 font-semibold text-fg tracking-tight">
+                  Unsaved changes
+                </AlertDialogPrimitive.Title>
+                <AlertDialogPrimitive.Description className="text-body text-fg-muted mt-1 leading-normal">
+                  You have unsaved edits. Save them or discard them.
+                </AlertDialogPrimitive.Description>
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" disabled={busy} onClick={onDiscard}>
+                Discard changes
+              </Button>
+              <Button type="button" variant="primary" disabled={busy} onClick={onSave}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </AlertDialogPrimitive.Content>
+      </AlertDialogPrimitive.Portal>
+    </AlertDialogPrimitive.Root>
+  );
+}
+
+function payloadFromDraftFromBaseline(
+  draft: Draft,
+  workspaces: { id: string; name: string }[],
+  watcherIds: string[],
+): Record<string, unknown> {
   return {
     title: draft.title.trim(),
     description: draft.description,
@@ -694,6 +886,6 @@ function payloadFromDraftFromBaseline(draft: Draft, workspaces: { id: string; na
       ? { freq: draft.recurrence_freq, interval: draft.recurrence_interval || 1, until: draft.recurrence_until || null }
       : null,
     parent_id: draft.parent_id || undefined,
-    watcher_ids: [],
+    watcher_ids: watcherIds,
   };
 }

@@ -83,6 +83,7 @@ export interface Task {
   attachments_count?: number;
   comments_count?: number;
   subtasks_count?: number;
+  subtasks_done?: number;
   subtasks?: Task[];
   completed_at?: string | null;
   cancelled_at?: string | null;

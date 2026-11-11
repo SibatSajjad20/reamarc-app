@@ -135,6 +135,30 @@ export function allowedTransitions(user: TaskActor | null | undefined, task: Tas
   return all.filter((dest) => canTransitionTo(user, task, dest, dest === 'in_progress' ? 'x' : undefined));
 }
 
+const LIST_ADVANCE: Partial<Record<TaskStatus, TaskStatus>> = {
+  todo: 'in_progress',
+  in_progress: 'in_review',
+  in_review: 'completed',
+};
+
+/** One-shot List-row advance: next stage only, never reverse. */
+export function listRowAdvanceTo(user: TaskActor | null | undefined, task: Task): TaskStatus | null {
+  if (!user || !task) return null;
+  const next = LIST_ADVANCE[task.status];
+  if (!next) return null;
+  if ((task.status === 'todo' || task.status === 'in_progress') && uid(user) !== task.assignee_id) {
+    return null;
+  }
+  return canTransitionTo(user, task, next) ? next : null;
+}
+
+export function listRowAdvanceAction(to: TaskStatus): 'start' | 'submit' | 'approve' | null {
+  if (to === 'in_progress') return 'start';
+  if (to === 'in_review') return 'submit';
+  if (to === 'completed') return 'approve';
+  return null;
+}
+
 export function canAssignTo(
   actor: TaskActor | null | undefined,
   target: TaskActor,

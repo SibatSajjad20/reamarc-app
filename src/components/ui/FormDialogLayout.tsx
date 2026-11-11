@@ -18,6 +18,8 @@ export interface FormDialogProps {
   headerActions?: React.ReactNode;
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   showClose?: boolean;
+  /** When false, overlay click and Escape do not close the dialog. */
+  dismissible?: boolean;
   className?: string;
   children: React.ReactNode;
 }
@@ -33,12 +35,14 @@ export const FormDialog: React.FC<FormDialogProps> = ({
   headerActions,
   maxWidth = 'md',
   showClose = true,
+  dismissible = true,
   className,
   children,
 }) => {
   const isControlledOpen = open ?? isOpen ?? false;
 
   const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen && !dismissible) return;
     onOpenChange?.(nextOpen);
     if (!nextOpen) {
       onClose?.();
@@ -52,6 +56,15 @@ export const FormDialog: React.FC<FormDialogProps> = ({
       <DialogContent
         maxWidth={maxWidth}
         showClose={showClose}
+        onPointerDownOutside={(e) => {
+          if (!dismissible) e.preventDefault();
+        }}
+        onFocusOutside={(e) => {
+          if (!dismissible) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (!dismissible) e.preventDefault();
+        }}
         className={cn(
           'p-0 flex flex-col max-h-[min(90vh,900px)] overflow-hidden gap-0',
           className

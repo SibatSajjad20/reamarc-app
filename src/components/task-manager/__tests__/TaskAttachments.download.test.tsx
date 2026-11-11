@@ -1,10 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { TaskAttachments } from '../TaskAttachments';
 import { TaskAttachmentViewer } from '../TaskAttachmentViewer';
 import type { TaskAttachment } from '@/types/task';
+import { taskService } from '@/services/taskService';
 
 vi.mock('@/components/ui/DriveAttach', () => ({ DriveAttach: () => null }));
+vi.mock('@/context/ToastContext', () => ({
+  useToast: () => ({ addToast: vi.fn() }),
+}));
+vi.mock('@/services/taskService', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/services/taskService')>();
+  return {
+    ...mod,
+    taskService: {
+      ...mod.taskService,
+      deleteAttachment: vi.fn(() => new Promise(() => {})),
+    },
+  };
+});
 
 const upload: TaskAttachment = {
   id: 'tat_1',
@@ -42,5 +56,43 @@ describe('task attachment download URLs', () => {
     for (const img of imgs) {
       expect(img.getAttribute('src') || '').not.toContain('download=1');
     }
+  });
+});
+
+const link: TaskAttachment = {
+  id: 'tat_link',
+  task_id: 'tsk_1',
+  kind: 'link',
+  name: 'Brief doc',
+  url: 'https://example.com/brief',
+  mime_type: 'text/uri-list',
+  created_at: '2026-11-10T00:00:00Z',
+};
+
+describe('task attachment list chrome', () => {
+  it('renders links differently from uploaded files', () => {
+    const { container } = render(
+      <TaskAttachments taskId="tsk_1" attachments={[upload, link]} onChanged={() => undefined} />,
+    );
+    const linkRow = container.querySelector('[data-kind="link"]') as HTMLElement;
+    const fileRow = container.querySelector('[data-kind="upload"]') as HTMLElement;
+    expect(linkRow).toBeTruthy();
+    expect(fileRow).toBeTruthy();
+    expect(linkRow.className).toMatch(/border-dashed/);
+    expect(fileRow.className).not.toMatch(/border-dashed/);
+    expect(linkRow.textContent).toMatch(/Link/);
+    expect(fileRow.querySelector('a[aria-label="Download clip.mp4"]')).toBeTruthy();
+    expect(linkRow.querySelector('a[aria-label^="Download"]')).toBeNull();
+  });
+
+  it('disables Remove and shows Removing after the first click', () => {
+    render(
+      <TaskAttachments taskId="tsk_1" attachments={[upload]} onChanged={() => undefined} />,
+    );
+    const remove = screen.getByRole('button', { name: 'Remove' });
+    fireEvent.click(remove);
+    expect(screen.getByText('Removing')).toBeTruthy();
+    expect(remove).toHaveProperty('disabled', true);
+    expect(taskService.deleteAttachment).toHaveBeenCalledWith('tsk_1', 'tat_1');
   });
 });

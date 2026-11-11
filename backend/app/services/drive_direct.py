@@ -51,27 +51,30 @@ def _grant_anyone_reader(file_id: str) -> Tuple[str, bool]:
     from app.services import google_drive_service as gdrive
 
     svc = gdrive._service()
-    perms = (
-        svc.permissions()
-        .list(fileId=file_id, fields="permissions(id,type,role)", supportsAllDrives=True)
-        .execute()
-        .get("permissions", [])
-    )
-    for p in perms:
-        if p.get("type") == "anyone":
-            return str(p.get("id")), True
-    created = (
-        svc.permissions()
-        .create(
-            fileId=file_id,
-            body={"type": "anyone", "role": "reader", "allowFileDiscovery": False},
-            fields="id",
-            supportsAllDrives=True,
-            sendNotificationEmail=False,
+    try:
+        created = (
+            svc.permissions()
+            .create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader", "allowFileDiscovery": False},
+                fields="id",
+                supportsAllDrives=True,
+                sendNotificationEmail=False,
+            )
+            .execute()
         )
-        .execute()
-    )
-    return str(created.get("id")), False
+        return str(created.get("id")), False
+    except Exception:
+        perms = (
+            svc.permissions()
+            .list(fileId=file_id, fields="permissions(id,type,role)", supportsAllDrives=True)
+            .execute()
+            .get("permissions", [])
+        )
+        for p in perms:
+            if p.get("type") == "anyone":
+                return str(p.get("id")), True
+        raise
 
 
 def _remove_permission(file_id: str, permission_id: str) -> None:
