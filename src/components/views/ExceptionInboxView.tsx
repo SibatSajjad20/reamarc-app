@@ -15,7 +15,12 @@ import { useCacheInvalidation } from '../../utils/cacheBus';
 import { BoundedCache } from '../../utils/cache';
 import { logVarianceService } from '../../services/logVarianceService';
 import { logExceptionService } from '../../services/logExceptionService';
-import type { ExceptionsResponse, ExceptionGroup, ExceptionItem } from '../../types/logVariance';
+import type {
+  ExceptionsResponse,
+  ExceptionGroup,
+  ExceptionItem,
+  ExceptionsTotalsByType,
+} from '../../types/logVariance';
 import { Button } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -33,7 +38,6 @@ import {
   pktTodayIso,
   pktWeekBounds,
   pktMonthBounds,
-  shiftDateRange,
 } from '../../utils/logVarianceFormat';
 
 interface ExceptionInboxViewProps {
@@ -42,7 +46,7 @@ interface ExceptionInboxViewProps {
 
 type RangeMode = 'today' | 'week' | 'month' | 'custom';
 
-const EXCEPTION_TYPES = [
+const EXCEPTION_TYPES: { key: keyof ExceptionsTotalsByType; label: string }[] = [
   { key: 'all', label: 'All types' },
   { key: 'no_log', label: 'No log on worked day' },
   { key: 'over_logged', label: 'Logged > worked' },
@@ -50,7 +54,7 @@ const EXCEPTION_TYPES = [
   { key: 'large_variance', label: 'Large variance' },
   { key: 'logged_on_leave_or_off', label: 'Logged on leave / off day' },
   { key: 'logged_without_attendance', label: 'Logged without attendance' },
-] as const;
+];
 
 const TYPE_TONE: Record<string, { chip: string; count: string; selected: string }> = {
   all: {
@@ -566,7 +570,7 @@ export const ExceptionInboxView: React.FC<ExceptionInboxViewProps> = () => {
         <div className="flex flex-wrap items-center gap-1.5">
           {showContent && totals ? (
             EXCEPTION_TYPES.map((t) => {
-              const count = t.key === 'all' ? totals.all : Number((totals as Record<string, number>)[t.key] || 0);
+              const count = totals[t.key] ?? 0;
               const tone = TYPE_TONE[t.key];
               const selected = selectedType === t.key;
               return (
