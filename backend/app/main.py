@@ -15,7 +15,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive, finance, worklane_public, tasks
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, log_variance, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company, drive, finance, worklane_public, tasks
 
 _SECRET_QUERY_RE = re.compile(
     r'(?i)((?:access_token|client_secret|fb_exchange_token|appsecret_proof|refresh_token|key)=)[^&\s"\']+'
@@ -466,6 +466,7 @@ app.include_router(workspaces.router, prefix=settings.API_V1_STR)
 app.include_router(marketing.router, prefix=settings.API_V1_STR)
 app.include_router(daily_log.router, prefix=settings.API_V1_STR)
 app.include_router(log_exceptions.router, prefix=settings.API_V1_STR)
+app.include_router(log_variance.router, prefix=settings.API_V1_STR)
 app.include_router(shifts.router, prefix=settings.API_V1_STR)
 app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(leaves.router, prefix=settings.API_V1_STR)
