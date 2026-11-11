@@ -1143,7 +1143,7 @@ function AppInner() {
 
           {currentView === 'exceptions' && (
             canSeeExceptions ? (
-            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden view-enter">
               <ExceptionInboxView onOpenDailyLog={() => handleSelectView('daily-log')} />
             </div>
             ) : (
@@ -1155,7 +1155,7 @@ function AppInner() {
             activeAdminSection === 'companies' && !user?.is_super_admin ? (
               <AccessDenied module="Companies" />
             ) : canSeeAdmin || user?.is_super_admin ? (
-            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden view-enter">
               <AdminPanel
                 activeSection={activeAdminSection}
                 onSectionChange={(section) => handleSelectView('admin', section)}

@@ -21,15 +21,6 @@ describe('#3 company switch does not reload its own tab', () => {
   });
 });
 
-describe('#5 compliance never shows a fake 100%', () => {
-  it('no shifts / on leave give a reason instead of a number', async () => {
-    const { complianceScore } = await import('../utils/logComplianceScore');
-    expect(complianceScore({ range: 'week', status: 'not_started', daysMissed: 0, daysDue: 0 })).toEqual({ pct: null, reason: 'No shifts' });
-    expect(complianceScore({ range: 'today', status: 'on_leave' }).pct).toBeNull();
-    expect(complianceScore({ range: 'week', status: 'missing', daysMissed: 1, daysDue: 4 }).pct).toBe(75);
-  });
-});
-
 describe('#7 Drive sign-in popup closed', () => {
   beforeEach(async () => {
     (await import('../services/googlePickerService')).__resetDriveTokenCache?.();

@@ -1,41 +1,63 @@
-import { useAuth } from '../../../context/AuthContext';
-import { brandNameOf } from '../../../utils/branding';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import {
-  AlertTriangle,
+  Download,
+  Mail,
+  Info,
+  Calendar as CalendarIcon,
   ChevronDown,
   ChevronUp,
-  Mail,
-  MessageSquare,
-  Calendar,
 } from 'lucide-react';
-import type { MemberActivity } from '../../../types/admin';
-import type { EmployeeComplianceDetailResponse, DayComplianceDetail } from '../../../types/dailyLog';
-import { logExceptionService } from '../../../services/logExceptionService';
-import { formatHours, formatSignedHours, gapTone } from '../../../utils/logTimeChecks';
+import type { EmployeeDetailResponse, LogVarianceDay } from '../../../types/logVariance';
+import { logVarianceService } from '../../../services/logVarianceService';
+import {
+  formatMinutes,
+  formatSignedMinutes,
+  formatPercentage,
+  getCoverageTone,
+  getToneTextClass,
+  pktTodayIso,
+} from '../../../utils/logVarianceFormat';
+import { Badge } from '../../ui/badge';
 import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
-  SheetDescription,
 } from '../../ui/sheet';
 import { Button } from '../../ui/button';
 import { StatusPill } from '../../ui/StatusPill';
 import { Callout } from '../../ui/Callout';
 import { Avatar } from '../../ui/Avatar';
+import { DrawerSkeleton } from '../../ui/Skeletons';
+import { ErrorState } from '../../ui/ErrorState';
 import { cn } from '../../../lib/utils';
+import { getRoleDisplayName } from '../../../lib/roleLabel';
 
 interface EmployeeComplianceDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  member: MemberActivity | null;
+  member: {
+    user_id: string;
+    full_name?: string;
+    name?: string;
+    email?: string;
+    department?: string | null;
+    role?: string;
+  } | null;
   startDate: string;
   endDate: string;
-  onSendReminder: (userId: string, channel: 'email' | 'in_app' | 'all', customMessage?: string) => Promise<void>;
+  rangeLabel?: string;
+  onSendReminder?: (userId: string, channel: 'email' | 'in_app' | 'all', customMessage?: string) => Promise<void>;
   isSendingReminder?: boolean;
   canRemind?: boolean;
 }
+
+const formatDisplayDate = (isoStr: string): string => {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  return dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+};
 
 export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> = ({
   isOpen,
@@ -43,573 +65,575 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
   member,
   startDate,
   endDate,
+  rangeLabel,
   onSendReminder,
   isSendingReminder = false,
   canRemind = true,
 }) => {
-  const { user } = useAuth();
-  const [data, setData] = useState<EmployeeComplianceDetailResponse | null>(null);
+  const [data, setData] = useState<EmployeeDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+  const [isExporting, setIsExporting] = useState(false);
 
   useEffect(() => {
-    if (!isOpen || !member || !startDate || !endDate) {
+    if (!isOpen || !member?.user_id || !startDate || !endDate) {
       setData(null);
+      setError(null);
       return;
     }
 
-    let cancelled = false;
-    setIsLoading(true);
-    setError(null);
-
-    logExceptionService
-      .getEmployeeComplianceDetail(member.user_id, startDate, endDate)
-      .then((res) => {
-        if (!cancelled) {
+    let isMounted = true;
+    const fetchDetail = async () => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const res = await logVarianceService.getEmployeeDetail(member.user_id, startDate, endDate);
+        if (isMounted) {
           setData(res);
-          const defaultExp: Record<string, boolean> = {};
-          res.days.forEach((d) => {
-            if (d.tasks.length > 0 || d.status === 'missing' || d.worked_hours > 0) {
-              defaultExp[d.date] = true;
-            }
-          });
-          setExpandedDays(defaultExp);
         }
-      })
-      .catch((err: any) => {
-        if (!cancelled) {
-          setError(err?.message || 'Failed to load employee compliance detail');
+      } catch (err: any) {
+        if (isMounted) {
+          setError(err.message || 'Failed to load employee drilldown');
         }
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     };
-  }, [isOpen, member, startDate, endDate]);
 
-  const toggleDay = (dateStr: string) => {
-    setExpandedDays((prev) => ({
-      ...prev,
-      [dateStr]: !prev[dateStr],
-    }));
+    void fetchDetail();
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, member?.user_id, startDate, endDate]);
+
+  const toggleDayExpanded = (dStr: string) => {
+    setExpandedDays((prev) => ({ ...prev, [dStr]: !prev[dStr] }));
   };
 
-  const getDayStatusPill = (day: DayComplianceDetail) => {
-    if (day.is_leave) {
-      return <StatusPill variant="neutral" label="On leave" />;
+  const handleExport = async () => {
+    if (!startDate || !endDate) return;
+    setIsExporting(true);
+    try {
+      const blob = await logVarianceService.exportExcel(startDate, endDate, data?.user.department || undefined);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Log variance ${startDate}_${endDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      // Export error
+    } finally {
+      setIsExporting(false);
     }
-    if (day.is_off_day) {
-      return <StatusPill variant="neutral" label={day.off_day_label || 'Off day'} />;
-    }
-    if (day.status === 'submitted') {
-      return <StatusPill variant="success" label="Submitted" />;
-    }
-    if (day.status === 'missing') {
-      return <StatusPill variant="danger" label="Missing" />;
-    }
-    if (day.status === 'in_shift') {
-      return <StatusPill variant="accent" label="In shift" />;
-    }
-    return <StatusPill variant="neutral" label="Not started" />;
   };
 
-  const netGapTone = data ? gapTone(data.total_signed_gap_hours, true) : 'neutral';
+  const pendingOtDaysNote = useMemo(() => {
+    if (!data?.days) return '';
+    const otList = data.days
+      .filter((d) => d.pending_ot > 0)
+      .map((d) => `${formatDisplayDate(d.date)} ${formatMinutes(d.pending_ot)}`);
+    return otList.join(', ');
+  }, [data]);
+
+  const summary = data?.summary;
+  const user = data?.user;
+
+  // Direct from server summary (§2.8.3, §2.9.1), with fallback for legacy responses
+  const totalPendingOtMinutes =
+    summary?.pending_ot != null
+      ? summary.pending_ot
+      : (data?.days?.reduce((acc, d) => acc + (d.pending_ot || 0), 0) ?? 0);
+
+  // Hide future days (§2.9.3)
+  const todayCutoff = data?.range?.today || pktTodayIso();
+  const visibleDays = useMemo(() => {
+    return (data?.days || []).filter((d) => d.date <= todayCutoff);
+  }, [data?.days, todayCutoff]);
 
   return (
-    <Sheet
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
-      <SheetContent
-        side="right"
-        className="w-full sm:max-w-[480px] p-0 flex flex-col h-full overflow-hidden bg-surface text-fg"
-      >
-        {member && (
-          <>
-            {/* Header */}
-            <SheetHeader className="p-6 pr-14 border-b border-border bg-canvas/40 space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <Avatar
-                    name={member.full_name}
-                    src={(member as any).avatar_url}
-                    size={40}
-                    className="rounded-full shrink-0"
-                  />
-                  <div className="min-w-0">
-                    <SheetTitle className="text-base font-semibold truncate">
-                      {member.full_name}
-                    </SheetTitle>
-                    <SheetDescription className="text-caption text-fg-muted truncate mt-0.5">
-                      {member.email}
-                    </SheetDescription>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {canRemind && (data?.days_missing || 0) > 0 && (
-                    <Button
-                      size="sm"
-                      variant="primary"
-                      icon={Mail}
-                      loading={isSendingReminder}
-                      onClick={() => onSendReminder(member.user_id, 'email')}
-                    >
-                      Remind
-                    </Button>
+    <Sheet open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent size="xl" className="flex flex-col h-full p-0 bg-surface">
+        {/* Header */}
+        <SheetHeader className="p-5 border-b border-border bg-surface shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Avatar
+                name={user?.name || member?.full_name || member?.name || 'User'}
+                src={user?.avatar || undefined}
+                size={36}
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <SheetTitle className="text-lg font-semibold text-fg">
+                    {user?.name || member?.full_name || member?.name}
+                  </SheetTitle>
+                  {user?.inactive && (
+                    <Badge variant="outline" className="text-micro text-danger-fg border-danger-bd bg-danger-bg font-semibold uppercase px-1.5 py-0.5 rounded">
+                      INACTIVE
+                    </Badge>
                   )}
-                  {member.phone && (
-                    <a
-                      href={`https://wa.me/${member.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                        `Hi ${member.full_name}, reminder to submit your Daily Log on ${brandNameOf(user?.company)}.`
-                      )}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center h-7 px-2 rounded-md border border-border bg-surface text-fg hover:bg-hover transition-colors"
-                      title="Send WhatsApp reminder"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5 text-success-fg" />
-                    </a>
+                </div>
+                <div className="text-xs text-fg-muted mt-0.5">
+                  <span>{getRoleDisplayName(user?.role || member?.role || 'team_member')}</span>
+                  {(user?.department || member?.department) && (
+                    <>
+                      <span className="mx-1.5">·</span>
+                      <span>{user?.department || member?.department}</span>
+                    </>
+                  )}
+                  {(user?.email || member?.email) && (
+                    <>
+                      <span className="mx-1.5">·</span>
+                      <span>{user?.email || member?.email}</span>
+                    </>
                   )}
                 </div>
               </div>
+            </div>
 
-              <div className="flex items-center gap-2 flex-wrap text-caption text-fg-muted">
-                <span className="px-2 py-0.5 rounded-full bg-subtle text-fg font-medium capitalize">
-                  {member.role || 'Member'}
-                </span>
-                {member.department && (
-                  <span className="px-2 py-0.5 rounded-full bg-subtle text-fg-muted">
-                    {member.department}
-                  </span>
-                )}
-                <span className="font-mono text-fg-muted">
-                  {startDate} → {endDate}
-                </span>
-              </div>
-            </SheetHeader>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {isLoading ? (
-                <div className="space-y-4 py-8 animate-pulse">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    {[1, 2, 3, 4].map((i) => (
-                      <div key={i} className="h-16 rounded-lg bg-subtle" />
-                    ))}
-                  </div>
-                  <div className="h-28 rounded-lg bg-subtle" />
-                  <div className="space-y-2">
-                    {[1, 2, 3].map((i) => (
-                      <div key={i} className="h-14 rounded-lg bg-subtle" />
-                    ))}
-                  </div>
-                </div>
-              ) : error ? (
-                <Callout
-                  variant="danger"
-                  title="Could not load compliance details"
-                  action={
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setError(null);
-                        setIsLoading(true);
-                        logExceptionService
-                          .getEmployeeComplianceDetail(member.user_id, startDate, endDate)
-                          .then(setData)
-                          .catch((e) => setError(e?.message))
-                          .finally(() => setIsLoading(false));
-                      }}
-                    >
-                      Retry
-                    </Button>
-                  }
+            <div className="flex items-center gap-2">
+              {canRemind && onSendReminder && member?.user_id && !user?.inactive && (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={Mail}
+                  disabled={isSendingReminder}
+                  onClick={() => onSendReminder(member.user_id, 'email')}
                 >
-                  {error}
-                </Callout>
-              ) : data ? (
-                <>
-                  {/* Summary KPI Cards */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                    <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-xs font-medium text-fg-muted block">
-                        Worked
-                      </span>
-                      <div className="mt-1 flex items-baseline gap-1">
-                        <span className="text-base font-semibold font-numeric text-fg">
-                          {formatHours(data.total_worked_hours)}
-                        </span>
-                        {data.days.some((d) => d.is_live) && (
-                          <span className="text-[10px] font-medium text-accent-text bg-accent-soft px-1 rounded">
-                            live
-                          </span>
-                        )}
-                      </div>
-                      <span className="text-xs text-fg-muted mt-0.5 block">Punches</span>
-                    </div>
+                  Remind
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Download}
+                loading={isExporting}
+                onClick={handleExport}
+              >
+                Export
+              </Button>
+            </div>
+          </div>
 
-                    <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-xs font-medium text-fg-muted block">
-                        Logged
-                      </span>
-                      <div className="mt-1">
-                        <span className="text-base font-semibold font-numeric text-accent-text">
-                          {formatHours(data.total_logged_hours)}
-                        </span>
-                      </div>
-                      <span className="text-xs text-fg-muted mt-0.5 block">Daily logs</span>
-                    </div>
+          <div className="flex items-center gap-2 mt-3 text-xs text-fg-muted">
+            <div className="flex items-center gap-1 font-medium text-fg">
+              <CalendarIcon className="w-3.5 h-3.5" />
+              <span>{rangeLabel || `${startDate} – ${endDate}`}</span>
+            </div>
+            <span>·</span>
+            <span>Showing days up to today. Future days hidden.</span>
+          </div>
+        </SheetHeader>
 
-                    <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-xs font-medium text-fg-muted block">
-                        Net Gap
-                      </span>
-                      <div className="mt-1">
-                        <span
-                          className={cn(
-                            'text-base font-semibold font-numeric',
-                            netGapTone === 'deficit'
-                              ? 'text-danger-fg'
-                              : netGapTone === 'surplus'
-                              ? 'text-success-fg'
-                              : 'text-fg'
-                          )}
-                        >
-                          {formatSignedHours(data.total_signed_gap_hours)}
-                        </span>
-                      </div>
-                      <span className="text-xs text-fg-muted mt-0.5 block">
-                        {netGapTone === 'deficit'
-                          ? 'Under-logged'
-                          : netGapTone === 'surplus'
-                          ? 'Over-logged'
-                          : 'Balanced'}
-                      </span>
-                    </div>
+        {/* Content Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-6 custom-scrollbar">
+          {isLoading && <DrawerSkeleton />}
 
-                    <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-xs font-medium text-fg-muted block">
-                        Submissions
-                      </span>
-                      <div className="mt-1">
-                        <span className="text-base font-semibold font-numeric text-fg">
-                          {data.days_logged}/{data.days_expected}
-                        </span>
-                      </div>
-                      <span className="text-xs text-fg-muted mt-0.5 block">
-                        {data.days_missing > 0 ? (
-                          <span className="text-danger-fg font-medium">
-                            {data.days_missing} missing
-                          </span>
-                        ) : (
-                          <span className="text-success-fg font-medium">100% complete</span>
-                        )}
-                      </span>
-                    </div>
+          {error && !isLoading && (
+            <ErrorState title="Could not load employee details" message={error} />
+          )}
+
+          {!isLoading && !error && summary && (
+            <>
+              {/* Range KPIs: 8 cards in 2 rows */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Worked */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Worked</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatMinutes(summary.worked)}
+                    </span>
                   </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    {totalPendingOtMinutes > 0
+                      ? `incl. ${formatMinutes(totalPendingOtMinutes)} pending OT`
+                      : `${summary.days_present} present days`}
+                  </span>
+                </div>
 
-                  {/* Mini Calendar Heatmap per §13.15.3 */}
-                  <div className="p-4 bg-canvas border border-border rounded-lg space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold text-fg">
-                        <Calendar className="w-3.5 h-3.5 text-fg-muted" />
-                        <span>Calendar activity</span>
-                      </div>
-                      <span className="text-xs text-fg-muted font-mono">
-                        {data.days.length} days
-                      </span>
-                    </div>
-
-                    {/* Heatmap Grid */}
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {data.days.map((day) => {
-                        const dayNumber = day.date ? day.date.split('-')[2] : '';
-                        const dayLetter = day.day_name ? day.day_name.slice(0, 3) : '';
-
-                        let cellClass = 'bg-surface border-border text-fg-muted';
-                        if (day.status === 'submitted') {
-                          cellClass = 'bg-success-bg border-success-bd text-success-fg hover:border-success-fg';
-                        } else if (day.status === 'missing') {
-                          cellClass = 'bg-danger-bg border-danger-bd text-danger-fg hover:border-danger-solid';
-                        } else if (day.status === 'in_shift') {
-                          cellClass = 'bg-accent-soft border-accent-200 text-accent-text hover:border-accent';
-                        } else if (day.is_off_day) {
-                          cellClass = 'bg-subtle/50 border-border text-fg-faint';
-                        } else if (day.is_leave) {
-                          cellClass = 'bg-warning-bg border-warning-bd text-warning-fg';
-                        }
-
-                        return (
-                          <button
-                            key={day.date}
-                            type="button"
-                            onClick={() => toggleDay(day.date)}
-                            className={cn(
-                              'p-1.5 rounded-md border flex flex-col items-center justify-center transition-colors cursor-pointer text-center select-none',
-                              cellClass
-                            )}
-                            title={`${day.date} (${day.day_name}): ${day.status} - ${formatHours(day.logged_hours)} logged / ${formatHours(day.worked_hours)} work`}
-                          >
-                            <span className="text-[10px] font-medium block opacity-75">
-                              {dayLetter}
-                            </span>
-                            <span className="text-xs font-numeric font-semibold tabular-nums leading-tight">
-                              {dayNumber}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Legend */}
-                    <div className="flex items-center gap-3 flex-wrap pt-1 text-xs text-fg-muted">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-success-dot" />
-                        <span>Submitted</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-danger-solid" />
-                        <span>Missing</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-accent" />
-                        <span>In shift</span>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-subtle" />
-                        <span>Off day</span>
-                      </div>
-                    </div>
+                {/* Logged */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Logged</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatMinutes(summary.logged)}
+                    </span>
                   </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    same present days
+                  </span>
+                </div>
 
-                  {/* History Timeline per §13.15.3 */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between px-0.5">
-                      <h4 className="text-xs font-semibold text-fg">
-                        History timeline
-                      </h4>
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const allExp: Record<string, boolean> = {};
-                            data.days.forEach((d) => (allExp[d.date] = true));
-                            setExpandedDays(allExp);
-                          }}
-                          className="text-xs font-medium text-accent-text hover:underline cursor-pointer"
-                        >
-                          Expand all
-                        </button>
-                        <span className="text-border">•</span>
-                        <button
-                          type="button"
-                          onClick={() => setExpandedDays({})}
-                          className="text-xs font-medium text-fg-muted hover:text-fg cursor-pointer"
-                        >
-                          Collapse all
-                        </button>
-                      </div>
-                    </div>
+                {/* Variance */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Variance</span>
+                  <div className="my-1">
+                    <span className={cn('text-xl font-semibold', getToneTextClass(summary.variance > 60 ? 'danger' : summary.variance > 30 ? 'warning' : 'success'))}>
+                      {formatSignedMinutes(summary.variance)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    worked − logged
+                  </span>
+                </div>
 
-                    {/* Vertical Timeline Rail */}
-                    <div className="relative pl-6 space-y-4 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-border">
-                      {data.days.map((day) => {
-                        const isExpanded = Boolean(expandedDays[day.date]);
-                        const tone = gapTone(day.signed_gap_hours, day.worked_hours > 0 && day.status !== 'missing');
+                {/* Coverage */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Coverage</span>
+                  <div className="my-1">
+                    <span className={cn('text-xl font-semibold', getToneTextClass(getCoverageTone(summary.coverage_pct)))}>
+                      {formatPercentage(summary.coverage_pct, 0)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    logged ÷ worked
+                  </span>
+                </div>
 
-                        let dotColor = 'bg-subtle border-border';
-                        if (day.status === 'submitted') {
-                          dotColor = 'bg-success-dot border-success-bd';
-                        } else if (day.status === 'missing') {
-                          dotColor = 'bg-danger-solid border-danger-bd';
-                        } else if (day.status === 'in_shift') {
-                          dotColor = 'bg-accent border-accent-200';
-                        }
+                {/* Avg logged / day */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Avg logged / day</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatMinutes(summary.avg_logged_per_day)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    {summary.days_present > 0
+                      ? `${formatMinutes(summary.logged)} ÷ ${summary.days_present} days present`
+                      : '—'}
+                  </span>
+                </div>
 
-                        return (
-                          <div key={day.date} className="relative">
-                            {/* Dot on rail */}
-                            <div
-                              className={cn(
-                                'absolute -left-6 top-3 w-4 h-4 rounded-full border-2 border-surface flex items-center justify-center shrink-0',
-                                dotColor
-                              )}
-                            />
+                {/* Avg worked / day */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Avg worked / day</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatMinutes(summary.avg_worked_per_day)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    {summary.days_present > 0
+                      ? `${formatMinutes(summary.worked)} ÷ ${summary.days_present} days present`
+                      : '—'}
+                  </span>
+                </div>
 
-                            {/* Day Card */}
-                            <div className="bg-surface border border-border rounded-lg overflow-hidden shadow-xs">
-                              <div
-                                onClick={() => toggleDay(day.date)}
-                                className="p-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-hover select-none transition-colors"
+                {/* Submission */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Submission</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatPercentage(summary.submission_pct, 0)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    {summary.days_logged} of {summary.days_present} present days
+                  </span>
+                </div>
+
+                {/* Excluded logs */}
+                <div className="p-3 bg-canvas border border-border rounded-lg flex flex-col justify-between">
+                  <span className="text-xs text-fg-muted font-medium">Excluded logs</span>
+                  <div className="my-1">
+                    <span className="text-xl font-semibold text-fg">
+                      {formatMinutes(summary.logged_outside)}
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-fg-muted truncate">
+                    on leave/off days, not in totals
+                  </span>
+                </div>
+              </div>
+
+              {/* Day by Day Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-fg">Day by day</h4>
+                  <span className="text-xs text-fg-muted">
+                    Greyed days are shown for context and excluded from totals and averages
+                  </span>
+                </div>
+
+                <div className="border border-border rounded-lg overflow-hidden bg-surface">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs border-collapse">
+                      <thead className="bg-canvas border-b border-border text-fg-muted font-medium">
+                        <tr>
+                          <th className="py-2.5 px-3">Date</th>
+                          <th className="py-2.5 px-3">Status</th>
+                          <th className="py-2.5 px-3">In</th>
+                          <th className="py-2.5 px-3">Out</th>
+                          <th className="py-2.5 px-3 text-right">Worked</th>
+                          <th className="py-2.5 px-3 text-right">Pending OT</th>
+                          <th className="py-2.5 px-3 text-right">Logged</th>
+                          <th className="py-2.5 px-3 text-right">Variance</th>
+                          <th className="py-2.5 px-3">Flags</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {visibleDays.map((day) => {
+                          const isGreyed = !day.compare_ready && day.status !== 'live';
+                          const isExpanded = Boolean(expandedDays[day.date]);
+                          const hasTasks = day.tasks && day.tasks.length > 0;
+
+                          return (
+                            <React.Fragment key={day.date}>
+                              <tr
+                                className={cn(
+                                  'hover:bg-hover transition-colors',
+                                  isGreyed && 'opacity-60 bg-canvas/40'
+                                )}
                               >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="min-w-[80px]">
-                                    <div className="text-xs font-semibold text-fg">
-                                      {day.day_name}
-                                    </div>
-                                    <div className="text-xs text-fg-muted font-mono">
-                                      {day.date}
-                                    </div>
-                                  </div>
-                                  <div>{getDayStatusPill(day)}</div>
-                                </div>
-
-                                <div className="flex items-center gap-3 shrink-0">
-                                  <div className="text-right">
-                                    <div className="text-xs font-numeric font-medium text-fg tabular-nums">
-                                      {formatHours(day.logged_hours)}
-                                      <span className="text-fg-muted font-normal"> / {formatHours(day.worked_hours)}</span>
-                                    </div>
-                                    {day.worked_hours > 0 && (
-                                      <div
-                                        className={cn(
-                                          'text-[10px] font-numeric font-semibold tabular-nums',
-                                          tone === 'deficit'
-                                            ? 'text-danger-fg'
-                                            : tone === 'surplus'
-                                            ? 'text-success-fg'
-                                            : 'text-fg-muted'
-                                        )}
-                                      >
-                                        {formatSignedHours(day.signed_gap_hours)}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                  <div className="text-fg-muted">
-                                    {isExpanded ? (
-                                      <ChevronUp className="w-4 h-4" />
-                                    ) : (
-                                      <ChevronDown className="w-4 h-4" />
-                                    )}
-                                  </div>
-                                </div>
-                              </div>
-
-                              {/* Collapsible Details */}
-                              {isExpanded && (
-                                <div className="px-4 pb-4 pt-2 border-t border-border bg-subtle/20 space-y-3">
-                                  {/* Attendance punch details */}
-                                  <div className="flex items-center gap-4 text-xs text-fg-muted flex-wrap">
-                                    <span>
-                                      Check in:{' '}
-                                      <strong className="text-fg font-numeric">
-                                        {day.check_in || '—'}
-                                      </strong>
-                                    </span>
-                                    <span>
-                                      Check out:{' '}
-                                      <strong className="text-fg font-numeric">
-                                        {day.check_out || '—'}
-                                      </strong>
-                                    </span>
-                                    <span>
-                                      Duration:{' '}
-                                      <strong className="text-fg font-numeric">
-                                        {formatHours(day.worked_hours)}
-                                      </strong>
-                                      {day.is_live && (
-                                        <span className="ml-1 text-[10px] font-medium text-accent-text bg-accent-soft px-1 rounded">
-                                          live
-                                        </span>
+                                <td className="py-2 px-3 font-medium text-fg whitespace-nowrap">
+                                  {formatDisplayDate(day.date)}
+                                </td>
+                                <td className="py-2 px-3 whitespace-nowrap">
+                                  {renderStatusPill(day)}
+                                </td>
+                                <td className="py-2 px-3 text-fg-muted whitespace-nowrap">
+                                  {day.check_in || '—'}
+                                </td>
+                                <td className="py-2 px-3 text-fg-muted whitespace-nowrap">
+                                  {day.check_out || '—'}
+                                </td>
+                                <td className="py-2 px-3 text-right font-medium text-fg whitespace-nowrap">
+                                  {day.status === 'live'
+                                    ? `${formatMinutes(day.worked)} so far`
+                                    : day.compare_ready
+                                    ? formatMinutes(day.worked)
+                                    : '—'}
+                                </td>
+                                <td className="py-2 px-3 text-right text-fg-muted whitespace-nowrap">
+                                  {day.pending_ot > 0 ? formatMinutes(day.pending_ot) : '—'}
+                                </td>
+                                <td className="py-2 px-3 text-right font-medium text-fg whitespace-nowrap">
+                                  {day.logged > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => hasTasks && toggleDayExpanded(day.date)}
+                                      className={cn(
+                                        'inline-flex items-center gap-1 hover:underline cursor-pointer',
+                                        hasTasks && 'text-accent-fg font-semibold'
                                       )}
-                                    </span>
-                                  </div>
-
-                                  {/* Member reason if any */}
-                                  {day.member_reason && (
-                                    <Callout variant="warning" title="Employee explanation">
-                                      {day.member_reason}
-                                    </Callout>
+                                    >
+                                      {formatMinutes(day.logged)}
+                                      {hasTasks && (
+                                        isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+                                      )}
+                                    </button>
+                                  ) : day.compare_ready ? (
+                                    '0m'
+                                  ) : (
+                                    '—'
                                   )}
+                                </td>
+                                <td className="py-2 px-3 text-right font-medium whitespace-nowrap">
+                                  {day.compare_ready ? (
+                                    <span className={getToneTextClass(day.tone)}>
+                                      {formatSignedMinutes(day.variance)}
+                                    </span>
+                                  ) : (
+                                    '—'
+                                  )}
+                                </td>
+                                <td className="py-2 px-3">
+                                  <div className="flex flex-wrap items-center gap-1">
+                                    {renderDayFlags(day)}
+                                  </div>
+                                </td>
+                              </tr>
 
-                                  {/* Tasks */}
-                                  {day.tasks.length > 0 ? (
-                                    <div className="space-y-1.5 pt-1">
-                                      <span className="text-xs font-medium text-fg-muted block">
-                                        Logged tasks ({day.tasks.length})
+                              {/* Expanded Tasks Row */}
+                              {isExpanded && hasTasks && (
+                                <tr className="bg-canvas/80 border-b border-border">
+                                  <td colSpan={9} className="p-3">
+                                    <div className="space-y-2">
+                                      <span className="text-xs font-semibold text-fg">
+                                        Tasks logged on this day:
                                       </span>
-                                      <div className="space-y-1.5">
-                                        {day.tasks.map((t, idx) => (
+                                      <div className="divide-y divide-border border border-border rounded bg-surface text-xs">
+                                        {day.tasks.map((task, tIdx) => (
                                           <div
-                                            key={t.id || idx}
-                                            className="p-2.5 bg-surface border border-border rounded-md flex items-start justify-between gap-3 text-xs"
+                                            key={task.id || tIdx}
+                                            className="p-2 flex items-center justify-between gap-3"
                                           >
-                                            <div className="space-y-1 min-w-0 flex-1">
-                                              <div className="font-medium text-fg leading-snug">
-                                                {t.task_description}
-                                              </div>
-                                              <div className="flex items-center gap-2 flex-wrap text-caption text-fg-muted">
-                                                {t.client_project && (
-                                                  <span className="font-semibold text-fg">
-                                                    {t.client_project}
-                                                  </span>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="font-medium text-fg truncate">
+                                                {task.task_description}
+                                              </p>
+                                              <div className="flex items-center gap-2 text-[11px] text-fg-muted mt-0.5">
+                                                {task.client_project && <span>{task.client_project}</span>}
+                                                {task.task_type && (
+                                                  <>
+                                                    <span>·</span>
+                                                    <span>{task.task_type}</span>
+                                                  </>
                                                 )}
-                                                {t.task_type && (
-                                                  <span className="px-1.5 py-0.2 rounded bg-subtle text-[10px]">
-                                                    {t.task_type}
-                                                  </span>
-                                                )}
-                                                {t.task_status && (
-                                                  <span
-                                                    className={cn(
-                                                      'px-1.5 py-0.2 rounded text-[10px] font-medium',
-                                                      t.task_status === 'Completed'
-                                                        ? 'bg-success-bg text-success-fg'
-                                                        : 'bg-warning-bg text-warning-fg'
-                                                    )}
-                                                  >
-                                                    {t.task_status}
-                                                  </span>
+                                                {task.task_status && (
+                                                  <>
+                                                    <span>·</span>
+                                                    <span className="capitalize">{task.task_status}</span>
+                                                  </>
                                                 )}
                                               </div>
-                                              {t.blockers && (
-                                                <div className="text-caption text-danger-fg">
-                                                  Blocker: {t.blockers}
-                                                </div>
-                                              )}
                                             </div>
-                                            <div className="shrink-0 font-numeric font-medium tabular-nums text-fg bg-subtle px-2 py-0.5 rounded text-xs">
-                                              {formatHours(t.hours_utilized)}
-                                            </div>
+                                            <span className="font-semibold text-fg whitespace-nowrap">
+                                              {task.hours_utilized}h
+                                            </span>
                                           </div>
                                         ))}
                                       </div>
                                     </div>
-                                  ) : day.status === 'missing' ? (
-                                    <div className="p-2.5 bg-danger-bg border border-danger-bd rounded-md text-xs text-danger-fg flex items-center gap-2">
-                                      <AlertTriangle className="w-4 h-4 shrink-0" />
-                                      <span>
-                                        No Daily Log submitted for this shift ({formatHours(day.worked_hours)} at work).
-                                      </span>
-                                    </div>
-                                  ) : !day.is_off_day && !day.is_leave && day.worked_hours === 0 ? (
-                                    <div className="text-xs text-fg-faint italic py-1">
-                                      No attendance or logs recorded for this day.
-                                    </div>
-                                  ) : null}
-                                </div>
+                                  </td>
+                                </tr>
                               )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
+                            </React.Fragment>
+                          );
+                        })}
+                      </tbody>
+                      {/* Footer: Totals */}
+                      <tfoot className="bg-canvas border-t-2 border-border font-semibold text-fg">
+                        <tr>
+                          <td className="py-2.5 px-3">
+                            Total · {summary.days_present} present days
+                          </td>
+                          <td colSpan={3}></td>
+                          <td className="py-2.5 px-3 text-right">
+                            {formatMinutes(summary.worked)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {totalPendingOtMinutes > 0 ? formatMinutes(totalPendingOtMinutes) : '—'}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {formatMinutes(summary.logged)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <span className={getToneTextClass(summary.variance > 60 ? 'danger' : summary.variance > 30 ? 'warning' : 'success')}>
+                              {formatSignedMinutes(summary.variance)}
+                            </span>
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
-                </>
-              ) : null}
-            </div>
-          </>
-        )}
+                </div>
+              </div>
+
+              {/* Explanatory Callout */}
+              <Callout
+                variant="info"
+                icon={Info}
+                className="text-xs text-fg-muted"
+              >
+                Worked includes{' '}
+                <strong className="text-fg font-semibold">
+                  {formatMinutes(totalPendingOtMinutes)} pending overtime
+                </strong>{' '}
+                {pendingOtDaysNote ? `(${pendingOtDaysNote}) ` : ''}so it matches what{' '}
+                {user?.name || 'the employee'} sees on their own Daily Log. If a lead rejects it,
+                it drops out of Worked. Off days, leave and today are shown for context only.
+              </Callout>
+            </>
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );
 };
+
+function renderStatusPill(day: LogVarianceDay) {
+  switch (day.status) {
+    case 'present':
+      return <StatusPill variant="success">{day.status_label || 'Present'}</StatusPill>;
+    case 'live':
+      return <StatusPill variant="info">{day.status_label || 'Live'}</StatusPill>;
+    case 'half_day':
+      return <StatusPill variant="warning">{day.status_label || 'Half day'}</StatusPill>;
+    case 'wfh':
+      return <StatusPill variant="info">{day.status_label || 'WFH'}</StatusPill>;
+    case 'missing_checkout':
+      return <StatusPill variant="danger">Missing checkout</StatusPill>;
+    case 'absent':
+      return <StatusPill variant="danger">Absent</StatusPill>;
+    case 'leave':
+      return <StatusPill variant="neutral">{day.status_label || 'Leave'}</StatusPill>;
+    case 'off':
+    case 'holiday':
+      return <span className="text-xs text-fg-muted">{day.status_label || 'Off'}</span>;
+    case 'not_employed':
+      return <span className="text-xs text-fg-muted">Not employed</span>;
+    default:
+      return <span className="text-xs text-fg-muted">{day.status_label || day.status}</span>;
+  }
+}
+
+function renderDayFlags(day: LogVarianceDay) {
+  if (day.flags.includes('EXCLUDED FROM AVERAGE')) {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-muted-bg text-fg-muted border border-border">
+        EXCLUDED FROM AVERAGE
+      </span>
+    );
+  }
+  if (day.flags.includes('NOT IN TOTALS YET')) {
+    return (
+      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-bg text-info-fg border border-info-bd">
+        NOT IN TOTALS YET
+      </span>
+    );
+  }
+
+  return day.flags.map((flag, idx) => {
+    if (flag === 'large_variance') {
+      return (
+        <span
+          key={idx}
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-warning-bg text-warning-fg border border-warning-bd"
+        >
+          Large variance
+        </span>
+      );
+    }
+    if (flag === 'missing_checkout') {
+      return (
+        <span
+          key={idx}
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger-bg text-danger-fg border border-danger-bd"
+        >
+          Missing checkout
+        </span>
+      );
+    }
+    if (flag === 'over_logged') {
+      return (
+        <span
+          key={idx}
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-info-bg text-info-fg border border-info-bd"
+        >
+          Logged &gt; worked
+        </span>
+      );
+    }
+    if (flag === 'no_log') {
+      return (
+        <span
+          key={idx}
+          className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger-bg text-danger-fg border border-danger-bd"
+        >
+          No log
+        </span>
+      );
+    }
+    return null;
+  });
+}

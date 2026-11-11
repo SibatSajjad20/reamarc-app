@@ -38,6 +38,7 @@ const sheetVariants = cva(
       size: {
         default: '',
         wide: 'sm:max-w-[640px]',
+        xl: 'sm:max-w-[900px]',
       },
     },
     defaultVariants: {

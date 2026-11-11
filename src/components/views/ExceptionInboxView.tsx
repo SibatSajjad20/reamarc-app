@@ -1,853 +1,750 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowUpRight,
-  Check,
-  CheckCircle2,
-  FileText,
-  History,
-  Inbox,
-  Loader2,
-  RotateCw,
+  ChevronDown,
+  ChevronRight,
+  ChevronLeft,
+  Calendar as CalendarIcon,
   Search,
-  ShieldAlert,
+  Mail,
+  Check,
+  HelpCircle,
+  Download,
 } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
-import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { useCacheInvalidation } from '../../utils/cacheBus';
+import { BoundedCache } from '../../utils/cache';
+import { logVarianceService } from '../../services/logVarianceService';
 import { logExceptionService } from '../../services/logExceptionService';
-import { dailyLogService } from '../../services/dailyLogService';
-import type { LogExceptionItem, DailyLogEntry } from '../../types/dailyLog';
-import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
-import { CustomDatePicker } from '../ui/CustomDatePicker';
-import { OffDayBanner } from '../ui/OffDayBanner';
-import { useOffDays } from '../../hooks/useOffDays';
-import { PageHeader } from '../ui/PageHeader';
+import type { ExceptionsResponse, ExceptionGroup, ExceptionItem } from '../../types/logVariance';
 import { Button } from '../ui/button';
-import { StatusPill } from '../ui/StatusPill';
-import { EmptyState } from '../ui/EmptyState';
-import { Callout } from '../ui/Callout';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { Skeleton } from '../ui/skeleton';
-import { DrawerSkeleton } from '../ui/Skeletons';
-import { getRoleDisplayName } from '../../lib/roleLabel';
+import { CustomSelect } from '../ui/CustomSelect';
+import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { Avatar } from '../ui/Avatar';
-import { useMemberAvatars } from '../../hooks/useMemberAvatars';
+import { CardListSkeleton } from '../ui/Skeletons';
+import { ErrorState } from '../ui/ErrorState';
+import { EmptyState } from '../ui/EmptyState';
+import { PageHeader } from '../ui/PageHeader';
+import { LogVarianceFormulasPopover } from '../admin/sections/LogVarianceFormulasPopover';
+import { getRoleDisplayName } from '../../lib/roleLabel';
 import { cn } from '../../lib/utils';
+import { CANONICAL_DEPARTMENTS } from '../../utils/departments';
+import {
+  pktTodayIso,
+  pktWeekBounds,
+  pktMonthBounds,
+  shiftDateRange,
+} from '../../utils/logVarianceFormat';
 
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+interface ExceptionInboxViewProps {
+  onOpenDailyLog?: (date: string) => void;
+}
+
+type RangeMode = 'today' | 'week' | 'month' | 'custom';
+
+const EXCEPTION_TYPES = [
+  { key: 'all', label: 'All types' },
+  { key: 'no_log', label: 'No log on worked day' },
+  { key: 'over_logged', label: 'Logged > worked' },
+  { key: 'missing_checkout', label: 'Missing checkout' },
+  { key: 'large_variance', label: 'Large variance' },
+  { key: 'logged_on_leave_or_off', label: 'Logged on leave / off day' },
+  { key: 'logged_without_attendance', label: 'Logged without attendance' },
+] as const;
+
+const TYPE_TONE: Record<string, { chip: string; count: string; selected: string }> = {
+  all: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-subtle text-fg',
+    selected: 'bg-muted-bg text-fg border-border shadow-xs',
+  },
+  no_log: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-danger-bg text-danger-fg',
+    selected: 'bg-danger-bg text-danger-fg border-danger-bd shadow-xs',
+  },
+  over_logged: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-info-bg text-info-fg',
+    selected: 'bg-info-bg text-info-fg border-info-bd shadow-xs',
+  },
+  missing_checkout: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-warning-bg text-warning-fg',
+    selected: 'bg-warning-bg text-warning-fg border-warning-bd shadow-xs',
+  },
+  large_variance: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-warning-bg text-warning-fg',
+    selected: 'bg-warning-bg text-warning-fg border-warning-bd shadow-xs',
+  },
+  logged_on_leave_or_off: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-subtle text-fg-muted',
+    selected: 'bg-muted-bg text-fg border-border shadow-xs',
+  },
+  logged_without_attendance: {
+    chip: 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg',
+    count: 'bg-danger-bg text-danger-fg',
+    selected: 'bg-danger-bg text-danger-fg border-danger-bd shadow-xs',
+  },
 };
 
-const formatItemDate = (isoString?: string): string => {
-  if (!isoString) return '';
-  try {
-    const [year, month, day] = isoString.split('-').map(Number);
-    const d = new Date(year, month - 1, day);
-    return d.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
-  } catch {
-    return isoString;
-  }
+const FLAG_PILL: Record<string, string> = {
+  'No log on worked day': 'bg-danger-bg text-danger-fg border-danger-bd',
+  'Logged > worked': 'bg-info-bg text-info-fg border-info-bd',
+  'Missing checkout': 'bg-warning-bg text-warning-fg border-warning-bd',
+  'Large variance': 'bg-warning-bg text-warning-fg border-warning-bd',
+  'Logged on leave/off day': 'bg-muted-bg text-fg border-border',
+  'Logged on leave / off day': 'bg-muted-bg text-fg border-border',
+  'Logged without attendance': 'bg-danger-bg text-danger-fg border-danger-bd',
 };
 
-type QuickFilterType = 'all' | 'gap' | 'missing' | 'pending_reason' | 'escalated';
+const exceptionsRangeCache = new BoundedCache<ExceptionsResponse>(16);
 
-export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => void }> = ({
-  onOpenDailyLog,
-}) => {
-  const { user } = useAuth();
+export function clearExceptionsRangeCache(): void {
+  exceptionsRangeCache.clear();
+}
+
+function cacheKey(parts: {
+  startDate: string;
+  endDate: string;
+  department: string;
+  groupBy: string;
+  showReviewed: boolean;
+}): string {
+  return [parts.startDate, parts.endDate, parts.department, parts.groupBy, parts.showReviewed ? '1' : '0'].join('|');
+}
+
+function stripLoggedLate(res: ExceptionsResponse): ExceptionsResponse {
+  const groups = (res.groups || [])
+    .map((g) => {
+      const items = (g.items || []).filter((it) => it.type !== 'logged_late');
+      const flags = (g.flags || []).filter((f) => !/logged late/i.test(f));
+      return { ...g, items, flags, count: items.length };
+    })
+    .filter((g) => g.items.length > 0);
+  const totals = { ...(res.totals_by_type || {}) };
+  const late = Number(totals.logged_late || 0);
+  return {
+    ...res,
+    groups,
+    totals_by_type: {
+      ...totals,
+      all: Math.max(0, Number(totals.all || 0) - late),
+      logged_late: 0,
+    },
+  };
+}
+
+const formatDisplayDate = (isoStr: string): string => {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  return dt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+};
+
+const formatShortDisplay = (isoStr: string): string => {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  return dt.toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
+};
+
+function applyTypeFilter(groups: ExceptionGroup[], type: string): ExceptionGroup[] {
+  if (type === 'all') return groups;
+  return groups
+    .map((g) => {
+      const items = g.items.filter((it) => it.type === type);
+      if (items.length === 0) return null;
+      const counts: Record<string, number> = {};
+      items.forEach((it) => {
+        counts[it.type_label] = (counts[it.type_label] || 0) + 1;
+      });
+      const flags = Object.entries(counts).map(([lbl, cnt]) => (cnt > 1 ? `${lbl} ×${cnt}` : lbl));
+      return { ...g, items, count: items.length, flags };
+    })
+    .filter(Boolean) as ExceptionGroup[];
+}
+
+export const ExceptionInboxView: React.FC<ExceptionInboxViewProps> = () => {
   const { addToast } = useToast();
-  const { getAvatarUrl } = useMemberAvatars();
-  const isLead = user?.role === 'team_lead' || user?.role === 'admin' || user?.role === 'operations';
 
-  const cachedInbox = logExceptionService.getCachedInbox();
+  const [rangeMode, setRangeMode] = useState<RangeMode>('month');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+  const [monthOffset, setMonthOffset] = useState<number>(0);
+  const [customRange, setCustomRange] = useState<{ start: string; end: string }>(() => pktMonthBounds(new Date()));
 
-  // Data states
-  const [items, setItems] = useState<LogExceptionItem[]>(() => cachedInbox?.data || []);
-  const [isLoading, setIsLoading] = useState(!cachedInbox);
-  useModuleLoadGate(isLoading);
-
-  // Interaction states
-  const [actingId, setActingId] = useState<string | null>(null);
-  const [selectedDetailItem, setSelectedDetailItem] = useState<LogExceptionItem | null>(null);
-  const [detailTasks, setDetailTasks] = useState<DailyLogEntry[]>([]);
-  const [isLoadingTasks, setIsLoadingTasks] = useState(false);
-
-  // Filters & range
-  const [range, setRange] = useState<'today' | 'week' | 'date'>('week');
-  const [pickedDate, setPickedDate] = useState(todayIso());
+  const [selectedDept, setSelectedDept] = useState<string>('all');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [groupBy, setGroupBy] = useState<'employee' | 'day'>('employee');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<QuickFilterType>('all');
+  const [showReviewed, setShowReviewed] = useState(false);
 
-  const { getOffDay } = useOffDays();
-  const viewingOff =
-    range === 'date'
-      ? getOffDay(pickedDate)
-      : range === 'today'
-      ? getOffDay(todayIso())
-      : { isOff: false, label: 'Working day' as const };
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [isFormulasOpen, setIsFormulasOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const [actingId, setActingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const dateArg = range === 'today' ? todayIso() : range === 'date' ? pickedDate : undefined;
-    const cached = logExceptionService.getCachedInbox(dateArg);
-    if (cached) {
-      setItems(cached.data);
-      setIsLoading(false);
-    } else {
-      setIsLoading(true);
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
+
+  const { startDate, endDate, rangeSubtitle } = useMemo(() => {
+    const now = new Date();
+    if (rangeMode === 'today') {
+      const t = pktTodayIso(now);
+      const [y, m, d] = t.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      const formatted = dt.toLocaleDateString('en-GB', {
+        timeZone: 'UTC',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+      return { startDate: t, endDate: t, rangeSubtitle: formatted };
     }
-    try {
-      const rows = await logExceptionService.getInbox(dateArg);
-      setItems(rows || []);
-    } catch (err: any) {
-      addToast('Could not load exceptions', err.message || 'Please try again.', 'error');
-    } finally {
-      setIsLoading(false);
+    if (rangeMode === 'week') {
+      const ref = new Date(now.getTime() + weekOffset * 7 * 86400000);
+      const bounds = pktWeekBounds(ref);
+      return {
+        startDate: bounds.start,
+        endDate: bounds.end,
+        rangeSubtitle: `${formatShortDisplay(bounds.start)} – ${formatShortDisplay(bounds.end)}`,
+      };
     }
-  }, [addToast, range, pickedDate]);
+    if (rangeMode === 'month') {
+      const pktToday = pktTodayIso(now);
+      const [y, m] = pktToday.split('-').map(Number);
+      const refMonth = new Date(Date.UTC(y, m - 1 + monthOffset, 1));
+      const bounds = pktMonthBounds(refMonth);
+      const monthTitle = refMonth.toLocaleDateString('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+      return {
+        startDate: bounds.start,
+        endDate: bounds.end,
+        rangeSubtitle: `1 ${refMonth.toLocaleDateString('en-GB', { timeZone: 'UTC', month: 'short' })} – ${bounds.end.slice(8)} ${monthTitle}`,
+      };
+    }
+    return {
+      startDate: customRange.start,
+      endDate: customRange.end,
+      rangeSubtitle: `${formatShortDisplay(customRange.start)} – ${formatShortDisplay(customRange.end)}`,
+    };
+  }, [rangeMode, weekOffset, monthOffset, customRange]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  useCacheInvalidation(['exceptions', 'daily-log'], () => {
-    void load();
+  const requestKey = cacheKey({
+    startDate,
+    endDate,
+    department: selectedDept,
+    groupBy,
+    showReviewed,
   });
 
-  // Listen for member deletion event
-  useEffect(() => {
-    const onDeleted = () => {
-      load();
-    };
-    window.addEventListener('reamarc-member-deleted', onDeleted);
-    return () => window.removeEventListener('reamarc-member-deleted', onDeleted);
-  }, [load]);
+  const [data, setData] = useState<ExceptionsResponse | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const requestSeq = useRef(0);
+  const loadedKeyRef = useRef('');
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+  const queryRef = useRef({ startDate, endDate, selectedDept, groupBy, showReviewed, requestKey });
+  queryRef.current = { startDate, endDate, selectedDept, groupBy, showReviewed, requestKey };
 
-  // Fetch tasks when inspection item changes
+  const applyLoaded = useCallback((key: string, res: ExceptionsResponse) => {
+    const cleaned = stripLoggedLate(res);
+    loadedKeyRef.current = key;
+    setData(cleaned);
+    setLoadedKey(key);
+    const initialExpanded: Record<string, boolean> = {};
+    (cleaned.groups || []).forEach((g) => {
+      initialExpanded[g.key] = true;
+    });
+    setExpandedGroups(initialExpanded);
+    setIsLoading(false);
+    setFetchError(null);
+  }, []);
+
+  const fetchData = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const { startDate: s, endDate: e, selectedDept: dept, groupBy: group, showReviewed: reviewed, requestKey: key } =
+        queryRef.current;
+      if (!opts?.force) {
+        const cached = exceptionsRangeCache.get(key);
+        if (cached) {
+          if (loadedKeyRef.current !== key) applyLoaded(key, cached.data);
+          return;
+        }
+      }
+
+      const seq = ++requestSeq.current;
+      setIsLoading(true);
+      setFetchError(null);
+      try {
+        const res = await logVarianceService.getExceptions({
+          startDate: s,
+          endDate: e,
+          department: dept !== 'all' ? dept : undefined,
+          group,
+          includeReviewed: reviewed,
+        });
+        exceptionsRangeCache.set(key, res);
+        if (seq !== requestSeq.current) return;
+        applyLoaded(key, res);
+      } catch (err: any) {
+        if (seq !== requestSeq.current) return;
+        setFetchError(err.message || 'Failed to load exceptions');
+        addToastRef.current('Error', err.message || 'Failed to load exceptions', 'error');
+        setIsLoading(false);
+      }
+    },
+    [applyLoaded]
+  );
+
   useEffect(() => {
-    if (!selectedDetailItem) {
-      setDetailTasks([]);
+    const cached = exceptionsRangeCache.get(requestKey);
+    if (cached) {
+      if (loadedKeyRef.current !== requestKey) applyLoaded(requestKey, cached.data);
       return;
     }
-    let isCancelled = false;
-    const fetchTasks = async () => {
-      setIsLoadingTasks(true);
-      try {
-        const entries = await dailyLogService.getEntries({
-          start_date: selectedDetailItem.date,
-          end_date: selectedDetailItem.date,
-          user_id: selectedDetailItem.user_id,
-        });
-        if (!isCancelled) {
-          setDetailTasks(entries || []);
-        }
-      } catch {
-        if (!isCancelled) {
-          setDetailTasks([]);
-        }
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingTasks(false);
-        }
-      }
-    };
-    fetchTasks();
-    return () => {
-      isCancelled = true;
-    };
-  }, [selectedDetailItem]);
+    loadedKeyRef.current = '';
+    setData(null);
+    setLoadedKey('');
+    void fetchData();
+  }, [requestKey, fetchData, applyLoaded]);
 
-  // KPI counts
-  const counts = useMemo(() => {
-    let missing = 0;
-    let gap = 0;
-    let pendingReason = 0;
-    let escalated = 0;
+  useCacheInvalidation(['exceptions', 'daily-log'], () => {
+    exceptionsRangeCache.clear();
+    loadedKeyRef.current = '';
+    void fetchData({ force: true });
+  });
 
-    items.forEach((i) => {
-      if (i.is_missing_log || i.exception_type === 'missing_log') {
-        missing++;
-      } else {
-        gap++;
-      }
-      if (i.action_status === 'waiting_on_reviewer') {
-        pendingReason++;
-      }
-      if (i.escalated || i.action_status === 'escalated') {
-        escalated++;
-      }
-    });
-
-    return { missing, gap, pendingReason, escalated, total: items.length };
-  }, [items]);
-
-  // Filtered rows
-  const filteredItems = useMemo(() => {
-    let list = items;
-
-    if (activeFilter === 'missing') {
-      list = list.filter((i) => i.is_missing_log || i.exception_type === 'missing_log');
-    } else if (activeFilter === 'gap') {
-      list = list.filter((i) => !(i.is_missing_log || i.exception_type === 'missing_log'));
-    } else if (activeFilter === 'pending_reason') {
-      list = list.filter((i) => i.action_status === 'waiting_on_reviewer');
-    } else if (activeFilter === 'escalated') {
-      list = list.filter((i) => i.escalated || i.action_status === 'escalated');
-    }
-
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(
-      (i) =>
-        i.full_name.toLowerCase().includes(q) ||
-        (i.department || '').toLowerCase().includes(q) ||
-        i.date.includes(q),
-    );
-  }, [items, activeFilter, searchQuery]);
-
-  // Auto-selection of detail item
-  useEffect(() => {
-    setSelectedDetailItem((current) => {
-      if (filteredItems.length === 0) return null;
-      if (current && filteredItems.some((i) => i.id === current.id)) {
-        return filteredItems.find((i) => i.id === current.id) || current;
-      }
-      return filteredItems[0];
-    });
-  }, [filteredItems]);
-
-  // Keyboard navigation up / down
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const currIdx = filteredItems.findIndex((i) => i.id === selectedDetailItem?.id);
-      if (currIdx < filteredItems.length - 1) {
-        setSelectedDetailItem(filteredItems[currIdx + 1]);
-      }
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const currIdx = filteredItems.findIndex((i) => i.id === selectedDetailItem?.id);
-      if (currIdx > 0) {
-        setSelectedDetailItem(filteredItems[currIdx - 1]);
-      }
-    }
+  const toggleGroup = (key: string) => {
+    setExpandedGroups((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  // Action dispatcher
   const handleAction = async (
-    item: LogExceptionItem,
-    action: 'explain' | 'correct' | 'review' | 'escalate' | 'accept' | 'ask_again',
+    item: ExceptionItem,
+    action: 'explain' | 'correct' | 'review' | 'escalate' | 'accept' | 'ask_again'
   ) => {
-    const notified =
-      item.employee_notified ||
-      item.action_status === 'waiting_on_employee' ||
-      item.action_status === 'waiting_on_reviewer';
-    if (notified && (action === 'explain' || action === 'correct')) {
-      addToast(
-        'Already requested',
-        `Already requested by ${item.action_by_name || 'a reviewer'}.`,
-        'info',
-      );
-      return;
-    }
     setActingId(item.id);
     try {
-      const res = await logExceptionService.act(item.id, action);
-      if (res.already_requested) {
-        addToast('Already requested', 'The employee was already notified.', 'info');
-      } else if (action === 'review') {
-        addToast('Marked as looks fine', 'Exception resolved and cleared.', 'success');
-      } else if (action === 'accept') {
-        addToast('Reason accepted', 'Employee explanation accepted. Exception cleared.', 'success');
-      } else if (action === 'ask_again') {
-        addToast('Asked again', 'Request sent back to employee for updated log.', 'success');
-      } else if (action === 'escalate') {
-        addToast('Sent to HR', 'Exception escalated to HR management.', 'success');
-      } else {
-        addToast('Request sent', 'Employee notified to explain / log hours.', 'success');
-      }
-
-      await load();
+      await logExceptionService.act(item.id, action);
+      addToast('Success', 'Action recorded', 'success');
+      exceptionsRangeCache.clear();
+      void fetchData({ force: true });
     } catch (err: any) {
-      addToast('Action failed', err.message || 'Please try again.', 'error');
+      addToast('Error', err.message || 'Failed to act on exception', 'error');
     } finally {
       setActingId(null);
     }
   };
 
-  const openLog = (item: LogExceptionItem) => {
+  const handleExport = async () => {
+    setIsExporting(true);
     try {
-      localStorage.setItem(
-        'reamarc_daily_log_focus',
-        JSON.stringify({ date: item.date, resourceName: item.full_name }),
+      const blob = await logVarianceService.exportExcel(
+        startDate,
+        endDate,
+        selectedDept !== 'all' ? selectedDept : undefined
       );
-    } catch {
-      /* ignore */
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Log variance ${startDate}_${endDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      addToast('Export failed', err.message || 'Could not export file', 'error');
+    } finally {
+      setIsExporting(false);
     }
-    if (onOpenDailyLog) onOpenDailyLog(item.date);
   };
 
-  // Status Pill renderer
-  const renderStatusPill = (item: LogExceptionItem) => {
-    if (item.action_status === 'waiting_on_reviewer') {
-      return <StatusPill variant="info" label="Reason submitted" dot />;
-    }
-    if (item.action_status === 'waiting_on_employee' || Boolean(item.employee_notified)) {
-      return <StatusPill variant="warning" label="Awaiting employee" dot />;
-    }
-    if (item.escalated || item.action_status === 'escalated') {
-      return <StatusPill variant="neutral" label="Sent to HR" dot />;
-    }
-    if (item.action_status === 'reviewed' || item.action_status === 'cleared') {
-      return <StatusPill variant="success" label="Resolved" dot />;
-    }
-    return <StatusPill variant="accent" label="Needs review" dot />;
-  };
+  const showContent = loadedKey === requestKey && data && !isLoading;
+  const totals = data?.totals_by_type;
 
-  const filterTabs = [
-    { id: 'all' as const, label: 'All', count: counts.total },
-    { id: 'gap' as const, label: 'Discrepancy', count: counts.gap },
-    { id: 'missing' as const, label: 'Missing logs', count: counts.missing },
-    ...(counts.pendingReason > 0 || activeFilter === 'pending_reason'
-      ? [{ id: 'pending_reason' as const, label: 'Reason submitted', count: counts.pendingReason }]
-      : []),
-    ...(counts.escalated > 0 || activeFilter === 'escalated'
-      ? [{ id: 'escalated' as const, label: 'Sent to HR', count: counts.escalated }]
-      : []),
-  ];
+  const typedGroups = useMemo(
+    () => applyTypeFilter(data?.groups || [], selectedType),
+    [data?.groups, selectedType]
+  );
+
+  const filteredGroups = useMemo(() => {
+    if (!searchQuery.trim()) return typedGroups;
+    const q = searchQuery.trim().toLowerCase();
+    return typedGroups
+      .map((g) => {
+        const matchesLabel = g.label.toLowerCase().includes(q);
+        const matchingItems = g.items.filter(
+          (it) =>
+            it.user_name.toLowerCase().includes(q) ||
+            it.date.toLowerCase().includes(q) ||
+            it.detail.toLowerCase().includes(q) ||
+            it.type_label.toLowerCase().includes(q)
+        );
+        if (matchesLabel) return g;
+        if (matchingItems.length > 0) {
+          return { ...g, items: matchingItems, count: matchingItems.length };
+        }
+        return null;
+      })
+      .filter(Boolean) as ExceptionGroup[];
+  }, [typedGroups, searchQuery]);
+
+  const openCount = useMemo(
+    () => typedGroups.reduce((sum, g) => sum + g.count, 0),
+    [typedGroups]
+  );
+
+  const departmentOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All departments' },
+      ...CANONICAL_DEPARTMENTS.map((d) => ({ value: d, label: d })),
+    ],
+    []
+  );
 
   return (
-    <div className="flex flex-col h-full w-full bg-canvas overflow-hidden">
-      {/* ─── Page Header ─── */}
-      <div className="px-6 pt-6 pb-2 shrink-0">
+    <div className="flex flex-1 flex-col h-full w-full min-h-0 min-w-0 bg-canvas text-fg overflow-hidden">
+      <div
+        data-testid="exceptions-scroll"
+        className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar p-6 space-y-4"
+      >
         <PageHeader
+          className="mb-1"
           title="Exceptions"
-          description="Days where logged hours don't match time at work, or no log was submitted."
+          description="Days that need a look. Same date range and rules as Log variance."
           actions={
-            <div className="flex items-center gap-2 flex-wrap">
-              <SegmentedControl
-                size="sm"
-                value={range}
-                onValueChange={(val: string) => setRange(val as 'today' | 'week' | 'date')}
-                options={[
-                  { value: 'week', label: 'Last 7 workdays' },
-                  { value: 'today', label: 'Today' },
-                  { value: 'date', label: 'Pick a date' },
-                ]}
-              />
-
-              {range === 'date' && (
-                <div className="w-38">
-                  <CustomDatePicker
-                    value={pickedDate}
-                    onChange={(val) => setPickedDate(val || todayIso())}
-                    maxDate={todayIso()}
-                    offDayMode="mark"
-                  />
-                </div>
-              )}
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" size="sm" icon={HelpCircle} onClick={() => setIsFormulasOpen(true)}>
+                How it's calculated
+              </Button>
+              <Button variant="primary" size="sm" icon={Download} loading={isExporting} onClick={handleExport}>
+                Export
+              </Button>
             </div>
           }
         />
-      </div>
 
-      {/* ─── Off-day Banner if applicable ─── */}
-      {viewingOff.isOff && !isLoading && (
-        <div className="px-6 mb-3">
-          <OffDayBanner info={viewingOff} date={range === 'date' ? pickedDate : todayIso()} />
-        </div>
-      )}
+        <div className="flex flex-wrap items-center gap-2">
+          <SegmentedControl
+            size="sm"
+            value={rangeMode}
+            onValueChange={(val) => {
+              const next = val as RangeMode;
+              setRangeMode(next);
+              setWeekOffset(0);
+              setMonthOffset(0);
+              if (next === 'custom') setIsRangePickerOpen(true);
+              else setIsRangePickerOpen(false);
+            }}
+            options={[
+              { value: 'today', label: 'Today' },
+              { value: 'week', label: 'This week' },
+              { value: 'month', label: 'This month' },
+              { value: 'custom', label: 'Custom' },
+            ]}
+          />
 
-      {/* ─── Main Content ─── */}
-      {!isLoading && items.length === 0 ? (
-        /* Empty Inbox State (Mock 18) */
-        <div className="flex-1 min-h-0 px-6 pb-6 overflow-y-auto">
-          <div className="h-full bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between overflow-hidden">
-            <div className="p-4 border-b border-border flex items-center justify-between gap-4 flex-wrap">
-              <div className="flex items-center gap-1.5 overflow-x-auto text-ui">
-                {filterTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    disabled
-                    className="px-2.5 py-1 rounded-md text-xs font-medium text-fg-muted flex items-center gap-1.5 opacity-60"
-                  >
-                    <span>{tab.label}</span>
-                    <span className="text-micro font-numeric tabular-nums px-1.5 py-0.5 rounded-full bg-subtle">
-                      0
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative w-64 max-w-xs shrink-0">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-                <input
-                  type="text"
-                  disabled
-                  placeholder="Search by name or department"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-subtle border border-border rounded-md text-fg-muted cursor-not-allowed"
-                />
-              </div>
+          {rangeMode === 'week' && (
+            <div className="inline-flex items-center h-8 gap-0.5 bg-surface border border-border rounded-md px-1 text-xs font-medium text-fg shadow-xs">
+              <button
+                type="button"
+                onClick={() => setWeekOffset((prev) => prev - 1)}
+                className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="px-1.5 whitespace-nowrap">{rangeSubtitle}</span>
+              <button
+                type="button"
+                onClick={() => setWeekOffset((prev) => prev + 1)}
+                className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer"
+              >
+                <ChevronRight size={14} />
+              </button>
             </div>
+          )}
 
-            <div className="flex-1 flex items-center justify-center py-16">
-              <EmptyState
-                icon={CheckCircle2}
-                title="You're all caught up"
-                description="No open exceptions for your team in the last 30 days. New ones appear here when logged hours and time at work don't match, or a daily log is missing."
-                actions={
-                  <div className="flex items-center gap-2 mt-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        setRange('week');
-                        load();
-                      }}
-                      className="gap-1.5"
-                    >
-                      <History className="w-3.5 h-3.5" />
-                      <span>View resolved</span>
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onOpenDailyLog?.(pickedDate)}
-                      className="gap-1.5"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                      <span>Open team daily logs</span>
-                    </Button>
-                  </div>
-                }
-              />
+          {rangeMode === 'month' && (
+            <div className="inline-flex items-center h-8 gap-0.5 bg-surface border border-border rounded-md px-1 text-xs font-medium text-fg shadow-xs">
+              <button
+                type="button"
+                onClick={() => setMonthOffset((prev) => prev - 1)}
+                className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="px-1.5 whitespace-nowrap">{rangeSubtitle}</span>
+              <button
+                type="button"
+                onClick={() => setMonthOffset((prev) => prev + 1)}
+                className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer"
+              >
+                <ChevronRight size={14} />
+              </button>
             </div>
+          )}
 
-          </div>
-        </div>
-      ) : (
-        /* Two-Pane Inbox Layout (Mock 07) */
-        <div className="flex-1 min-h-0 px-6 pb-6 overflow-hidden flex flex-col lg:flex-row gap-4">
-          {/* ─── Left List Pane (400px) ─── */}
-          <div
-            tabIndex={0}
-            onKeyDown={handleKeyDown}
-            className="w-full lg:w-[400px] shrink-0 flex flex-col bg-surface border border-border rounded-lg shadow-xs overflow-hidden focus:outline-none focus:ring-1 focus:ring-accent"
-          >
-            {/* Header: Search + Tabs */}
-            <div className="p-3 border-b border-border space-y-2.5 shrink-0">
-              <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by name or department"
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-subtle border border-border rounded-md placeholder:text-fg-muted text-fg focus:outline-none focus:border-border-strong"
-                />
-              </div>
-
-              {/* Filter Tabs */}
-              <div className="flex items-center gap-1 overflow-x-auto text-ui scrollbar-none pb-0.5">
-                {filterTabs.map((tab) => (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => setActiveFilter(tab.id)}
-                    className={cn(
-                      'px-2.5 py-1 rounded-md text-xs font-medium transition-colors cursor-pointer shrink-0 flex items-center gap-1.5',
-                      activeFilter === tab.id
-                        ? 'bg-accent-soft text-accent-text font-semibold shadow-xs'
-                        : 'text-fg-muted hover:text-fg hover:bg-hover',
-                    )}
-                  >
-                    <span>{tab.label}</span>
-                    <span
-                      className={cn(
-                        'text-micro font-numeric tabular-nums px-1.5 py-0.2 rounded-full',
-                        activeFilter === tab.id
-                          ? 'bg-accent text-accent-fg font-medium'
-                          : 'bg-subtle text-fg-muted',
-                      )}
-                    >
-                      {isLoading ? '·' : tab.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* List Body */}
-            <div className="flex-1 min-h-0 overflow-y-auto divide-y divide-border">
-              {isLoading ? (
-                Array.from({ length: 8 }).map((_, idx) => (
-                  <div key={idx} className="p-3.5 flex items-start gap-3">
-                    <Skeleton className="w-7 h-7 rounded-full shrink-0" />
-                    <div className="flex-1 space-y-2 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <Skeleton className="w-28 h-3.5 rounded-sm" />
-                        <Skeleton className="w-16 h-3 rounded-sm" />
-                      </div>
-                      <Skeleton className="w-36 h-3 rounded-sm" />
-                      <div className="flex items-center justify-between pt-1">
-                        <Skeleton className="w-20 h-4 rounded-full" />
-                        <Skeleton className="w-16 h-3.5 rounded-sm" />
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : filteredItems.length === 0 ? (
-                <div className="py-12">
-                  <EmptyState
-                    variant="compact"
-                    title="No results"
-                    description="Nothing matches your search or filters."
-                    action={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setSearchQuery('');
-                          setActiveFilter('all');
-                        }}
-                      >
-                        Clear filters
-                      </Button>
-                    }
+          {rangeMode === 'custom' && (
+            <div className="relative">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={CalendarIcon}
+                onClick={() => setIsRangePickerOpen((o) => !o)}
+              >
+                {rangeSubtitle}
+              </Button>
+              {isRangePickerOpen && (
+                <div className="absolute left-0 top-full mt-2 z-50">
+                  <DateRangeCalendarPicker
+                    initialStartDate={customRange.start}
+                    initialEndDate={customRange.end}
+                    onApply={({ startDate: s, endDate: e }) => {
+                      setCustomRange({ start: s, end: e });
+                      setRangeMode('custom');
+                      setIsRangePickerOpen(false);
+                    }}
+                    onCancel={() => setIsRangePickerOpen(false)}
                   />
                 </div>
-              ) : (
-                filteredItems.map((item) => {
-                  const isSelected = selectedDetailItem?.id === item.id;
-                  const missing = item.is_missing_log || item.exception_type === 'missing_log';
-
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      onClick={() => setSelectedDetailItem(item)}
-                      className={cn(
-                        'w-full text-left p-3.5 flex items-start gap-3 transition-colors cursor-pointer border-l-2',
-                        isSelected
-                          ? 'bg-accent-soft border-accent'
-                          : 'border-transparent hover:bg-hover',
-                      )}
-                    >
-                      {/* Avatar */}
-                      <Avatar
-                        name={item.full_name}
-                        src={getAvatarUrl(item.user_id, item.full_name)}
-                        size={28}
-                        className="rounded-full shrink-0"
-                      />
-
-                      {/* Info */}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <span
-                            className={cn(
-                              'text-ui font-medium truncate',
-                              isSelected ? 'text-accent-text font-semibold' : 'text-fg',
-                            )}
-                          >
-                            {item.full_name}
-                          </span>
-                          <span className="text-small text-fg-muted shrink-0 font-numeric tabular-nums">
-                            {formatItemDate(item.date)}
-                          </span>
-                        </div>
-
-                        {/* Subtitle / tag */}
-                        <p className="text-small text-fg-muted truncate mt-0.5">
-                          {item.department || 'General'} ·{' '}
-                          {missing ? 'Missing log' : 'Hour discrepancy'}
-                        </p>
-
-                        {/* Bottom row: Status pill + Gap */}
-                        <div className="flex items-center justify-between gap-2 mt-2">
-                          {renderStatusPill(item)}
-
-                          <span
-                            className={cn(
-                              'text-small font-numeric tabular-nums shrink-0',
-                              item.compare_ready === false
-                                ? 'text-fg-muted'
-                                : missing
-                                ? 'text-danger-fg'
-                                : (item.signed_gap_hours || 0) < -0.01
-                                ? 'text-danger-fg'
-                                : (item.signed_gap_hours || 0) > 0.01
-                                ? 'text-success-fg'
-                                : 'text-fg-muted',
-                            )}
-                          >
-                            {item.compare_ready === false
-                              ? 'No punch-out'
-                              : missing
-                              ? `No log · at work ${formatHours(item.worked_hours || 0)}`
-                              : `Gap ${formatSignedHours(item.signed_gap_hours || 0)}`}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })
               )}
             </div>
+          )}
+
+          <div className="w-[220px] ml-auto">
+            <CustomSelect
+              value={selectedDept}
+              onChange={(val) => setSelectedDept(val)}
+              options={departmentOptions}
+              size="sm"
+              searchable
+              searchPlaceholder="Search departments…"
+              aria-label="All departments"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="relative flex-1 min-w-[180px] max-w-md">
+            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+            <input
+              type="text"
+              placeholder="Search employee or date…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full h-8 pl-8 pr-3 text-xs bg-surface border border-border rounded-md text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent"
+            />
           </div>
 
-          {/* ─── Right Detail Pane (flex-1) ─── */}
-          <div className="flex-1 min-h-0 flex flex-col bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-            {isLoading && !selectedDetailItem ? (
-              <div className="p-6">
-                <DrawerSkeleton />
-              </div>
-            ) : !selectedDetailItem ? (
-              <div className="flex-1 flex items-center justify-center p-8">
+          <div className="flex items-center gap-2 sm:ml-auto">
+            {showContent && (
+              <span className="text-xs text-fg-muted font-medium font-numeric tabular-nums whitespace-nowrap">
+                {filteredGroups.length} {groupBy === 'employee' ? 'people' : 'days'} · {openCount} open
+              </span>
+            )}
+            <Button variant="secondary" size="sm" onClick={() => setShowReviewed((prev) => !prev)}>
+              {showReviewed ? 'Hide reviewed' : `Show reviewed${data?.reviewed_count != null ? ` (${data.reviewed_count})` : ''}`}
+            </Button>
+            <div className="w-[148px]">
+              <CustomSelect
+                value={groupBy}
+                onChange={(val) => setGroupBy(val as 'employee' | 'day')}
+                options={[
+                  { value: 'employee', label: 'By employee' },
+                  { value: 'day', label: 'By day' },
+                ]}
+                size="sm"
+                aria-label="Group exceptions"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5">
+          {showContent && totals ? (
+            EXCEPTION_TYPES.map((t) => {
+              const count = t.key === 'all' ? totals.all : Number((totals as Record<string, number>)[t.key] || 0);
+              const tone = TYPE_TONE[t.key];
+              const selected = selectedType === t.key;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setSelectedType(t.key)}
+                  className={cn(
+                    'inline-flex items-center gap-2 h-8 pl-3 pr-1.5 rounded-full text-xs font-medium cursor-pointer transition-colors border',
+                    selected ? tone.selected : tone.chip
+                  )}
+                >
+                  <span>{t.label}</span>
+                  <span
+                    className={cn(
+                      'min-w-[1.25rem] h-5 px-1.5 rounded-full text-[11px] font-semibold tabular-nums inline-flex items-center justify-center',
+                      selected ? 'bg-surface/70' : tone.count
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })
+          ) : (
+            Array.from({ length: 6 }).map((_, i) => (
+              <span key={i} className="h-8 w-36 rounded-full bg-subtle animate-pulse border border-border" />
+            ))
+          )}
+        </div>
+
+        {(!showContent || isLoading) && !fetchError && <CardListSkeleton rows={6} />}
+
+        {fetchError && !showContent && (
+          <ErrorState title="Could not load exceptions" message={fetchError} onRetry={() => fetchData({ force: true })} />
+        )}
+
+        {showContent && (
+          <div className="border border-border rounded-xl overflow-hidden bg-surface shadow-xs divide-y divide-border">
+            {filteredGroups.length === 0 ? (
+              <div className="py-12 text-center">
                 <EmptyState
-                  icon={Inbox}
-                  variant="compact"
-                  title="Select an exception to review"
-                  description="Choose an item from the list on the left to inspect attendance comparison and take action."
+                  icon={Check}
+                  title="No open exceptions"
+                  description="All logs in this range are either completed or properly accounted for."
                 />
               </div>
             ) : (
-              <>
-                {/* Detail Header */}
-                <div className="p-5 border-b border-border flex items-center justify-between gap-4 shrink-0">
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <Avatar
-                      name={selectedDetailItem.full_name}
-                      src={getAvatarUrl(selectedDetailItem.user_id, selectedDetailItem.full_name)}
-                      size={40}
-                      className="rounded-full shrink-0"
-                    />
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2.5 flex-wrap">
-                        <h2 className="text-h2 font-semibold text-fg tracking-tight truncate">
-                          {selectedDetailItem.full_name}
-                        </h2>
-                        {renderStatusPill(selectedDetailItem)}
-                      </div>
-                      <p className="text-small text-fg-muted truncate mt-0.5">
-                        {selectedDetailItem.department || 'General'} ·{' '}
-                        {getRoleDisplayName(selectedDetailItem.role)} ·{' '}
-                        {selectedDetailItem.is_missing_log ||
-                        selectedDetailItem.exception_type === 'missing_log'
-                          ? 'Missing log'
-                          : 'Hour discrepancy'}{' '}
-                        on {formatItemDate(selectedDetailItem.date)}
-                      </p>
-                    </div>
-                  </div>
-
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => openLog(selectedDetailItem)}
-                    className="gap-1.5 shrink-0 text-accent-text hover:text-accent-text"
-                  >
-                    <span>Open full daily log</span>
-                    <ArrowUpRight className="w-4 h-4" />
-                  </Button>
-                </div>
-
-                {/* Detail Body (Scrollable) */}
-                <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
-                  {/* Time Comparison Cards */}
-                  <div className="space-y-3">
-                    <h3 className="text-h3 font-semibold text-fg">Time comparison</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      {/* At work */}
-                      <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1">
-                        <p className="text-small text-fg-muted font-medium">At work</p>
-                        <p className="text-h1 font-semibold text-fg font-numeric tabular-nums">
-                          {selectedDetailItem.has_checkout ||
-                          (selectedDetailItem.worked_hours || 0) > 0
-                            ? formatHours(selectedDetailItem.worked_hours || 0)
-                            : selectedDetailItem.has_checkin
-                            ? 'Clocked in'
-                            : '0h'}
-                        </p>
-                        <p className="text-small text-fg-muted">
-                          {selectedDetailItem.has_checkout
-                            ? 'Shift completed'
-                            : selectedDetailItem.has_checkin
-                            ? 'Currently working'
-                            : 'No punch recorded'}
-                        </p>
-                      </div>
-
-                      {/* Logged */}
-                      <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1">
-                        <p className="text-small text-fg-muted font-medium">Logged</p>
-                        <p className="text-h1 font-semibold text-fg font-numeric tabular-nums">
-                          {formatHours(selectedDetailItem.logged_hours || 0)}
-                        </p>
-                        <p className="text-small text-fg-muted">
-                          {detailTasks.length || selectedDetailItem.task_count || 0} entries
-                        </p>
-                      </div>
-
-                      {/* Gap */}
-                      <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1">
-                        <p className="text-small text-fg-muted font-medium">Gap</p>
-                        <p
-                          className={cn(
-                            'text-h1 font-semibold font-numeric tabular-nums',
-                            selectedDetailItem.compare_ready === false
-                              ? 'text-fg-muted'
-                              : selectedDetailItem.is_missing_log
-                              ? 'text-danger-fg'
-                              : (selectedDetailItem.signed_gap_hours || 0) < -0.01
-                              ? 'text-danger-fg'
-                              : (selectedDetailItem.signed_gap_hours || 0) > 0.01
-                              ? 'text-success-fg'
-                              : 'text-fg-muted',
+              filteredGroups.map((group) => {
+                const isExpanded = Boolean(expandedGroups[group.key]);
+                return (
+                  <div key={group.key} className="bg-surface">
+                    <div
+                      onClick={() => toggleGroup(group.key)}
+                      className="px-3.5 py-3 bg-canvas/40 hover:bg-hover flex items-center justify-between gap-3 cursor-pointer transition-colors"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-fg-muted shrink-0">
+                          {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                        </span>
+                        {groupBy === 'employee' && (
+                          <Avatar name={group.label} src={group.avatar || undefined} size={28} />
+                        )}
+                        <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                          <span className="text-xs font-semibold text-fg truncate">{group.label}</span>
+                          {groupBy === 'employee' && group.department && (
+                            <span className="text-[11px] text-fg-muted truncate">
+                              {getRoleDisplayName(group.role || 'team_member')} · {group.department}
+                            </span>
                           )}
-                        >
-                          {selectedDetailItem.compare_ready === false
-                            ? '—'
-                            : selectedDetailItem.is_missing_log
-                            ? 'No log'
-                            : formatSignedHours(selectedDetailItem.signed_gap_hours || 0)}
-                        </p>
-                        <p className="text-small text-fg-muted">
-                          {selectedDetailItem.compare_ready === false
-                            ? 'No punch-out'
-                            : selectedDetailItem.is_missing_log
-                            ? 'No entries submitted'
-                            : selectedDetailItem.worked_hours &&
-                              selectedDetailItem.worked_hours > 0
-                            ? `${Math.min(
-                                100,
-                                Math.round(
-                                  (Math.abs(selectedDetailItem.signed_gap_hours || 0) /
-                                    selectedDetailItem.worked_hours) *
-                                    100,
-                                ),
-                              )}% of time at work`
-                            : 'Variance'}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Progress Comparison Bars */}
-                    <div className="space-y-2 pt-1">
-                      <div className="flex items-center gap-3">
-                        <span className="text-small text-fg-muted w-14 shrink-0">At work</span>
-                        <div className="flex-1 h-2 rounded-full bg-subtle overflow-hidden">
-                          <div className="h-full bg-border-strong rounded-full w-full" />
+                          <span className="w-5 h-5 rounded-full bg-danger-bg text-danger-fg text-[11px] font-bold inline-flex items-center justify-center border border-danger-bd shrink-0">
+                            {group.count}
+                          </span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-small text-fg-muted w-14 shrink-0">Logged</span>
-                        <div className="flex-1 h-2 rounded-full bg-subtle overflow-hidden">
-                          <div
-                            className="h-full bg-accent rounded-full transition-all"
-                            style={{
-                              width: `${Math.min(
-                                100,
-                                selectedDetailItem.worked_hours &&
-                                  selectedDetailItem.worked_hours > 0
-                                  ? Math.round(
-                                      ((selectedDetailItem.logged_hours || 0) /
-                                        selectedDetailItem.worked_hours) *
-                                        100,
-                                    )
-                                  : (selectedDetailItem.logged_hours || 0) > 0
-                                  ? 100
-                                  : 0,
-                              )}%`,
-                            }}
-                          />
-                        </div>
+
+                      <div className="flex items-center gap-1.5 flex-wrap justify-end shrink-0 max-w-[55%]">
+                        {group.flags.map((fl, fIdx) => {
+                          const base = fl.replace(/\s*×\d+\s*$/, '');
+                          return (
+                            <span
+                              key={fIdx}
+                              className={cn(
+                                'px-2 py-0.5 rounded-md text-[10px] font-semibold border',
+                                FLAG_PILL[base] || 'bg-muted-bg text-fg-muted border-border'
+                              )}
+                            >
+                              {fl}
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
-                  </div>
 
-                  {/* Employee Explanation */}
-                  {selectedDetailItem.member_reason && (
-                    <div className="space-y-2">
-                      <h3 className="text-h3 font-semibold text-fg">Employee explanation</h3>
-                      <div className="p-4 rounded-lg bg-subtle border-l-2 border-border-strong space-y-1">
-                        <p className="text-body text-fg italic leading-relaxed">
-                          “{selectedDetailItem.member_reason}”
-                        </p>
-                        <p className="text-small text-fg-muted">Submitted by employee</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Reopened Note */}
-                  {selectedDetailItem.reopen_note &&
-                    !selectedDetailItem.reopen_note.includes('+0:00') &&
-                    !selectedDetailItem.reopen_note.includes('-0:00') &&
-                    !selectedDetailItem.reopen_note.includes('+0h') &&
-                    !selectedDetailItem.reopen_note.includes('-0h') && (
-                      <Callout variant="warning" title="Reopened exception">
-                        {selectedDetailItem.reopen_note}
-                      </Callout>
-                    )}
-
-                  {/* Logged Tasks Table */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-h3 font-semibold text-fg">
-                        Logged tasks ({detailTasks.length})
-                      </h3>
-                    </div>
-
-                    {isLoadingTasks ? (
-                      <div className="p-6 text-center text-fg-muted text-small flex items-center justify-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-accent" />
-                        <span>Loading logged tasks…</span>
-                      </div>
-                    ) : detailTasks.length === 0 ? (
-                      <div className="p-6 rounded-lg bg-subtle border border-border text-center text-fg-muted space-y-1">
-                        <p className="text-ui font-medium text-fg">No daily log tasks recorded</p>
-                        <p className="text-small">
-                          The employee has not logged any tasks in their daily sheet for this date.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="border border-border rounded-lg overflow-hidden">
-                        <table className="w-full text-left text-table">
-                          <thead className="bg-subtle text-small text-fg-muted border-b border-border">
+                    {isExpanded && (
+                      <div className="border-t border-border overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead className="bg-canvas border-b border-border text-fg-muted font-medium">
                             <tr>
-                              <th className="px-3.5 py-2.5 font-medium">Client / project</th>
-                              <th className="px-3.5 py-2.5 font-medium">Task</th>
-                              <th className="px-3.5 py-2.5 font-medium">Hours</th>
-                              <th className="px-3.5 py-2.5 font-medium">Status</th>
+                              {groupBy === 'day' && <th className="py-2 px-3">Employee</th>}
+                              <th className="py-2 px-3">Date</th>
+                              <th className="py-2 px-3">Type</th>
+                              <th className="py-2 px-3">Details</th>
+                              <th className="py-2 px-3 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {detailTasks.map((entry) => (
-                              <tr key={entry.id} className="hover:bg-hover transition-colors">
-                                <td className="px-3.5 py-2.5 text-fg font-medium">
-                                  {entry.client_project || entry.department || 'General'}
+                            {group.items.map((item) => (
+                              <tr key={item.id} className="hover:bg-hover transition-colors">
+                                {groupBy === 'day' && (
+                                  <td className="py-2.5 px-3 font-medium text-fg whitespace-nowrap">
+                                    <div className="flex items-center gap-2">
+                                      <Avatar name={item.user_name} src={item.avatar || undefined} size={20} />
+                                      <span>{item.user_name}</span>
+                                    </div>
+                                  </td>
+                                )}
+                                <td className="py-2.5 px-3 font-medium text-fg whitespace-nowrap">
+                                  {formatDisplayDate(item.date)}
                                 </td>
-                                <td className="px-3.5 py-2.5 text-fg-2 truncate max-w-[280px]">
-                                  {entry.task_description || '—'}
+                                <td className="py-2.5 px-3 whitespace-nowrap">
+                                  {renderExceptionTypePill(item.type, item.type_label)}
                                 </td>
-                                <td className="px-3.5 py-2.5 font-numeric tabular-nums text-fg">
-                                  {formatHours(Number(entry.hours_utilized) || 0)}
+                                <td className="py-2.5 px-3 text-fg-muted">
+                                  <span className="font-medium text-fg">{item.detail}</span>
+                                  {item.member_reason && (
+                                    <div className="mt-1 text-[11px] text-info-fg bg-info-bg/30 px-2 py-1 rounded border border-info-bd">
+                                      Employee: "{item.member_reason}"
+                                    </div>
+                                  )}
                                 </td>
-                                <td className="px-3.5 py-2.5">
-                                  {(() => {
-                                    const st = String(entry.task_status || '').toLowerCase();
-                                    const isComp = st === 'completed';
-                                    const isBlock = st === 'blocker';
-                                    return (
-                                      <StatusPill
-                                        variant={isComp ? 'success' : isBlock ? 'danger' : 'warning'}
-                                        label={isComp ? 'Completed' : isBlock ? 'Blocker' : 'Incomplete'}
-                                        dot
-                                      />
-                                    );
-                                  })()}
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                                  <div className="inline-flex items-center gap-1.5">
+                                    {item.review_state === 'reviewed' ? (
+                                      <span className="text-[11px] font-medium text-success-fg">Reviewed</span>
+                                    ) : item.review_state === 'waiting_on_reviewer' ? (
+                                      <>
+                                        <Button
+                                          variant="primary"
+                                          size="sm"
+                                          icon={Check}
+                                          loading={actingId === item.id}
+                                          onClick={() => handleAction(item, 'accept')}
+                                        >
+                                          Accept
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          loading={actingId === item.id}
+                                          onClick={() => handleAction(item, 'ask_again')}
+                                        >
+                                          Ask again
+                                        </Button>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          icon={Mail}
+                                          loading={actingId === item.id}
+                                          onClick={() => handleAction(item, 'explain')}
+                                        >
+                                          Remind
+                                        </Button>
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          icon={Check}
+                                          loading={actingId === item.id}
+                                          onClick={() => handleAction(item, 'review')}
+                                        >
+                                          Resolve
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -856,92 +753,23 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       </div>
                     )}
                   </div>
-                </div>
-
-                {/* Detail Sticky Footer Actions */}
-                <div className="p-4 border-t border-border bg-surface flex items-center justify-between gap-3 shrink-0">
-                  {/* Left Actions */}
-                  <div className="flex items-center gap-2">
-                    {isLead && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={actingId === selectedDetailItem.id}
-                        onClick={() => handleAction(selectedDetailItem, 'escalate')}
-                        className="gap-1.5"
-                      >
-                        <ShieldAlert className="w-3.5 h-3.5" />
-                        <span>Escalate to HR</span>
-                      </Button>
-                    )}
-                  </div>
-
-                  {/* Right Actions */}
-                  <div className="flex items-center gap-2">
-                    {selectedDetailItem.action_status === 'waiting_on_reviewer' ? (
-                      <>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={actingId === selectedDetailItem.id}
-                          onClick={() => handleAction(selectedDetailItem, 'ask_again')}
-                          className="gap-1.5"
-                        >
-                          <RotateCw className="w-3.5 h-3.5" />
-                          <span>Ask to fix</span>
-                        </Button>
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          loading={actingId === selectedDetailItem.id}
-                          loadingText="Accepting…"
-                          icon={Check}
-                          onClick={() => handleAction(selectedDetailItem, 'accept')}
-                        >
-                          Accept reason
-                        </Button>
-                      </>
-                    ) : (
-                      <>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={
-                            actingId === selectedDetailItem.id ||
-                            Boolean(selectedDetailItem.employee_notified) ||
-                            selectedDetailItem.action_status === 'waiting_on_employee'
-                          }
-                          onClick={() => handleAction(selectedDetailItem, 'explain')}
-                          className="gap-1.5"
-                        >
-                          <RotateCw className="w-3.5 h-3.5" />
-                          <span>
-                            {Boolean(selectedDetailItem.employee_notified) ||
-                            selectedDetailItem.action_status === 'waiting_on_employee'
-                              ? 'Already requested'
-                              : 'Ask to fix'}
-                          </span>
-                        </Button>
-
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          loading={actingId === selectedDetailItem.id}
-                          loadingText="Updating…"
-                          icon={Check}
-                          onClick={() => handleAction(selectedDetailItem, 'review')}
-                        >
-                          Mark as looks fine
-                        </Button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </>
+                );
+              })
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <LogVarianceFormulasPopover open={isFormulasOpen} onOpenChange={setIsFormulasOpen} />
     </div>
   );
 };
+
+function renderExceptionTypePill(type: string, label: string) {
+  const base = FLAG_PILL[label] || TYPE_TONE[type]?.selected || 'bg-muted-bg text-fg-muted border-border';
+  return (
+    <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-semibold border', base)}>
+      {label}
+    </span>
+  );
+}

@@ -616,7 +616,7 @@ _HARD_FALLBACK_SHIFT = {
 }
 
 
-def _leave_covers_date(leave: Dict[str, Any], date_str: str) -> bool:
+def leave_covers_date(leave: Dict[str, Any], date_str: str) -> bool:
     start = str(leave.get("start_date") or "")
     end = str(leave.get("end_date") or "").strip()
     if not start:
@@ -628,7 +628,10 @@ def _leave_covers_date(leave: Dict[str, Any], date_str: str) -> bool:
     return end >= date_str
 
 
-def _target_from_shift_and_leaves(
+_leave_covers_date = leave_covers_date
+
+
+def target_from_shift_and_leaves(
     shift: Dict[str, Any],
     leaves: List[Dict[str, Any]],
     date_str: str,
@@ -638,14 +641,20 @@ def _target_from_shift_and_leaves(
     short_leave_hours = 0.0
     is_wfh = bool(auto_wfh)
     for leave in leaves:
-        if not _leave_covers_date(leave, date_str):
+        if not leave_covers_date(leave, date_str):
             continue
         ltype = str(leave.get("leave_type") or "").lower()
         if ltype in FULL_DAY_LEAVE_TYPES:
             is_full_leave = True
-        elif ltype in ("short_leave",):
+        elif ltype in ("short_leave", "half_day", "half_day_leave") or leave.get("is_half_day"):
             try:
-                short_leave_hours += float(leave.get("short_leave_hours") or leave.get("short_leave_duration_hours") or 0)
+                dur = float(
+                    leave.get("short_leave_hours")
+                    or leave.get("short_leave_duration_hours")
+                    or leave.get("hours")
+                    or (4.0 if ("half_day" in ltype or leave.get("is_half_day")) else 0)
+                )
+                short_leave_hours += dur
             except (TypeError, ValueError):
                 pass
         elif ltype in ("wfh",):
@@ -671,6 +680,9 @@ def _target_from_shift_and_leaves(
         "is_wfh": is_wfh,
         "short_leave_hours": short_leave_hours,
     }
+
+
+_target_from_shift_and_leaves = target_from_shift_and_leaves
 
 
 async def load_shift_lookup() -> Tuple[Dict[str, dict], Dict[str, dict], dict, dict]:
@@ -745,16 +757,20 @@ async def batch_expected_targets(users: List[Dict[str, Any]], dates: List[str]) 
     if db is not None and user_ids:
         newest = max(dates)
         oldest = min(dates)
-        leaves = await db.leave_requests.find(
+        leaves_cursor = db.leave_requests.find(
             {
                 "user_id": {"$in": user_ids},
                 "status": {"$in": ["approved", "Approved"]},
                 "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
                 "start_date": {"$lte": newest},
+                "$or": [
+                    {"end_date": {"$gte": oldest}},
+                    {"end_date": {"$in": [None, ""]}},
+                ],
             },
             {"_id": 0},
-        ).to_list(4000)
-        for leave in leaves:
+        )
+        async for leave in leaves_cursor:
             uid = leave.get("user_id")
             if uid not in leaves_by_user:
                 continue
@@ -1002,6 +1018,20 @@ async def recompute_day_score(
         signed_gap=signed_gap,
         previous_signed_gap=(existing_score or {}).get("signed_gap_hours"),
     )
+
+    # Auto-repair legacy false +0:00 reopen notes from DB
+    existing_reopen = str(score.get("reopen_note") or "")
+    prev_gap_val = score.get("previously_accepted_signed_gap_hours")
+    if existing_reopen and (
+        "+0:00" in existing_reopen
+        or "-0:00" in existing_reopen
+        or "+0h" in existing_reopen
+        or "-0h" in existing_reopen
+        or (prev_gap_val is not None and abs(float(prev_gap_val)) <= 0.05)
+    ):
+        score["reopen_note"] = ""
+        score["previously_accepted_signed_gap_hours"] = None
+        score["gap_reopened_at"] = None
 
     await db.daily_log_day_scores.update_one(
         {"user_id": user_id, "date": date_str},

@@ -425,79 +425,42 @@ async def get_team_hours(
     if not members:
         return {"members": []}
 
-    from app.services.workdays import load_off_day_index
-    off_idx = await load_off_day_index(start_d, end_d)
+    from app.services.log_variance import _compute_person_days, pkt_today
 
-    member_ids = [m["id"] for m in members]
-
-    entries = await db.daily_log_entries.find(
-        {
-            "user_id": {"$in": member_ids},
-            "date": {"$gte": start_date, "$lte": end_date},
-        },
-        {"_id": 0, "user_id": 1, "date": 1, "hours": 1},
-    ).to_list(10000)
-
-    attendance_records = await db.attendance_records.find(
-        {
-            "user_id": {"$in": member_ids},
-            "date": {"$gte": start_date, "$lte": end_date},
-        },
-        {"_id": 0, "user_id": 1, "date": 1, "working_hours_minutes": 1},
-    ).to_list(10000)
-
-    logged_map = {}
-    for entry in entries:
-        uid = entry.get("user_id")
-        d_str = entry.get("date")
-        if uid and d_str:
-            key = (uid, d_str)
-            try:
-                hrs = float(entry.get("hours") or 0.0)
-            except (ValueError, TypeError):
-                hrs = 0.0
-            logged_map[key] = logged_map.get(key, 0.0) + hrs
-
-    worked_map = {}
-    for rec in attendance_records:
-        uid = rec.get("user_id")
-        d_str = rec.get("date")
-        if uid and d_str:
-            key = (uid, d_str)
-            mins = rec.get("working_hours_minutes") or 0
-            worked_map[key] = round(mins / 60.0, 2)
-
-    curr = start_d
-    dates_list = []
-    while curr <= end_d:
-        dates_list.append(curr.strftime("%Y-%m-%d"))
-        curr += timedelta(days=1)
+    person_data = await _compute_person_days(
+        db=db,
+        users=members,
+        s_clean=start_date,
+        e_clean=end_date,
+        today=pkt_today(),
+        viewer_user=current_user,
+    )
 
     result_members = []
     for m in members:
-        uid = m["id"]
+        uid = str(m.get("id") or m.get("_id"))
         fname = m.get("full_name") or m.get("name") or "Unknown"
-        dept = m.get("department") or ""
+        dept = m.get("department") or m.get("primary_department") or ""
+
+        pdata = person_data.get(uid)
+        if not pdata:
+            continue
+
         member_days = []
-        logged_total = 0.0
-        worked_total = 0.0
-
-        for d_str in dates_list:
-            d_logged = round(logged_map.get((uid, d_str), 0.0), 2)
-            d_worked = round(worked_map.get((uid, d_str), 0.0), 2)
-            is_off = off_idx.is_off_iso(d_str)
-
+        for d in pdata.get("days", []):
+            d_logged = round(d["logged"] / 60.0, 2)
+            d_worked = round(d["worked"] / 60.0, 2)
+            is_off = d["status"] in ("off", "holiday")
             member_days.append({
-                "date": d_str,
+                "date": d["date"],
                 "logged_hours": d_logged,
                 "worked_hours": d_worked,
                 "is_off": is_off,
             })
-            logged_total += d_logged
-            worked_total += d_worked
 
-        logged_total = round(logged_total, 2)
-        worked_total = round(worked_total, 2)
+        u_summary = pdata.get("summary", {})
+        logged_total = round(u_summary.get("logged", 0) / 60.0, 2)
+        worked_total = round(u_summary.get("worked", 0) / 60.0, 2)
         gap = round(logged_total - worked_total, 2)
 
         result_members.append({

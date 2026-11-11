@@ -64,8 +64,16 @@ export const adminService = {
     return this.deleteMember(userId);
   },
 
-  async getMembersActivity(days: number = 7): Promise<import('../types/admin').MemberActivity[]> {
-    return apiClient.get<import('../types/admin').MemberActivity[]>(`/admin/members/activity?days=${days}`);
+  async getMembersActivity(
+    days: number = 7,
+    startDate?: string,
+    endDate?: string
+  ): Promise<import('../types/admin').MemberActivity[]> {
+    const params = new URLSearchParams();
+    params.set('days', String(days));
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
+    return apiClient.get<import('../types/admin').MemberActivity[]>(`/admin/members/activity?${params.toString()}`);
   },
 
   async sendMemberReminder(userId: string, payload?: { channel?: string; custom_message?: string }): Promise<import('../types/admin').ReminderResponse> {

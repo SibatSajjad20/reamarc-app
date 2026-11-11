@@ -139,6 +139,18 @@ export const TableScrollContainer = React.forwardRef<
       if (e.shiftKey && e.deltaY !== 0) {
         el.scrollLeft += e.deltaY;
         e.preventDefault();
+        return;
+      }
+      // Horizontal-only overflow-x:auto still becomes a scrollport and eats
+      // vertical wheel, so the page behind a wide table cannot scroll.
+      if (Math.abs(e.deltaY) >= Math.abs(e.deltaX) && el.scrollHeight <= el.clientHeight + 1) {
+        const page = el.parentElement?.closest(
+          '[data-testid="log-variance-scroll"], [data-testid="exceptions-scroll"]',
+        ) as HTMLElement | null;
+        if (page) {
+          page.scrollTop += e.deltaY;
+          e.preventDefault();
+        }
       }
     };
 

@@ -3,24 +3,43 @@ import { BoundedCache, type CacheEntry } from '../utils/cache';
 import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type { LogExceptionItem, OperatingSnapshot, EmployeeComplianceDetailResponse } from '../types/dailyLog';
 
+export type LogExceptionType =
+  | 'no_log'
+  | 'large_variance'
+  | 'over_logged'
+  | 'missing_checkout'
+  | 'logged_on_leave_or_off'
+  | 'logged_without_attendance'
+  | string;
+
 const exceptionsCache = new BoundedCache<LogExceptionItem[]>(5);
 
 export const logExceptionService = {
-  async getInbox(date?: string): Promise<LogExceptionItem[]> {
-    const q = date ? `?date=${encodeURIComponent(date)}` : '';
+  async getInbox(date?: string, startDate?: string, endDate?: string): Promise<LogExceptionItem[]> {
+    const params = new URLSearchParams();
+    if (startDate && endDate) {
+      params.set('start_date', startDate);
+      params.set('end_date', endDate);
+    } else if (date) {
+      params.set('date', date);
+    }
+    const q = params.toString() ? `?${params.toString()}` : '';
     const res = await apiClient.get<LogExceptionItem[]>(`/log-exceptions/inbox${q}`);
+    const key = startDate && endDate ? `${startDate}_${endDate}` : (date || 'today');
     if (res) {
-      exceptionsCache.set(date || 'today', res);
+      exceptionsCache.set(key, res);
     }
     return res;
   },
 
-  getCachedInbox(date?: string): CacheEntry<LogExceptionItem[]> | undefined {
-    return exceptionsCache.get(date || 'today');
+  getCachedInbox(date?: string, startDate?: string, endDate?: string): CacheEntry<LogExceptionItem[]> | undefined {
+    const key = startDate && endDate ? `${startDate}_${endDate}` : (date || 'today');
+    return exceptionsCache.get(key);
   },
 
-  setCachedInbox(data: LogExceptionItem[], date?: string): void {
-    exceptionsCache.set(date || 'today', data);
+  setCachedInbox(data: LogExceptionItem[], date?: string, startDate?: string, endDate?: string): void {
+    const key = startDate && endDate ? `${startDate}_${endDate}` : (date || 'today');
+    exceptionsCache.set(key, data);
   },
 
   clearAllCaches(): void {

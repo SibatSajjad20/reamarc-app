@@ -478,7 +478,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
                     >
                       <Shield size={16} className="text-fg-muted shrink-0" />
-                      <span>Admin: Log compliance</span>
+                      <span>Admin: Log variance</span>
                     </CommandItem>
                   )}
                   {(isAdmin || user?.role === 'operations') && (

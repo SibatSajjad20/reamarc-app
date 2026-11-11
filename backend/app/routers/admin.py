@@ -41,7 +41,7 @@ from app.core.security import (
 )
 from app.core.mongo_filters import exact_ci
 from app.database import get_database
-from app.services.company_members import company_member_user, company_member_users
+from app.services.company_members import company_member_user, company_member_users, deactivation_cutoff
 from app.core.encryption import encrypt_credential_fields
 from app.services.email_service import EmailService
 from app.services.log_compliance import pkt_today, PKT, batch_expected_targets, person_day_is_leave, person_day_is_due
@@ -390,162 +390,118 @@ async def list_members(
 @router.get("/members/activity", response_model=List[MemberActivityResponse])
 async def list_members_activity(
     department: Optional[str] = Query(None, description="Filter activity by department"),
+    days: Optional[int] = Query(7, description="Recent workdays count (fallback)"),
+    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Retrieve daily log compliance and activity status for all active team members."""
+    """Retrieve daily log compliance and activity status for team members, using the shared log variance calculation."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    query = {
-        "role": {
-            "$nin": [
-                "admin",
-                "client",
-                "operations",
-                UserRole.ADMIN.value,
-                UserRole.CLIENT.value,
-                UserRole.OPERATIONS.value,
-            ]
-        }
-    }
-    if department:
-        query["department"] = exact_ci(department)
+    from app.services.log_variance import (
+        _compute_person_days,
+        get_loggers_for_viewer,
+        pkt_today,
+    )
 
-    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
-        from app.services.access import tracked_users, was_tracked
-        users = await tracked_users(db, "daily_log")
-        # Deactivated people stay in compliance for days before their deactivation date.
-        seen = {u.get("id") for u in users}
-        for u in await company_member_users(query, db=db, include_inactive=True, limit=500):
-            if u.get("id") not in seen and u.get("is_active") is False and was_tracked(u, "daily_log"):
-                users.append(u)
-        if department:
-            users = [
-                u for u in users
-                if (u.get("department") == department or department in (u.get("departments") or []))
-            ]
-        users.sort(key=lambda u: (u.get("full_name") or u.get("name") or "").lower())
-    else:
-        users = await company_member_users(query, db=db, sort=("full_name", 1), limit=200)
-        from app.services.access import is_tracked
-        users = [u for u in users if is_tracked(u, "daily_log")]
-
-    now = datetime.now(PKT)
     today_str = pkt_today()
 
-    try:
-        start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
-    except Exception:
-        start_date_obj = now.date()
-
-    from app.services.workdays import recent_company_workdays
-    workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
-
-    from app.services.company_members import deactivation_cutoff, member_active_during
-    if workdays:
-        # A deactivated member with no recorded date has no known active window: leave them out.
-        users = [u for u in users
-                 if deactivation_cutoff(u) != "" and member_active_during(u, min(workdays))]
+    if start_date and end_date:
+        s_clean = start_date.strip()
+        e_clean = end_date.strip()
+    elif start_date:
+        s_clean = start_date.strip()
+        e_clean = s_clean
     else:
-        users = [u for u in users if u.get("is_active") is not False]
+        from app.services.workdays import recent_company_workdays
+        workdays = await recent_company_workdays(days or 7, start_date=SYSTEM_START_DATE)
+        if workdays:
+            s_clean = min(workdays)
+            e_clean = max(workdays)
+        else:
+            s_clean = today_str
+            e_clean = today_str
 
-    user_ids = [u.get("id") or str(u.get("_id")) for u in users]
-    att_by_key: dict = {}
-    if user_ids and workdays:
-        att_docs = await db.attendance_records.find(
-            {"user_id": {"$in": user_ids}, "date": {"$in": workdays}},
-            {"_id": 0, "user_id": 1, "date": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "status": 1},
-        ).to_list(4000)
-        for rec in att_docs:
-            if rec.get("user_id") and rec.get("date"):
-                att_by_key[(rec["user_id"], rec["date"])] = rec
-    targets = await batch_expected_targets(users, workdays) if workdays else {}
+    users = await get_loggers_for_viewer(
+        current_user,
+        db=db,
+        department_filter=department,
+        for_exceptions=False,
+        range_start=s_clean,
+        range_end=e_clean,
+    )
+    if not users:
+        return []
 
-    # Batch load all daily log entries for the workdays in a single query
-    entries_by_user: Dict[str, Set[str]] = {}
-    entries_by_name: Dict[str, Set[str]] = {}
-    if workdays:
-        all_entries = await db.daily_log_entries.find(
-            {"date": {"$in": workdays}},
-            {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1}
-        ).to_list(5000)
-        for e in all_entries:
-            d = e.get("date")
-            if not d:
-                continue
-            e_uid = e.get("user_id")
-            if e_uid:
-                entries_by_user.setdefault(str(e_uid), set()).add(d)
-            rname = str(e.get("resource_name") or "").strip().lower()
-            if rname:
-                entries_by_name.setdefault(rname, set()).add(d)
+    person_data = await _compute_person_days(
+        db=db,
+        users=users,
+        s_clean=s_clean,
+        e_clean=e_clean,
+        today=pkt_today(),
+        viewer_user=current_user,
+    )
 
-    # Batch load last logged date per user in a single aggregation pipeline
-    last_logged_by_user: Dict[str, str] = {}
-    if user_ids:
-        last_entries = await db.daily_log_entries.aggregate([
-            {"$match": {"user_id": {"$in": user_ids}}},
-            {"$sort": {"date": -1}},
-            {"$group": {"_id": "$user_id", "last_date": {"$first": "$date"}}}
-        ]).to_list(len(user_ids) + 50)
-        for row in last_entries:
-            if row.get("_id") and row.get("last_date"):
-                last_logged_by_user[str(row["_id"])] = row["last_date"]
+    user_ids = [str(u.get("id") or u.get("_id")) for u in users]
+
+    # Query last logged date per user from daily_log_entries
+    last_logged_cursor = db.daily_log_entries.aggregate([
+        {"$match": {"user_id": {"$in": user_ids}}},
+        {"$group": {"_id": "$user_id", "last_date": {"$max": "$date"}}},
+    ])
+    last_logged_map: Dict[str, str] = {}
+    async for doc in last_logged_cursor:
+        if doc.get("_id"):
+            last_logged_map[doc["_id"]] = doc.get("last_date")
+
+    # Today logged check
+    today_logged_cursor = db.daily_log_entries.find(
+        {"user_id": {"$in": user_ids}, "date": today_str},
+        {"_id": 0, "user_id": 1},
+    )
+    today_logged_set: Set[str] = set()
+    async for doc in today_logged_cursor:
+        if doc.get("user_id"):
+            today_logged_set.add(doc["user_id"])
 
     result = []
-    for u in users:
-        uid = u.get("id") or str(u.get("_id"))
-        fname = u.get("full_name") or u.get("name", "User")
-        fname_lower = fname.strip().lower()
+    for user in users:
+        uid = str(user.get("id") or user.get("_id"))
+        pdata = person_data.get(uid)
+        if not pdata:
+            continue
+        fname = user.get("full_name") or user.get("name") or "User"
+        email = user.get("email") or ""
+        phone = member_phone_from_doc(user)
+        cutoff = deactivation_cutoff(user)
+        is_inactive = (user.get("is_active") is False) or (cutoff is not None)
 
-        logged_dates = entries_by_user.get(uid, set()) | entries_by_name.get(fname_lower, set())
-        logged_today = today_str in logged_dates
+        u_summary = pdata["summary"]
+        missing_dates = [
+            d["date"]
+            for d in pdata["days"]
+            if d.get("compare_ready") and d.get("logged", 0) == 0
+        ]
 
-        missing = []
-        days_due = 0
-        days_on_leave = 0
-        cutoff = deactivation_cutoff(u)
-        for d in workdays:
-            if cutoff is not None and d >= cutoff:
-                continue  # inactive from this day: nothing owed
-            if d in logged_dates:
-                days_due += 1
-                continue
-            att = att_by_key.get((uid, d)) or {}
-            target = targets.get((uid, d)) or {}
-            if person_day_is_leave(target, att):
-                days_on_leave += 1
-                continue
-            if not person_day_is_due(d, today_str, target, att):
-                continue
-            days_due += 1
-            missing.append(d)
-
-        last_logged = last_logged_by_user.get(uid)
-        if not last_logged:
-            # Fallback for rare legacy records without user_id
-            legacy_last = await db.daily_log_entries.find_one(
-                {"resource_name": exact_ci(fname)},
-                sort=[("date", -1)]
-            )
-            if legacy_last and legacy_last.get("date"):
-                last_logged = legacy_last["date"]
+        last_logged = last_logged_map.get(uid)
+        logged_today = uid in today_logged_set
 
         result.append({
             "user_id": uid,
             "full_name": fname,
-            "email": u["email"],
-            "phone": member_phone_from_doc(u),
-            "department": u.get("department"),
-            "role": u.get("role", "team_member"),
+            "email": email,
+            "phone": phone,
+            "department": user.get("department") or user.get("primary_department"),
+            "role": user.get("role", "team_member"),
             "last_logged_date": last_logged,
             "logged_today": logged_today,
-            "days_missed": len(missing),
-            "missing_dates": missing,
-            # Days a log was actually owed (logged or missing). 0 means there is nothing to score.
-            "days_due": days_due,
-            "days_on_leave": days_on_leave,
-            "is_active": cutoff is None,
+            "days_missed": u_summary.get("days_missing", 0),
+            "missing_dates": missing_dates,
+            "days_due": u_summary.get("days_present", 0),
+            "days_on_leave": u_summary.get("days_leave", 0),
+            "is_active": not is_inactive,
             "deactivation_date": cutoff or None,
         })
 

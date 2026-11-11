@@ -272,7 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const adminSubItems = [
     { id: 'directory' as AdminSectionType, label: 'Team directory', visible: true },
-    { id: 'compliance' as AdminSectionType, label: 'Log compliance', visible: isAdmin },
+    { id: 'compliance' as AdminSectionType, label: 'Log variance', visible: isAdmin },
     { id: 'workspaces' as AdminSectionType, label: 'Client workspaces', visible: isAdmin || isOperations },
     { id: 'companies' as AdminSectionType, label: 'Companies', visible: Boolean(user?.is_super_admin) },
   ].filter((item) => item.visible);

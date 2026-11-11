@@ -1,819 +1,1071 @@
-import { complianceScore } from '../../../utils/logComplianceScore';
-import { useAuth } from '../../../context/AuthContext';
-import { brandNameOf } from '../../../utils/branding';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BellRing,
-  Mail,
-  CheckCircle2,
-  Send,
-  Search,
-  Layers,
-  Coffee,
+  Download,
+  Info,
+  Calendar as CalendarIcon,
   ChevronLeft,
   ChevronRight,
-  Calendar,
+  Search,
+  HelpCircle,
+  Clock,
+  CheckCircle2,
 } from 'lucide-react';
-import type { MemberActivity } from '../../../types/admin';
-import type { OperatingSnapshot } from '../../../types/dailyLog';
-import { DEPARTMENTS } from '../AddMemberModal';
+import { useToast } from '../../../context/ToastContext';
+import { Button } from '../../ui/button';
+import { SegmentedControl } from '../../ui/SegmentedControl';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { DateRangeCalendarPicker } from '../../daily-log/DateRangeCalendarPicker';
-import { EmployeeComplianceDrawer } from './EmployeeComplianceDrawer';
-import { useOffDays } from '../../../hooks/useOffDays';
-import { logExceptionService } from '../../../services/logExceptionService';
-import {
-  formatHours,
-  pluralize,
-} from '../../../utils/logTimeChecks';
-import { useToast } from '../../../context/ToastContext';
+import { Avatar } from '../../ui/Avatar';
+import { Progress } from '../../ui/progress';
+import { KpiRowSkeleton } from '../../ui/Skeletons';
+import { ErrorState } from '../../ui/ErrorState';
 import { PageHeader } from '../../ui/PageHeader';
-import { Button } from '../../ui/button';
+import { KpiCard } from '../../ui/KpiCard';
 import {
   TableCard,
-  TableToolbar,
   Table,
   THead,
   TH,
+  SortHeader,
   TBody,
   TR,
   TD,
-  TableSkeletonRows,
+  TableEmpty,
 } from '../../ui/DataTable';
-import { Progress } from '../../ui/progress';
-import { FormDialog, FormDialogBody } from '../../ui/FormDialogLayout';
-import { FormFooter } from '../../ui/FormFooter';
-import { Textarea } from '../../ui/textarea';
+import { Badge } from '../../ui/badge';
+import { EmployeeComplianceDrawer } from './EmployeeComplianceDrawer';
+import { LogVarianceFormulasPopover } from './LogVarianceFormulasPopover';
+import { logVarianceService } from '../../../services/logVarianceService';
+import type { DepartmentSummary, EmployeeRow, LogVarianceResponse, LogVarianceSummary } from '../../../types/logVariance';
+import { BoundedCache } from '../../../utils/cache';
+import { CANONICAL_DEPARTMENTS, memberDepartmentLists, sameDept } from '../../../utils/departments';
+import {
+  formatMinutes,
+  formatSignedMinutes,
+  formatPercentage,
+  getVarianceTone,
+  getCoverageTone,
+  getToneTextClass,
+  pktTodayIso,
+  pktWeekBounds,
+  pktMonthBounds,
+} from '../../../utils/logVarianceFormat';
 import { cn } from '../../../lib/utils';
+import { getRoleDisplayName } from '../../../lib/roleLabel';
 
-const todayIso = () => {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
-const formatIso = (date: Date): string => {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-};
-
-const getMonday = (d: Date): Date => {
-  const date = new Date(d);
-  const day = date.getDay(); // 0 Sun, 1 Mon, ..., 6 Sat
-  const diff = (day === 0 ? -6 : 1) - day;
-  date.setDate(date.getDate() + diff);
-  date.setHours(0, 0, 0, 0);
-  return date;
-};
-
-const getSaturday = (monday: Date): Date => {
-  const sat = new Date(monday);
-  sat.setDate(monday.getDate() + 5);
-  sat.setHours(23, 59, 59, 999);
-  return sat;
-};
+interface ComplianceRemindersSectionProps {
+  activities?: Record<string, any>;
+  isLoading?: boolean;
+  onSendReminder?: (userId: string, channel: 'email' | 'in_app' | 'all', customMessage?: string) => Promise<void>;
+  isSendingReminder?: boolean | Record<string, boolean>;
+  onNavigateExceptions?: () => void;
+}
 
 const formatShortDisplay = (isoStr: string): string => {
   if (!isoStr) return '';
   const [y, m, d] = isoStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
+  return dt.toLocaleDateString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short' });
 };
 
-type PersonStatus = 'submitted' | 'missing' | 'in_shift' | 'not_started' | 'on_leave';
+const formatRangeLabel = (startIso: string, endIso: string): string => {
+  if (!startIso || !endIso) return '';
+  const [sy, sm, sd] = startIso.split('-').map(Number);
+  const [ey, em, ed] = endIso.split('-').map(Number);
+  const sDt = new Date(Date.UTC(sy, sm - 1, sd));
+  const eDt = new Date(Date.UTC(ey, em - 1, ed));
 
-interface ComplianceRemindersSectionProps {
-  activities: Record<string, MemberActivity>;
-  isLoading?: boolean;
-  onSendReminder: (userId: string, channel: 'email' | 'in_app' | 'all', customMessage?: string) => Promise<void>;
-  isSendingReminder: Record<string, boolean>;
+  const sStr = sDt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short' });
+  const eStr = eDt.toLocaleDateString('en-GB', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  return `${sStr} – ${eStr}`;
+};
+
+const varianceRangeCache = new BoundedCache<LogVarianceResponse>(12);
+
+export function clearLogVarianceRangeCache(): void {
+  varianceRangeCache.clear();
 }
 
-export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProps> = ({
-  activities,
-  isLoading,
-  onSendReminder,
-  isSendingReminder,
-}) => {
-  const { user } = useAuth();
-  const { addToast } = useToast();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [departmentFilter, setDepartmentFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'logged'>('all');
-  const [range, setRange] = useState<'today' | 'week' | 'range'>('today');
-  const [weekAnchor, setWeekAnchor] = useState<Date>(() => new Date());
-  const [customStartDate, setCustomStartDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 6);
-    return formatIso(d);
+function cacheKey(startDate: string, endDate: string): string {
+  return `${startDate}|${endDate}`;
+}
+
+function rowDeptParts(row: EmployeeRow): { primary: string; secondaries: string[] } {
+  return memberDepartmentLists({ department: row.department });
+}
+
+function rowMatchesDept(row: EmployeeRow, dept: string): boolean {
+  if (!dept || dept === 'all') return true;
+  const { primary, secondaries } = rowDeptParts(row);
+  return sameDept(primary, dept) || secondaries.some((s) => sameDept(s, dept));
+}
+
+function rollupSummary(rows: EmployeeRow[], base?: LogVarianceSummary | null): LogVarianceSummary {
+  const days_present = rows.reduce((s, r) => s + (r.days_present || 0), 0);
+  const days_logged = rows.reduce((s, r) => s + (r.days_logged || 0), 0);
+  const days_missing = rows.reduce((s, r) => s + (r.days_missing || 0), 0);
+  const days_under_target = rows.reduce((s, r) => s + (r.days_under_target || 0), 0);
+  const worked = rows.reduce((s, r) => s + (r.worked || 0), 0);
+  const logged = rows.reduce((s, r) => s + (r.logged || 0), 0);
+  const expected = rows.reduce((s, r) => s + (r.expected || 0), 0);
+  const variance = worked - logged;
+  const open_exceptions = rows.reduce((s, r) => s + (r.open_exceptions || 0), 0);
+  return {
+    days_scheduled: rows.reduce((s, r) => s + (r.days_scheduled || 0), 0),
+    days_present,
+    days_logged,
+    days_missing,
+    days_under_target,
+    days_absent: rows.reduce((s, r) => s + (r.days_absent || 0), 0),
+    days_leave: rows.reduce((s, r) => s + (r.days_leave || 0), 0),
+    days_off: rows.reduce((s, r) => s + (r.days_off || 0), 0),
+    days_missing_checkout: rows.reduce((s, r) => s + (r.days_missing_checkout || 0), 0),
+    worked,
+    logged,
+    expected,
+    variance,
+    coverage_pct: worked > 0 ? Math.round((logged / worked) * 1000) / 10 : null,
+    avg_logged_per_day: days_present > 0 ? Math.round(logged / days_present) : null,
+    avg_worked_per_day: days_present > 0 ? Math.round(worked / days_present) : null,
+    submission_pct: days_present > 0 ? Math.round((days_logged / days_present) * 1000) / 10 : null,
+    logged_outside: rows.reduce((s, r) => s + (r.logged_outside || 0), 0),
+    people: rows.length,
+    open_exceptions,
+    today_live: base?.today_live ?? { worked: 0, logged: 0 },
+  };
+}
+
+function departmentsFromRows(rows: EmployeeRow[]): DepartmentSummary[] {
+  const names = new Set<string>();
+  rows.forEach((r) => {
+    const { primary, secondaries } = rowDeptParts(r);
+    if (primary) names.add(primary);
+    secondaries.forEach((s) => names.add(s));
   });
-  const [customEndDate, setCustomEndDate] = useState(todayIso);
-  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
-  const [selectedEmployee, setSelectedEmployee] = useState<MemberActivity | null>(null);
-  const rangePickerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isRangePickerOpen) return;
-    const handleClickOutside = (e: MouseEvent) => {
-      if (rangePickerRef.current && !rangePickerRef.current.contains(e.target as Node)) {
-        setIsRangePickerOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [isRangePickerOpen]);
-
-  const currentWeekMonday = useMemo(() => getMonday(new Date()), []);
-  const selectedMonday = useMemo(() => getMonday(weekAnchor), [weekAnchor]);
-  const selectedSaturday = useMemo(() => getSaturday(selectedMonday), [selectedMonday]);
-
-  const selectedMondayIso = useMemo(() => formatIso(selectedMonday), [selectedMonday]);
-  const selectedSaturdayIso = useMemo(() => formatIso(selectedSaturday), [selectedSaturday]);
-
-  const isCurrentWeek = useMemo(
-    () => formatIso(selectedMonday) === formatIso(currentWeekMonday),
-    [selectedMonday, currentWeekMonday],
-  );
-
-  const canGoNextWeek = useMemo(
-    () => formatIso(selectedMonday) < formatIso(currentWeekMonday),
-    [selectedMonday, currentWeekMonday],
-  );
-
-  const weekLabel = useMemo(() => {
-    const startFmt = formatShortDisplay(selectedMondayIso);
-    const endFmt = formatShortDisplay(selectedSaturdayIso);
-    return `${startFmt} – ${endFmt}`;
-  }, [selectedMondayIso, selectedSaturdayIso]);
-
-  const handlePrevWeek = () => {
-    setWeekAnchor((prev) => {
-      const d = new Date(prev);
-      d.setDate(d.getDate() - 7);
-      return d;
-    });
-  };
-
-  const handleNextWeek = () => {
-    if (!canGoNextWeek) return;
-    setWeekAnchor((prev) => {
-      const d = new Date(prev);
-      d.setDate(d.getDate() + 7);
-      return d;
-    });
-  };
-
-  const activeStartDate = useMemo(() => {
-    if (range === 'today') return todayIso();
-    if (range === 'week') return selectedMondayIso;
-    return customStartDate;
-  }, [range, selectedMondayIso, customStartDate]);
-
-  const activeEndDate = useMemo(() => {
-    if (range === 'today') return todayIso();
-    if (range === 'week') return selectedSaturdayIso;
-    return customEndDate;
-  }, [range, selectedSaturdayIso, customEndDate]);
-
-  const [snap, setSnap] = useState<OperatingSnapshot | null>(null);
-  const [snapLoading, setSnapLoading] = useState(true);
-  const { getOffDay } = useOffDays();
-  const viewingOff = range === 'today' ? getOffDay(todayIso()) : { isOff: false, label: 'Working day' as const };
-  const isSelectedDateExpired = range === 'week' ? !isCurrentWeek : range === 'range' ? customEndDate < todayIso() : false;
-  const showRemindColumn = !isSelectedDateExpired;
-
-  const [customReminderUser, setCustomReminderUser] = useState<MemberActivity | null>(null);
-  const [customMessage, setCustomMessage] = useState('');
-  const [isSendingBatch, setIsSendingBatch] = useState(false);
-  const [batchSuccessMsg, setBatchSuccessMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setSnapLoading(true);
-    let dateArg: string | undefined = undefined;
-    let rangeArg: 'today' | 'week' | 'range' = 'today';
-    let sDate: string | undefined = undefined;
-    let eDate: string | undefined = undefined;
-
-    if (range === 'today') {
-      dateArg = todayIso();
-      rangeArg = 'today';
-    } else if (range === 'week') {
-      dateArg = selectedMondayIso;
-      rangeArg = 'week';
-    } else {
-      rangeArg = 'range';
-      sDate = customStartDate;
-      eDate = customEndDate;
-    }
-
-    logExceptionService
-      .getSnapshot(dateArg, rangeArg, sDate, eDate)
-      .then((data) => {
-        if (!cancelled) setSnap(data);
-      })
-      .catch((err: any) => {
-        if (!cancelled) {
-          setSnap(null);
-          addToast('Could not load overview', err.message || 'Try again.', 'error');
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setSnapLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [range, selectedMondayIso, customStartDate, customEndDate, addToast]);
-
-  const activityList = useMemo(() => Object.values(activities), [activities]);
-  const monitoredMembers = useMemo(
-    () => activityList.filter((a) => a.role !== 'admin' && a.role !== 'client' && a.role !== 'operations'),
-    [activityList],
-  );
-
-  const hoursByUser = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        worked: number;
-        loggedHours: number;
-        gap: number;
-        signedGap: number;
-        hasOpen: boolean;
-        logged: boolean;
-        due: boolean;
-        hasCheckin: boolean;
-        hasCheckout: boolean;
-        onLeave: boolean;
-        role: string;
-      }
-    > = {};
-    (snap?.people || []).forEach((p) => {
-      map[p.user_id] = {
-        worked: p.worked_hours,
-        loggedHours: p.logged_hours,
-        gap: p.gap_hours,
-        signedGap: p.signed_gap_hours ?? (p.logged_hours - p.worked_hours),
-        hasOpen: p.has_open_request,
-        logged: Boolean(p.logged),
-        due: Boolean(p.due),
-        hasCheckin: Boolean(p.has_checkin),
-        hasCheckout: Boolean(p.has_checkout),
-        onLeave: Boolean(p.is_full_leave),
-        role: p.role || '',
+  return Array.from(names)
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => {
+      const dRows = rows.filter((r) => rowMatchesDept(r, name));
+      const worked = dRows.reduce((s, r) => s + (r.worked || 0), 0);
+      const logged = dRows.reduce((s, r) => s + (r.logged || 0), 0);
+      const days_present = dRows.reduce((s, r) => s + (r.days_present || 0), 0);
+      return {
+        department: name,
+        people: dRows.length,
+        coverage_pct: worked > 0 ? Math.round((logged / worked) * 1000) / 10 : null,
+        avg_logged_per_day: days_present > 0 ? Math.round(logged / days_present) : null,
+        days_missing: dRows.reduce((s, r) => s + (r.days_missing || 0), 0),
+        days_present,
+        worked,
+        logged,
       };
     });
-    return map;
-  }, [snap]);
+}
 
-  const personStatus = useCallback((userId: string): PersonStatus => {
-    const hours = hoursByUser[userId];
-    if (hours?.onLeave) return 'on_leave';
-    if (hours?.logged) return 'submitted';
-    if (hours?.due) return 'missing';
-    if (hours?.hasCheckin && !isSelectedDateExpired) return 'in_shift';
-    return 'not_started';
-  }, [hoursByUser, isSelectedDateExpired]);
+const FLAG_META: { key: string; label: string; className: string }[] = [
+  { key: 'no_log', label: 'No log', className: 'bg-danger-bg text-danger-fg border-danger-bd' },
+  { key: 'missing_checkout', label: 'Checkout', className: 'bg-warning-bg text-warning-fg border-warning-bd' },
+  { key: 'large_variance', label: 'Unlogged', className: 'bg-warning-bg text-warning-fg border-warning-bd' },
+  { key: 'over_logged', label: 'Over-logged', className: 'bg-info-bg text-info-fg border-info-bd' },
+  { key: 'logged_without_attendance', label: 'No attendance', className: 'bg-danger-bg text-danger-fg border-danger-bd' },
+  { key: 'logged_on_leave_or_off', label: 'Leave', className: 'bg-muted-bg text-fg border-border' },
+];
 
-  const openRequestIds = useMemo(() => new Set(snap?.open_request_user_ids || []), [snap]);
+type SortField =
+  | 'name'
+  | 'days_present'
+  | 'worked'
+  | 'logged'
+  | 'variance'
+  | 'coverage_pct'
+  | 'avg_logged_per_day'
+  | 'avg_worked_per_day'
+  | 'days_missing'
+  | 'days_under_target';
 
-  const missingTodayCount = useMemo(
-    () =>
-      monitoredMembers.filter(
-        (m) => m.is_active !== false && personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id),
-      ).length,
-    [monitoredMembers, personStatus, openRequestIds],
-  );
+const SORT_LABELS: Record<SortField, string> = {
+  name: 'Employee',
+  days_present: 'Present',
+  worked: 'Worked',
+  logged: 'Logged',
+  variance: 'Variance',
+  coverage_pct: 'Coverage',
+  avg_logged_per_day: 'Avg log',
+  avg_worked_per_day: 'Avg work',
+  days_missing: 'No log',
+  days_under_target: 'Under',
+};
 
-  const filteredActivities = useMemo(() => {
-    return monitoredMembers.filter((a) => {
-      const q = searchQuery.toLowerCase().trim();
-      const matchesSearch =
-        !q ||
-        a.full_name.toLowerCase().includes(q) ||
-        a.email.toLowerCase().includes(q) ||
-        (a.department && a.department.toLowerCase().includes(q));
-      const matchesDept =
-        departmentFilter === 'all' ||
-        (a.department && a.department.toLowerCase() === departmentFilter.toLowerCase());
-      if (snap && !hoursByUser[a.user_id]) return false;
-      const status = personStatus(a.user_id);
-      const matchesStatus =
-        statusFilter === 'all' ||
-        (statusFilter === 'missing' && status === 'missing') ||
-        (statusFilter === 'logged' && status === 'submitted');
-      return matchesSearch && matchesDept && matchesStatus;
-    });
-  }, [monitoredMembers, searchQuery, departmentFilter, statusFilter, hoursByUser, snap, personStatus]);
+export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProps> = ({
+  onSendReminder,
+  isSendingReminder = false,
+  onNavigateExceptions,
+}) => {
+  const { addToast } = useToast();
 
-  const sortedActivities = useMemo(() => {
-    const rows = [...filteredActivities];
-    rows.sort((a, b) => {
-      const sa = personStatus(a.user_id);
-      const sb = personStatus(b.user_id);
-      if (sa === 'missing' && sb !== 'missing') return -1;
-      if (sb === 'missing' && sa !== 'missing') return 1;
-      return a.full_name.localeCompare(b.full_name);
-    });
-    return rows;
-  }, [filteredActivities, personStatus]);
+  // Read URL query params on mount
+  const searchParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const initialFrom = searchParams.get('from');
+  const initialTo = searchParams.get('to');
+  const initialDept = searchParams.get('dept') || 'all';
 
-  const handleBatchReminder = async () => {
-    if (isSelectedDateExpired) return;
-    const targets = monitoredMembers.filter(
-      (m) => m.is_active !== false && personStatus(m.user_id) === 'missing' && !openRequestIds.has(m.user_id),
-    );
-    if (targets.length === 0) return;
-    try {
-      setIsSendingBatch(true);
-      setBatchSuccessMsg(null);
-      let sent = 0;
-      for (const m of targets) {
-        try {
-          await onSendReminder(m.user_id, 'email');
-          sent += 1;
-        } catch {
-          /* skip 409 / already requested */
+  const [rangeMode, setRangeMode] = useState<'today' | 'week' | 'month' | 'custom'>(() => {
+    if (initialFrom && initialTo) {
+      const today = pktTodayIso(new Date());
+      if (initialFrom === today && initialTo === today) return 'today';
+      return 'custom';
+    }
+    return 'week';
+  });
+
+  const [weekOffset, setWeekOffset] = useState<number>(0);
+  const [monthOffset, setMonthOffset] = useState<number>(0);
+  const [customRange, setCustomRange] = useState<{ start: string; end: string }>(() => {
+    const wb = pktWeekBounds(new Date());
+    return {
+      start: initialFrom || wb.start,
+      end: initialTo || wb.end,
+    };
+  });
+
+  const [selectedDept, setSelectedDept] = useState<string>(initialDept);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [quickFilter, setQuickFilter] = useState<'all' | 'under_target' | 'missing' | 'over_logged' | 'inactive'>('all');
+
+  const [sortField, setSortField] = useState<SortField>('variance');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDir(field === 'name' ? 'asc' : 'desc');
+    }
+  };
+
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [isFormulasOpen, setIsFormulasOpen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+
+  const [drawerMember, setDrawerMember] = useState<EmployeeRow | null>(null);
+
+  // Resolved active date range
+  const { startDate, endDate, rangeSubtitle } = useMemo(() => {
+    const now = new Date();
+    if (rangeMode === 'today') {
+      const t = pktTodayIso(now);
+      const [y, m, d] = t.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      const formatted = dt.toLocaleDateString('en-GB', {
+        timeZone: 'UTC',
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+      });
+      return {
+        startDate: t,
+        endDate: t,
+        rangeSubtitle: `Today · ${formatted}`,
+      };
+    }
+    if (rangeMode === 'week') {
+      const ref = new Date(now.getTime() + weekOffset * 7 * 86400000);
+      const bounds = pktWeekBounds(ref);
+      return {
+        startDate: bounds.start,
+        endDate: bounds.end,
+        rangeSubtitle: formatRangeLabel(bounds.start, bounds.end),
+      };
+    }
+    if (rangeMode === 'month') {
+      const pktToday = pktTodayIso(now);
+      const [y, m] = pktToday.split('-').map(Number);
+      const refMonth = new Date(Date.UTC(y, m - 1 + monthOffset, 1));
+      const bounds = pktMonthBounds(refMonth);
+      const monthTitle = refMonth.toLocaleDateString('en-GB', { timeZone: 'UTC', month: 'long', year: 'numeric' });
+      return {
+        startDate: bounds.start,
+        endDate: bounds.end,
+        rangeSubtitle: `1 ${refMonth.toLocaleDateString('en-GB', { timeZone: 'UTC', month: 'short' })} – ${bounds.end.slice(8)} ${monthTitle}`,
+      };
+    }
+    return {
+      startDate: customRange.start,
+      endDate: customRange.end,
+      rangeSubtitle: formatRangeLabel(customRange.start, customRange.end),
+    };
+  }, [rangeMode, weekOffset, monthOffset, customRange]);
+
+  // Sync to URL query
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    params.set('from', startDate);
+    params.set('to', endDate);
+    if (selectedDept && selectedDept !== 'all') {
+      params.set('dept', selectedDept);
+    } else {
+      params.delete('dept');
+    }
+    const newUrl = `${window.location.pathname}?${params.toString()}`;
+    window.history.replaceState({}, '', newUrl);
+  }, [startDate, endDate, selectedDept]);
+
+  const requestKey = cacheKey(startDate, endDate);
+  const [data, setData] = useState<LogVarianceResponse | null>(null);
+  const [loadedKey, setLoadedKey] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const requestSeq = useRef(0);
+  const loadedKeyRef = useRef('');
+  const addToastRef = useRef(addToast);
+  addToastRef.current = addToast;
+  const queryRef = useRef({ startDate, endDate, requestKey });
+  queryRef.current = { startDate, endDate, requestKey };
+
+  const applyLoaded = useCallback((key: string, res: LogVarianceResponse) => {
+    loadedKeyRef.current = key;
+    setData(res);
+    setLoadedKey(key);
+    setIsLoading(false);
+    setFetchError(null);
+  }, []);
+
+  const fetchData = useCallback(
+    async (opts?: { force?: boolean }) => {
+      const { startDate: s, endDate: e, requestKey: key } = queryRef.current;
+      if (!opts?.force) {
+        const cached = varianceRangeCache.get(key);
+        if (cached) {
+          if (loadedKeyRef.current !== key) applyLoaded(key, cached.data);
+          return;
         }
       }
-      const verb = sent === 1 ? 'has' : 'have';
-      setBatchSuccessMsg(`Reminders sent to ${sent} ${pluralize(sent, 'person', 'people')} who ${verb} not logged.`);
-      setTimeout(() => setBatchSuccessMsg(null), 5000);
-    } finally {
-      setIsSendingBatch(false);
-    }
-  };
+      const seq = ++requestSeq.current;
+      setIsLoading(true);
+      setFetchError(null);
+      try {
+        const res = await logVarianceService.getOverview({ startDate: s, endDate: e });
+        varianceRangeCache.set(key, res);
+        if (seq !== requestSeq.current) return;
+        applyLoaded(key, res);
+      } catch (err: any) {
+        if (seq !== requestSeq.current) return;
+        setFetchError(err.message || 'Failed to load log variance data');
+        addToastRef.current('Error', err.message || 'Failed to load data', 'error');
+        setIsLoading(false);
+      }
+    },
+    [applyLoaded]
+  );
 
-  const handleSendCustomReminder = async () => {
-    if (!customReminderUser) return;
+  useEffect(() => {
+    const cached = varianceRangeCache.get(requestKey);
+    if (cached) {
+      if (loadedKeyRef.current !== requestKey) applyLoaded(requestKey, cached.data);
+      return;
+    }
+    loadedKeyRef.current = '';
+    setData(null);
+    setLoadedKey('');
+    void fetchData();
+  }, [requestKey, fetchData, applyLoaded]);
+
+  const handleExport = async () => {
+    setIsExporting(true);
     try {
-      await onSendReminder(customReminderUser.user_id, 'email', customMessage.trim() || undefined);
-      setCustomReminderUser(null);
-      setCustomMessage('');
-    } catch (err) {
-      console.error(err);
+      const blob = await logVarianceService.exportExcel(
+        startDate,
+        endDate,
+        selectedDept !== 'all' ? selectedDept : undefined
+      );
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Log variance ${startDate}_${endDate}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      addToast('Export failed', err.message || 'Could not export file', 'error');
+    } finally {
+      setIsExporting(false);
     }
   };
 
-  const submittedCount = snap?.logs_submitted || 0;
-  const expectedCount = snap?.employees_expected || 0;
-  const fallbackSummary = `${submittedCount} of ${expectedCount} ${pluralize(expectedCount, 'person', 'people')} logged.`;
+  const showContent = loadedKey === requestKey && Boolean(data) && !isLoading;
+  const allRows = useMemo(() => data?.rows ?? [], [data]);
+  const scopedRows = useMemo(
+    () => allRows.filter((r) => rowMatchesDept(r, selectedDept)),
+    [allRows, selectedDept]
+  );
+  const filteredRows = useMemo(() => {
+    let result = scopedRows;
+    if (quickFilter === 'under_target') {
+      result = result.filter((r) => r.days_under_target > 0);
+    } else if (quickFilter === 'missing') {
+      result = result.filter((r) => r.days_missing > 0);
+    } else if (quickFilter === 'over_logged') {
+      result = result.filter((r) => r.variance < -30);
+    } else if (quickFilter === 'inactive') {
+      result = result.filter((r) => r.inactive);
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.trim().toLowerCase();
+      result = result.filter(
+        (r) =>
+          r.name.toLowerCase().includes(q) ||
+          (r.department && r.department.toLowerCase().includes(q))
+      );
+    }
+    return result;
+  }, [scopedRows, quickFilter, searchQuery]);
+
+  const sortedRows = useMemo(() => {
+    return [...filteredRows].sort((a, b) => {
+      const valA = a[sortField];
+      const valB = b[sortField];
+
+      if (typeof valA === 'string' && typeof valB === 'string') {
+        const cmp = valA.localeCompare(valB);
+        if (cmp !== 0) return sortDir === 'asc' ? cmp : -cmp;
+      } else {
+        const numA = (valA as number) ?? 0;
+        const numB = (valB as number) ?? 0;
+        if (numA !== numB) {
+          return sortDir === 'asc' ? numA - numB : numB - numA;
+        }
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [filteredRows, sortField, sortDir]);
+
+  // Counts for quick filter pills
+  const underTargetCount = useMemo(() => scopedRows.filter((r) => r.days_under_target > 0).length, [scopedRows]);
+  const missingCount = useMemo(() => scopedRows.filter((r) => r.days_missing > 0).length, [scopedRows]);
+  const overLoggedCount = useMemo(() => scopedRows.filter((r) => r.variance < -30).length, [scopedRows]);
+  const inactiveCount = useMemo(() => scopedRows.filter((r) => r.inactive).length, [scopedRows]);
+
+  const departmentOptions = useMemo(
+    () => [
+      { value: 'all', label: 'All departments' },
+      ...CANONICAL_DEPARTMENTS.map((d) => ({ value: d, label: d })),
+    ],
+    []
+  );
+
+  const departmentCards = useMemo(() => departmentsFromRows(allRows), [allRows]);
+  const summary = useMemo(
+    () => (selectedDept === 'all' && data?.summary ? data.summary : rollupSummary(scopedRows, data?.summary)),
+    [selectedDept, data, scopedRows]
+  );
 
   return (
-    <div className="w-full min-w-0 p-6 space-y-6 pb-24">
+    <div className="flex flex-1 flex-col h-full w-full min-h-0 min-w-0 bg-canvas text-fg overflow-hidden">
+      <div
+        data-testid="log-variance-scroll"
+        className="flex-1 min-h-0 overflow-y-scroll overflow-x-hidden custom-scrollbar p-6 space-y-4"
+      >
       <PageHeader
-        title="Log compliance"
-        description="Track daily log submissions, missing logs, and send compliance reminders."
+        className="mb-1"
+        title="Log variance"
+        description="Worked vs logged hours for every employee, totalled over the selected range."
         actions={
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex rounded-md border border-border p-0.5 bg-subtle">
-              <button
-                type="button"
-                onClick={() => {
-                  setRange('today');
-                  setIsRangePickerOpen(false);
-                }}
-                className={cn(
-                  'px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer',
-                  range === 'today'
-                    ? 'bg-surface text-fg shadow-xs font-semibold'
-                    : 'text-fg-muted hover:text-fg'
-                )}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setRange('week');
-                  setIsRangePickerOpen(false);
-                }}
-                className={cn(
-                  'px-3 py-1 rounded text-xs font-medium transition-colors cursor-pointer',
-                  range === 'week'
-                    ? 'bg-surface text-fg shadow-xs font-semibold'
-                    : 'text-fg-muted hover:text-fg'
-                )}
-              >
-                This week
-              </button>
-            </div>
-
-            {range === 'week' && (
-              <div className="flex items-center gap-1 bg-surface px-1.5 py-0.5 rounded-md border border-border">
-                <button
-                  type="button"
-                  onClick={handlePrevWeek}
-                  title="Previous week (Mon-Sat)"
-                  className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg transition-colors cursor-pointer"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <span className="text-xs font-numeric font-medium px-1 text-fg tabular-nums">
-                  {weekLabel}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleNextWeek}
-                  disabled={!canGoNextWeek}
-                  title={canGoNextWeek ? 'Next week (Mon-Sat)' : 'Current week (latest)'}
-                  className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg disabled:opacity-30 disabled:cursor-not-allowed transition-colors cursor-pointer"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            <div className="relative" ref={rangePickerRef}>
-              <Button
-                variant={range === 'range' ? 'primary' : 'secondary'}
-                size="sm"
-                icon={Calendar}
-                onClick={() => setIsRangePickerOpen((o) => !o)}
-              >
-                {range === 'range'
-                  ? `${formatShortDisplay(customStartDate)} – ${formatShortDisplay(customEndDate)}`
-                  : 'Date range'}
-              </Button>
-
-              {isRangePickerOpen && (
-                <div className="absolute right-0 top-full mt-2 z-50">
-                  <DateRangeCalendarPicker
-                    initialStartDate={customStartDate}
-                    initialEndDate={customEndDate}
-                    onApply={({ startDate, endDate }) => {
-                      setCustomStartDate(startDate);
-                      setCustomEndDate(endDate);
-                      setRange('range');
-                      setIsRangePickerOpen(false);
-                    }}
-                    onCancel={() => setIsRangePickerOpen(false)}
-                  />
-                </div>
-              )}
-            </div>
-
-            {viewingOff.isOff && range === 'today' && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-warning-bg text-warning-fg border border-warning-bd text-xs font-medium">
-                <Coffee className="w-3.5 h-3.5 shrink-0" />
-                <span>{viewingOff.label}</span>
-              </div>
-            )}
-
-            {showRemindColumn && missingTodayCount > 0 && !viewingOff.isOff && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={BellRing}
-                loading={isSendingBatch}
-                onClick={handleBatchReminder}
-              >
-                Remind missing ({missingTodayCount})
-              </Button>
-            )}
-          </div>
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={HelpCircle}
+              onClick={() => setIsFormulasOpen(true)}
+            >
+              How it's calculated
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              icon={Download}
+              loading={isExporting}
+              onClick={handleExport}
+            >
+              Export
+            </Button>
+          </>
         }
       />
 
-      {batchSuccessMsg && (
-        <div className="p-3 bg-success-bg border border-success-bd text-success-fg text-xs font-medium rounded-lg flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>{batchSuccessMsg}</span>
+      <div className="flex flex-wrap items-center gap-2">
+        <SegmentedControl
+          size="sm"
+          value={rangeMode}
+          onValueChange={(val) => {
+            setRangeMode(val as any);
+            setWeekOffset(0);
+            setMonthOffset(0);
+            if (val === 'custom') setIsRangePickerOpen(true);
+            else setIsRangePickerOpen(false);
+          }}
+          options={[
+            { value: 'today', label: 'Today' },
+            { value: 'week', label: 'This week' },
+            { value: 'month', label: 'This month' },
+            { value: 'custom', label: 'Custom' },
+          ]}
+        />
+
+        {rangeMode === 'week' && (
+          <div className="inline-flex items-center h-8 gap-0.5 bg-surface border border-border rounded-md px-1 text-xs font-medium text-fg shadow-xs">
+            <button
+              type="button"
+              onClick={() => setWeekOffset((prev) => prev - 1)}
+              className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer transition-colors"
+              title="Previous week"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="px-1.5 whitespace-nowrap">{rangeSubtitle}</span>
+            <button
+              type="button"
+              onClick={() => setWeekOffset((prev) => prev + 1)}
+              className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer transition-colors"
+              title="Next week"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+
+        {rangeMode === 'month' && (
+          <div className="inline-flex items-center h-8 gap-0.5 bg-surface border border-border rounded-md px-1 text-xs font-medium text-fg shadow-xs">
+            <button
+              type="button"
+              onClick={() => setMonthOffset((prev) => prev - 1)}
+              className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer transition-colors"
+              title="Previous month"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="px-1.5 whitespace-nowrap">{rangeSubtitle}</span>
+            <button
+              type="button"
+              onClick={() => setMonthOffset((prev) => prev + 1)}
+              className="p-1 rounded hover:bg-hover text-fg-muted hover:text-fg cursor-pointer transition-colors"
+              title="Next month"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        )}
+
+        {rangeMode === 'custom' && (
+          <div className="relative">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={CalendarIcon}
+              onClick={() => setIsRangePickerOpen((o) => !o)}
+            >
+              {`${formatShortDisplay(customRange.start)} – ${formatShortDisplay(customRange.end)}`}
+            </Button>
+            {isRangePickerOpen && (
+              <div className="absolute left-0 top-full mt-2 z-50">
+                <DateRangeCalendarPicker
+                  initialStartDate={customRange.start}
+                  initialEndDate={customRange.end}
+                  onApply={({ startDate: s, endDate: e }) => {
+                    setCustomRange({ start: s, end: e });
+                    setRangeMode('custom');
+                    setIsRangePickerOpen(false);
+                  }}
+                  onCancel={() => setIsRangePickerOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="w-[220px] ml-auto">
+          <CustomSelect
+            value={selectedDept}
+            onChange={(val) => setSelectedDept(val)}
+            options={departmentOptions}
+            size="sm"
+            searchable
+            searchPlaceholder="Search departments…"
+            aria-label="All departments"
+          />
         </div>
+      </div>
+
+      {(!showContent || isLoading) && !fetchError && <KpiRowSkeleton count={4} />}
+
+      {fetchError && !showContent && (
+        <ErrorState
+          title="Could not load log variance"
+          message={fetchError}
+          onRetry={() => fetchData({ force: true })}
+        />
       )}
 
-      {viewingOff.isOff && (snap?.logs_submitted || 0) === 0 && (snap?.worked_hours || 0) === 0 ? (
-        <div className="bg-surface border border-border rounded-lg p-10 text-center shadow-xs">
-          <div className="w-12 h-12 rounded-lg bg-warning-bg text-warning-fg flex items-center justify-center mx-auto mb-3 border border-warning-bd">
-            <Coffee className="w-6 h-6" />
+      {showContent && summary && (
+        <>
+          {/* 3. KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <KpiCard
+              label="Worked"
+              value={formatMinutes(summary.worked)}
+              deltaContext={`${summary.days_present} present days`}
+              icon={Clock}
+            />
+            <KpiCard
+              label="Logged"
+              value={formatMinutes(summary.logged)}
+              deltaContext={`on the same ${summary.days_present} days`}
+              icon={Clock}
+            />
+            <KpiCard
+              label="Unlogged"
+              value={
+                <span className={getToneTextClass(getVarianceTone(summary.variance, summary.days_present))}>
+                  {formatSignedMinutes(summary.variance)}
+                </span>
+              }
+              deltaContext="worked − logged"
+              icon={Clock}
+            />
+            <KpiCard
+              label="Coverage"
+              value={
+                <span className={getToneTextClass(getCoverageTone(summary.coverage_pct))}>
+                  {formatPercentage(summary.coverage_pct, 0)}
+                </span>
+              }
+              deltaContext="logged ÷ worked · target 95%"
+              icon={Clock}
+            />
+            <KpiCard
+              label="Avg logged / day"
+              value={formatMinutes(summary.avg_logged_per_day)}
+              deltaContext={
+                summary.days_present > 0
+                  ? `${formatMinutes(summary.logged)} ÷ ${summary.days_present} days present`
+                  : '—'
+              }
+              icon={Clock}
+            />
+            <KpiCard
+              label="Avg worked / day"
+              value={formatMinutes(summary.avg_worked_per_day)}
+              deltaContext={
+                summary.days_present > 0
+                  ? `${formatMinutes(summary.worked)} ÷ ${summary.days_present} days present`
+                  : '—'
+              }
+              icon={Clock}
+            />
+            <KpiCard
+              label="Submission"
+              value={formatPercentage(summary.submission_pct, 0)}
+              deltaContext={`${summary.days_logged} of ${summary.days_present} present days logged`}
+              icon={CheckCircle2}
+            />
+            <KpiCard
+              label="Open exceptions"
+              value={
+                <span className={summary.open_exceptions > 0 ? 'text-warning-fg' : 'text-fg'}>
+                  {summary.open_exceptions}
+                </span>
+              }
+              deltaContext="in this range"
+              icon={Info}
+              onClick={onNavigateExceptions}
+            />
           </div>
-          <h3 className="text-sm font-semibold text-fg">
-            No compliance monitoring required
-          </h3>
-          <p className="mt-1 text-xs text-fg-muted max-w-md mx-auto">
-            Today is a scheduled non-working day ({viewingOff.label}). Shifts and daily logs are not enforced, and compliance reminders are suspended.
-          </p>
-        </div>
-      ) : (
-        <TableCard>
-          <TableToolbar>
-            <div className="flex items-center gap-3 flex-1 max-w-md">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
-                <input
-                  type="text"
-                  placeholder="Search member..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
-                />
-              </div>
-            </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex rounded-md border border-border p-0.5 bg-subtle">
-                {(['all', 'missing', 'logged'] as const).map((st) => (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={() => setStatusFilter(st)}
+          {departmentCards.length > 0 && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+              {departmentCards.map((dept) => {
+                const isSelected = selectedDept.toLowerCase() === dept.department.toLowerCase();
+                return (
+                  <div
+                    key={dept.department}
+                    onClick={() => setSelectedDept(isSelected ? 'all' : dept.department)}
                     className={cn(
-                      'px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer',
-                      statusFilter === st
-                        ? 'bg-surface text-fg shadow-xs font-semibold'
-                        : 'text-fg-muted hover:text-fg'
+                      'p-3.5 bg-surface border rounded-xl shadow-xs cursor-pointer transition-all flex flex-col justify-between',
+                      isSelected
+                        ? 'border-accent ring-1 ring-accent bg-accent-bg/10'
+                        : 'border-border hover:border-border-strong hover:bg-hover'
                     )}
                   >
-                    {st === 'all' ? 'All' : st === 'missing' ? 'Missing' : 'Logged'}
-                  </button>
-                ))}
-              </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-fg truncate">
+                          {dept.department}
+                        </span>
+                      </div>
+                      <span className="text-[11px] text-fg-muted">
+                        {dept.people} people · {dept.days_present} present days
+                      </span>
+                    </div>
 
-              <div className="w-44">
-                <CustomSelect
-                  value={departmentFilter}
-                  onChange={setDepartmentFilter}
-                  options={[
-                    { value: 'all', label: 'All Departments' },
-                    ...DEPARTMENTS.map((dept) => ({ value: dept, label: dept })),
-                  ]}
-                  icon={Layers}
-                  placeholder="All Departments"
-                />
-              </div>
-            </div>
-          </TableToolbar>
+                    <div className="my-2.5">
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className="text-xl font-bold text-fg">
+                          {formatPercentage(dept.coverage_pct, 0)}
+                        </span>
+                        <span className="text-[11px] text-fg-muted">
+                          {formatMinutes(dept.avg_logged_per_day)} logged/day
+                        </span>
+                      </div>
+                      <Progress value={dept.coverage_pct ?? 0} className="h-1.5" />
+                    </div>
 
-          {snap && (
-            <div className="px-4 py-2 border-b border-border bg-subtle/30 text-xs text-fg-muted flex items-center justify-between">
-              <div>
-                <span className="font-medium text-fg">{snap.summary || fallbackSummary}</span>
-                <span className="ml-2">
-                  {formatHours(snap.worked_hours || 0)} at work vs {formatHours(snap.logged_hours || 0)} in the log
-                </span>
-              </div>
-              <div className="text-fg-faint">
-                {sortedActivities.length} {pluralize(sortedActivities.length, 'member')}
-              </div>
+                    <div className="text-[10px] text-fg-muted truncate">
+                      {formatMinutes(dept.logged)} of {formatMinutes(dept.worked)}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
-          <Table>
-            <THead>
-              <TR>
-                <TH>Member</TH>
-                <TH>Department</TH>
-                <TH>Days missing</TH>
-                <TH>Last log date</TH>
-                <TH>Compliance</TH>
-                <TH align="right">Actions</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {snapLoading || isLoading ? (
-                <TableSkeletonRows rows={6} columns={6} />
-              ) : sortedActivities.length === 0 ? (
-                <TR>
-                  <TD colSpan={6} className="py-12 text-center text-fg-muted">
-                    No compliance records found matching the active filters.
-                  </TD>
-                </TR>
-              ) : (
-                sortedActivities.map((act) => {
-                  const hours = hoursByUser[act.user_id];
-                  const hasOpen = hours?.hasOpen || openRequestIds.has(act.user_id);
-                  const status = personStatus(act.user_id);
-                  // Deactivated people are listed for history only: never remind them.
-                  const canRemind = act.is_active !== false && status === 'missing' && !hasOpen;
+          {/* 6. Employee Table — one row per person for the range */}
+          <div>
+            <h2 className="text-sm font-semibold text-fg mb-2">People</h2>
+            <p className="text-xs text-fg-muted mb-3">
+              One row per employee. Click a row for that person's day-by-day breakdown.
+            </p>
+          </div>
+          <TableCard>
+            {/* Table Toolbar */}
+            <div className="p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative w-64">
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-fg-muted" />
+                  <input
+                    type="text"
+                    placeholder="Search employee..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-xs bg-canvas border border-border rounded-md text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent"
+                  />
+                </div>
 
-                  const daysMissing =
-                    range === 'today'
-                      ? status === 'missing'
-                        ? 1
-                        : 0
-                      : act.days_missed !== undefined && act.days_missed >= 0
-                      ? act.days_missed
-                      : (act.missing_dates?.length ?? (status === 'missing' ? 1 : 0));
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setQuickFilter('all')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors',
+                      quickFilter === 'all'
+                        ? 'bg-muted-bg text-fg font-semibold border border-border'
+                        : 'text-fg-muted hover:text-fg hover:bg-hover'
+                    )}
+                  >
+                    All {allRows.length}
+                  </button>
 
-                  const score = complianceScore({
-                    range,
-                    status,
-                    worked: hours?.worked,
-                    loggedHours: hours?.loggedHours,
-                    daysMissed: act.days_missed,
-                    daysDue: act.days_due,
-                    daysOnLeave: act.days_on_leave,
-                  });
-                  const compliancePct = score.pct;
+                  <button
+                    type="button"
+                    onClick={() => setQuickFilter('under_target')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors',
+                      quickFilter === 'under_target'
+                        ? 'bg-warning-bg text-warning-fg font-semibold border border-warning-bd'
+                        : 'text-fg-muted hover:text-fg hover:bg-hover'
+                    )}
+                  >
+                    Under target {underTargetCount}
+                  </button>
 
-                  const initials = act.full_name
-                    ? act.full_name
-                        .split(' ')
-                        .map((p) => p[0])
-                        .slice(0, 2)
-                        .join('')
-                        .toUpperCase()
-                    : 'U';
+                  <button
+                    type="button"
+                    onClick={() => setQuickFilter('missing')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors',
+                      quickFilter === 'missing'
+                        ? 'bg-danger-bg text-danger-fg font-semibold border border-danger-bd'
+                        : 'text-fg-muted hover:text-fg hover:bg-hover'
+                    )}
+                  >
+                    Missing logs {missingCount}
+                  </button>
 
-                  const lastLogStr = act.last_logged_date
-                    ? formatShortDisplay(act.last_logged_date)
-                    : 'Never';
+                  <button
+                    type="button"
+                    onClick={() => setQuickFilter('over_logged')}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors',
+                      quickFilter === 'over_logged'
+                        ? 'bg-info-bg text-info-fg font-semibold border border-info-bd'
+                        : 'text-fg-muted hover:text-fg hover:bg-hover'
+                    )}
+                  >
+                    Over-logged {overLoggedCount}
+                  </button>
 
-                  return (
-                    <TR
-                      key={act.user_id}
-                      clickable
-                      onClick={() => setSelectedEmployee(act)}
+                  {inactiveCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickFilter('inactive')}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-xs font-medium cursor-pointer transition-colors',
+                        quickFilter === 'inactive'
+                          ? 'bg-muted-bg text-fg font-semibold border border-border'
+                          : 'text-fg-muted hover:text-fg hover:bg-hover'
+                      )}
                     >
-                      {/* Member */}
-                      <TD>
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-full bg-accent-soft text-accent-text border border-accent-200 font-semibold text-xs flex items-center justify-center shrink-0">
-                            {initials}
-                          </div>
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-1.5 min-w-0">
-                              <div className="font-medium text-fg truncate">
-                                {act.full_name}
+                      Inactive {inactiveCount}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <span className="text-xs text-fg-muted">
+                Sorted by {SORT_LABELS[sortField]} ({sortDir === 'desc' ? 'high to low' : 'low to high'})
+              </span>
+            </div>
+
+            <Table containerClassName="overflow-x-hidden" className="w-full table-fixed">
+              <THead>
+                <tr>
+                  <TH className="w-[22%]">
+                    <SortHeader
+                      label="Employee"
+                      direction={sortField === 'name' ? sortDir : null}
+                      onSort={() => handleSort('name')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Present"
+                      align="right"
+                      direction={sortField === 'days_present' ? sortDir : null}
+                      onSort={() => handleSort('days_present')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Worked"
+                      align="right"
+                      direction={sortField === 'worked' ? sortDir : null}
+                      onSort={() => handleSort('worked')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Logged"
+                      align="right"
+                      direction={sortField === 'logged' ? sortDir : null}
+                      onSort={() => handleSort('logged')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Variance"
+                      align="right"
+                      direction={sortField === 'variance' ? sortDir : null}
+                      onSort={() => handleSort('variance')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Coverage"
+                      align="right"
+                      direction={sortField === 'coverage_pct' ? sortDir : null}
+                      onSort={() => handleSort('coverage_pct')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Avg log"
+                      align="right"
+                      direction={sortField === 'avg_logged_per_day' ? sortDir : null}
+                      onSort={() => handleSort('avg_logged_per_day')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Avg work"
+                      align="right"
+                      direction={sortField === 'avg_worked_per_day' ? sortDir : null}
+                      onSort={() => handleSort('avg_worked_per_day')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="No log"
+                      align="right"
+                      direction={sortField === 'days_missing' ? sortDir : null}
+                      onSort={() => handleSort('days_missing')}
+                    />
+                  </TH>
+                  <TH align="right">
+                    <SortHeader
+                      label="Under"
+                      align="right"
+                      direction={sortField === 'days_under_target' ? sortDir : null}
+                      onSort={() => handleSort('days_under_target')}
+                    />
+                  </TH>
+                  <TH className="w-[14%]">Flags</TH>
+                </tr>
+              </THead>
+              <TBody>
+                {sortedRows.length === 0 ? (
+                  <TableEmpty
+                    colSpan={11}
+                    title="No employees found"
+                    description="No employees found matching filter criteria."
+                  />
+                ) : (
+                  sortedRows.map((row) => {
+                    const rowTone = getVarianceTone(row.variance, row.days_present);
+                    const { primary, secondaries } = rowDeptParts(row);
+                    const deptLabel = [primary, ...secondaries].filter(Boolean).join(' · ') || 'General';
+                    return (
+                      <TR
+                        key={row.user_id}
+                        clickable
+                        className="h-auto"
+                        onClick={() => setDrawerMember(row)}
+                      >
+                        <TD className="align-middle py-2 min-w-0">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <Avatar name={row.name} src={row.avatar || undefined} size={24} />
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 font-medium text-fg">
+                                <span className="truncate">{row.name}</span>
+                                {row.inactive && (
+                                  <Badge variant="outline">Inactive</Badge>
+                                )}
                               </div>
-                              {act.is_active === false && (
-                                <span
-                                  className="shrink-0 rounded-full border border-border px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-fg-muted"
-                                  title={act.deactivation_date ? `Inactive since ${act.deactivation_date}` : 'Inactive'}
-                                  data-testid="compliance-inactive-badge"
-                                >
-                                  Inactive
-                                </span>
-                              )}
-                            </div>
-                            <div className="text-caption text-fg-muted truncate">
-                              {act.email}
+                              <span className="text-[11px] text-fg-muted truncate block">
+                                {getRoleDisplayName(row.role)} · {deptLabel}
+                              </span>
                             </div>
                           </div>
-                        </div>
-                      </TD>
-
-                      {/* Department */}
-                      <TD>
-                        <span className="text-small text-fg-muted">
-                          {act.department || '—'}
-                        </span>
-                      </TD>
-
-                      {/* Days missing */}
-                      <TD>
-                        <span
-                          className={cn(
-                            'font-numeric tabular-nums text-small',
-                            daysMissing > 0 ? 'text-danger-fg font-semibold' : 'text-fg-muted'
-                          )}
-                        >
-                          {daysMissing}
-                        </span>
-                      </TD>
-
-                      {/* Last log date */}
-                      <TD>
-                        <span className="text-small text-fg-muted">
-                          {lastLogStr}
-                        </span>
-                      </TD>
-
-                      {/* Compliance % as Progress (48px) + value */}
-                      <TD>
-                        {compliancePct === null ? (
-                          <span
-                            className="text-small text-fg-muted"
-                            title="Nothing to score: no days needed a log in this period"
-                          >
-                            — <span className="text-caption">{score.reason}</span>
+                        </TD>
+                        <TD numeric className="align-middle py-2">{row.days_present}</TD>
+                        <TD numeric className="align-middle py-2">{formatMinutes(row.worked)}</TD>
+                        <TD numeric className="align-middle py-2">{formatMinutes(row.logged)}</TD>
+                        <TD numeric className="align-middle py-2">
+                          <span className={getToneTextClass(rowTone)}>
+                            {formatSignedMinutes(row.variance)}
                           </span>
-                        ) : (
-                        <div className="flex items-center gap-2">
-                          <div className="w-12">
-                            <Progress
-                              value={compliancePct}
-                              indicatorClassName={
-                                compliancePct >= 80
-                                  ? 'bg-accent'
-                                  : compliancePct >= 50
-                                  ? 'bg-warning-solid'
-                                  : 'bg-danger-solid'
-                              }
-                            />
-                          </div>
-                          <span className="font-numeric text-small tabular-nums text-fg-muted w-9">
-                            {compliancePct}%
+                        </TD>
+                        <TD numeric className="align-middle py-2">
+                          <span className={getToneTextClass(getCoverageTone(row.coverage_pct))}>
+                            {formatPercentage(row.coverage_pct, 0)}
                           </span>
-                        </div>
-                        )}
-                      </TD>
+                        </TD>
+                        <TD numeric className="align-middle py-2 text-fg-muted">
+                          {formatMinutes(row.avg_logged_per_day)}
+                        </TD>
+                        <TD numeric className="align-middle py-2 text-fg-muted">
+                          {formatMinutes(row.avg_worked_per_day)}
+                        </TD>
+                        <TD numeric className="align-middle py-2">
+                          <span className={cn(row.days_missing > 0 ? 'text-danger-fg font-semibold' : 'text-fg-muted')}>
+                            {row.days_missing}
+                          </span>
+                        </TD>
+                        <TD numeric className="align-middle py-2">
+                          <span className={cn(row.days_under_target > 0 ? 'text-warning-fg font-semibold' : 'text-fg-muted')}>
+                            {row.days_under_target}
+                          </span>
+                        </TD>
+                        <TD className="align-middle py-2 min-w-0">
+                          {renderRowFlags(row)}
+                        </TD>
+                      </TR>
+                    );
+                  })
+                )}
+              </TBody>
 
-                      {/* Actions */}
-                      <TD align="right">
-                        <div
-                          className="flex items-center justify-end gap-1.5"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          {showRemindColumn && canRemind ? (
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              icon={Mail}
-                              loading={isSendingReminder[act.user_id]}
-                              onClick={() => {
-                                setCustomReminderUser(act);
-                                setCustomMessage(
-                                  `Hi ${act.full_name}, reminder to submit your Daily Log on ${brandNameOf(user?.company)}.`
-                                );
-                              }}
-                            >
-                              Send reminder
-                            </Button>
-                          ) : hasOpen ? (
-                            <span className="text-caption text-fg-muted">
-                              Lead already asked
-                            </span>
-                          ) : null}
-
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setSelectedEmployee(act)}
-                          >
-                            View
-                          </Button>
-                        </div>
-                      </TD>
-                    </TR>
-                  );
-                })
-              )}
-            </TBody>
-          </Table>
-        </TableCard>
+              <tfoot className="bg-canvas border-t-2 border-border font-semibold text-fg">
+                <tr className="h-12">
+                  <TD className="align-middle font-semibold min-w-0">
+                    Team total · {scopedRows.length} people
+                    {summary.open_exceptions > 0 ? (
+                      <span className="ml-2 text-xs font-medium text-fg-muted">
+                        · {summary.open_exceptions} open
+                      </span>
+                    ) : null}
+                  </TD>
+                  <TD numeric className="align-middle py-2">{summary.days_present}</TD>
+                  <TD numeric className="align-middle py-2">{formatMinutes(summary.worked)}</TD>
+                  <TD numeric className="align-middle py-2">{formatMinutes(summary.logged)}</TD>
+                  <TD numeric className="align-middle py-2">
+                    <span className={getToneTextClass(getVarianceTone(summary.variance, summary.days_present))}>
+                      {formatSignedMinutes(summary.variance)}
+                    </span>
+                  </TD>
+                  <TD numeric className="align-middle py-2">
+                    <span className={getToneTextClass(getCoverageTone(summary.coverage_pct))}>
+                      {formatPercentage(summary.coverage_pct, 0)}
+                    </span>
+                  </TD>
+                  <TD numeric className="align-middle py-2">{formatMinutes(summary.avg_logged_per_day)}</TD>
+                  <TD numeric className="align-middle py-2">{formatMinutes(summary.avg_worked_per_day)}</TD>
+                  <TD numeric className="align-middle py-2">{summary.days_missing}</TD>
+                  <TD numeric className="align-middle py-2">{summary.days_under_target}</TD>
+                  <TD className="align-middle py-2 text-fg-muted font-medium">—</TD>
+                </tr>
+              </tfoot>
+            </Table>
+          </TableCard>
+        </>
       )}
 
-      {/* Send reminder dialog (Dialog 400 per §13.15.3) */}
-      <FormDialog
-        isOpen={Boolean(customReminderUser)}
-        onClose={() => setCustomReminderUser(null)}
-        maxWidth="sm"
-        title={`Send reminder to ${customReminderUser?.full_name || ''}`}
-        subtitle="Send an email reminder to submit missing daily logs."
-      >
-        <div className="flex flex-col flex-1 min-h-0">
-          <FormDialogBody className="space-y-3">
-            <div className="text-xs text-fg-muted">
-              Recipient:{' '}
-              <span className="font-medium text-fg">{customReminderUser?.email}</span>
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-fg">Message</label>
-              <Textarea
-                rows={4}
-                value={customMessage}
-                onChange={(e) => setCustomMessage(e.target.value)}
-                placeholder="Enter reminder note..."
-              />
-            </div>
-          </FormDialogBody>
-
-          <FormFooter>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setCustomReminderUser(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              icon={Send}
-              loading={customReminderUser ? isSendingReminder[customReminderUser.user_id] : false}
-              onClick={handleSendCustomReminder}
-            >
-              Send reminder
-            </Button>
-          </FormFooter>
-        </div>
-      </FormDialog>
-
-      {/* Detail drawer (Sheet 480 per §13.15.3) */}
+      {/* Drill-down Drawer */}
       <EmployeeComplianceDrawer
-        isOpen={Boolean(selectedEmployee)}
-        onClose={() => setSelectedEmployee(null)}
-        member={selectedEmployee}
-        startDate={activeStartDate}
-        endDate={activeEndDate}
+        isOpen={Boolean(drawerMember)}
+        onClose={() => setDrawerMember(null)}
+        member={drawerMember}
+        startDate={startDate}
+        endDate={endDate}
+        rangeLabel={rangeSubtitle}
         onSendReminder={onSendReminder}
-        isSendingReminder={selectedEmployee ? Boolean(isSendingReminder[selectedEmployee.user_id]) : false}
-        canRemind={showRemindColumn}
+        isSendingReminder={
+          typeof isSendingReminder === 'boolean'
+            ? isSendingReminder
+            : Boolean(drawerMember && isSendingReminder?.[drawerMember.user_id])
+        }
+        canRemind={Boolean(onSendReminder)}
       />
+
+      </div>
+
+      {/* Formulas Explanatory Sheet */}
+      <LogVarianceFormulasPopover
+        open={isFormulasOpen}
+        onOpenChange={setIsFormulasOpen}
+        thresholds={data?.thresholds}
+      />
+
     </div>
   );
 };
+
+function renderRowFlags(row: EmployeeRow) {
+  const flagSet = new Set((row.flags || []).filter((f) => FLAG_META.some((m) => m.key === f)));
+  const pills = FLAG_META.filter((m) => flagSet.has(m.key));
+  if (pills.length === 0) {
+    return <span className="text-fg-muted">—</span>;
+  }
+  const label = pills.map((m) => m.label).join(' · ');
+  return (
+    <span
+      title={label}
+      className={cn(
+        'inline-flex max-w-full items-center px-1.5 py-0.5 rounded text-[10px] font-medium border truncate',
+        pills[0].className
+      )}
+    >
+      {label}
+    </span>
+  );
+}

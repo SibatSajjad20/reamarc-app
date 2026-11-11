@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional, Dict
-from datetime import datetime, timezone
+from typing import List, Optional, Dict, Any
+from datetime import datetime, timezone, timedelta
 import re
 import uuid
 
 from app.core.security import get_current_user, require_management_role, require_roles
 from app.database import get_database
-from app.services.company_members import company_member_user, company_member_users
+from app.services.company_members import company_member_user
 from app.models.user import UserRole
 from app.schemas.log_exception import (
     ExceptionActionRequest,
@@ -22,28 +22,18 @@ from app.schemas.log_exception import (
 )
 from app.services.log_compliance import (
     LOGGERS_ROLES,
-    EXEMPT_ROLES,
     pkt_today,
-    recent_workdays,
-    batch_expected_targets,
-    primary_exception,
-    classify_day_status,
-    person_day_is_leave,
-    person_day_is_due,
-    signed_hours_gap,
-    live_day_hours,
-    apply_accepted_gap_state,
     format_hours_hm,
-    people_noun,
-    compute_time_at_work_hours,
 )
-from app.routers.daily_log import (
-    is_workday,
-    SYSTEM_START_DATE,
-    _extract_lead_departments,
-    _dept_match_query,
+from app.services.workdays import parse_iso_date, recent_company_workdays
+from app.services.log_variance import (
+    _compute_person_days,
+    compute_log_variance,
+    get_employee_variance,
+    get_exceptions,
+    parse_date_window,
+    format_hm,
 )
-from app.services.workdays import load_off_day_index, parse_iso_date, recent_company_workdays
 
 router = APIRouter(
     prefix="/log-exceptions",
@@ -53,340 +43,109 @@ router = APIRouter(
 require_lead_or_hr = require_roles(["admin", "operations", "hr", "team_lead"])
 
 
-def _clean_reopen_note(note: Optional[str], previously_accepted: Optional[float]) -> Optional[str]:
-    if not note:
-        return None
-    raw = str(note).strip()
-    if not raw:
-        return None
-    if "+0:00" in raw or "-0:00" in raw or "+0h" in raw or "-0h" in raw or "previous +0" in raw or "previous -0" in raw:
-        return None
-    if previously_accepted is None or abs(float(previously_accepted)) <= 0.05:
-        return None
-    return raw
+def _raw_to_exception_item(raw_item: Dict[str, Any]) -> ExceptionItemResponse:
+    """Helper mapping raw exception dict to ExceptionItemResponse (§2.7.2)."""
+    worked_m = raw_item.get("worked", 0)
+    logged_m = raw_item.get("logged", 0)
+    var_m = raw_item.get("variance", 0)
+    exp_m = raw_item.get("expected", 0)
+    exc_type = raw_item.get("type", "no_log")
+    is_no_log = exc_type == "no_log"
+    signed = round((logged_m - worked_m) / 60.0, 2)
+    gap = round(abs(var_m) / 60.0, 2)
 
+    score_doc = raw_item.get("score_doc") or {}
+    action_status = raw_item.get("action_status") or score_doc.get("action_status") or "open"
+    action_type = score_doc.get("action_type")
+    action_by_name = score_doc.get("action_by_name")
+    action_by_role = score_doc.get("action_by_role")
+    employee_notified = bool(score_doc.get("employee_notified"))
+    escalated = bool(score_doc.get("escalated")) or (action_status == "escalated")
+    task_count = raw_item.get("task_count", 0)
+    previously_accepted = score_doc.get("previously_accepted_signed_gap_hours")
+    reopen_note = raw_item.get("reopen_note") or score_doc.get("reopen_note")
 
-def _to_item(score: dict, *, is_missing: bool = False) -> dict:
-    primary = primary_exception(score)
-    worked = float(score.get("worked_hours") or 0)
-    logged = float(score.get("logged_hours") or 0)
-    compare_ready = bool(score.get("compare_ready") or score.get("has_checkout"))
-    signed = score.get("signed_gap_hours")
-    if signed is None:
-        signed = signed_hours_gap(logged, worked) if compare_ready else 0.0
-    gap = float(score.get("gap_hours") if score.get("gap_hours") is not None else abs(signed))
-    prev_accepted = score.get("previously_accepted_signed_gap_hours")
-    return {
-        "id": score.get("id") or f"missing:{score.get('user_id')}:{score.get('date')}",
-        "user_id": score.get("user_id"),
-        "date": score.get("date"),
-        "full_name": score.get("full_name") or "User",
-        "department": score.get("department"),
-        "role": score.get("role") or "team_member",
-        "exception_type": primary.get("type") or "review",
-        "message": primary.get("message") or "Needs review",
-        "hours": float(primary.get("hours") or gap),
-        "severity": primary.get("severity") or "medium",
-        "required_action": primary.get("required_action") or "review",
-        "status": score.get("status") or "amber",
-        "action_status": score.get("action_status") or "open",
-        "action_type": score.get("action_type"),
-        "action_by_name": score.get("action_by_name"),
-        "action_by_role": score.get("action_by_role"),
-        "expected_hours": float(score.get("expected_hours") or 0),
-        "logged_hours": logged,
-        "worked_hours": worked,
-        "gap_hours": round(abs(float(gap)), 2),
-        "signed_gap_hours": round(float(signed), 2),
-        "has_checkin": bool(score.get("has_checkin")),
-        "has_checkout": bool(score.get("has_checkout")),
-        "task_count": int(score.get("tasks_completed") or score.get("task_count") or 0),
-        "is_missing_log": is_missing or primary.get("type") == "missing_log",
-        "escalated": bool(score.get("escalated")),
-        "employee_notified": bool(score.get("employee_notified")) or (score.get("action_status") in ("waiting_on_employee", "waiting_on_reviewer")),
-        "member_reason": score.get("member_reason") or None,
-        "previously_accepted_signed_gap_hours": prev_accepted if (prev_accepted is not None and abs(float(prev_accepted)) > 0.05) else None,
-        "reopen_note": _clean_reopen_note(score.get("reopen_note"), prev_accepted),
-    }
+    return ExceptionItemResponse(
+        id=raw_item["id"],
+        user_id=raw_item["user_id"],
+        date=raw_item["date"],
+        full_name=raw_item.get("user_name") or raw_item.get("full_name") or "User",
+        department=raw_item.get("department"),
+        role=raw_item.get("role", "team_member"),
+        exception_type=exc_type,
+        message=raw_item.get("detail", ""),
+        hours=gap,
+        severity="high" if exc_type in ("no_log", "missing_checkout") else "medium",
+        required_action="correct" if exc_type in ("no_log", "missing_checkout") else "review",
+        status="red" if exc_type in ("no_log", "missing_checkout") else "amber",
+        action_status=action_status,
+        action_type=action_type,
+        action_by_name=action_by_name,
+        action_by_role=action_by_role,
+        expected_hours=round(exp_m / 60.0, 2),
+        logged_hours=round(logged_m / 60.0, 2),
+        worked_hours=round(worked_m / 60.0, 2),
+        gap_hours=gap,
+        signed_gap_hours=signed,
+        has_checkin=raw_item.get("has_checkin", False),
+        has_checkout=raw_item.get("has_checkout", False),
+        task_count=task_count,
+        is_missing_log=is_no_log,
+        escalated=escalated,
+        employee_notified=employee_notified,
+        member_reason=raw_item.get("member_reason") or score_doc.get("member_reason"),
+        previously_accepted_signed_gap_hours=previously_accepted,
+        reopen_note=reopen_note,
+    )
 
 
 @router.get("/inbox", response_model=List[ExceptionItemResponse])
 async def list_exception_inbox(
     date: Optional[str] = Query(None, description="Optional YYYY-MM-DD to inspect a single day"),
+    start_date: Optional[str] = Query(None, description="Optional range start YYYY-MM-DD"),
+    end_date: Optional[str] = Query(None, description="Optional range end YYYY-MM-DD"),
     current_user: dict = Depends(require_lead_or_hr),
 ):
+    """
+    Read-only inbox endpoint delegating to the shared exceptions service (§2.5, §2.7.2).
+    Returns open items only by default.
+    """
     db = get_database()
     if db is None:
         return []
 
-    role = str(current_user.get("role") or "").lower()
-    viewer_id = current_user.get("id")
-    viewer_dept = (current_user.get("department") or "").strip()
-    today = pkt_today()
-    window = [date] if date else await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
-    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
-    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
-
-    user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
-    if role == "team_lead":
-        from app.services.permissions import load_context, departments_with, normalize_dept
-        lead_user_doc = await company_member_user(viewer_id, db=db)
-        ctx = await load_context(lead_user_doc or current_user, db=db)
-        lead_depts = departments_with(ctx, "exceptions", "department")
-        if not lead_depts:
-            return []
-        user_query["role"] = {"$in": ["team_member", UserRole.TEAM_MEMBER.value, "member"]}
-        dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in lead_depts]
-        user_query["$or"] = dept_regexes
-        user_query["id"] = {"$ne": viewer_id}
+    if start_date and end_date:
+        s_clean = start_date.strip()
+        e_clean = end_date.strip()
+    elif date:
+        s_clean = date.strip()
+        e_clean = date.strip()
     else:
-        user_query["role"] = {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}
-        user_query["id"] = {"$ne": viewer_id}
+        # Default to recent 7 workdays
+        from app.services.log_compliance import SYSTEM_START_DATE
+        workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
+        if workdays:
+            s_clean = min(workdays)
+            e_clean = max(workdays)
+        else:
+            s_clean = pkt_today()
+            e_clean = s_clean
 
-    users = await company_member_users(
-        user_query,
+    data = await get_exceptions(
+        current_user=current_user,
+        start_date=s_clean,
+        end_date=e_clean,
+        group_by="employee",
+        include_reviewed=False,
         db=db,
-        projection={"_id": 0, "hashed_password": 0},
-        limit=500,
     )
-    from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "daily_log")]
-    user_ids = [u.get("id") for u in users if u.get("id") and u.get("id") != viewer_id]
-    if not user_ids or not window:
-        return []
 
-    log_docs = await db.daily_log_entries.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0, "user_id": 1, "date": 1, "hours_utilized": 1, "task_status": 1},
-    ).to_list(8000)
-    hours_by_key: dict = {}
-    tasks_by_key: dict = {}
-    for entry in log_docs:
-        uid = entry.get("user_id")
-        day = entry.get("date")
-        if not uid or not day:
-            continue
-        try:
-            hours_by_key[(uid, day)] = hours_by_key.get((uid, day), 0.0) + float(entry.get("hours_utilized") or 0)
-        except (TypeError, ValueError):
-            hours_by_key[(uid, day)] = hours_by_key.get((uid, day), 0.0)
-        tasks_by_key[(uid, day)] = tasks_by_key.get((uid, day), 0) + (1 if str(entry.get("task_status") or "") == "Completed" else 0)
-        if (uid, day) not in tasks_by_key:
-            tasks_by_key[(uid, day)] = 0
-    log_count_by_key: dict = {}
-    for entry in log_docs:
-        uid = entry.get("user_id")
-        day = entry.get("date")
-        if uid and day:
-            log_count_by_key[(uid, day)] = log_count_by_key.get((uid, day), 0) + 1
+    items: List[ExceptionItemResponse] = []
+    for group in data.get("groups", []):
+        for raw_item in group.get("items", []):
+            items.append(_raw_to_exception_item(raw_item))
 
-    att_docs = await db.attendance_records.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0, "user_id": 1, "date": 1, "work_hours": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "status": 1, "is_wfh": 1},
-    ).to_list(4000)
-    att_by_key: dict = {}
-    for rec in att_docs:
-        uid = rec.get("user_id")
-        day = rec.get("date")
-        if uid and day:
-            att_by_key[(uid, day)] = rec
-
-    score_docs = await db.daily_log_day_scores.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0},
-    ).to_list(2000)
-    score_by_key = {(s.get("user_id"), s.get("date")): s for s in score_docs if s.get("user_id") and s.get("date")}
-
-    targets = await batch_expected_targets(users, window)
-    items: List[dict] = []
-
-    for user in users:
-        uid = user.get("id")
-        if not uid or uid == viewer_id:
-            continue
-        urole = str(user.get("role") or "team_member").lower()
-        if urole in EXEMPT_ROLES:
-            continue
-        for day in window:
-            if day < SYSTEM_START_DATE:
-                continue
-            try:
-                if off_idx is not None:
-                    if not off_idx.is_workday_iso(day):
-                        continue
-                else:
-                    from datetime import datetime as dt
-                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                        continue
-            except Exception:
-                continue
-
-            target = targets.get((uid, day)) or {}
-            att = att_by_key.get((uid, day)) or {}
-            if person_day_is_leave(target, att):
-                continue
-
-            stored = score_by_key.get((uid, day)) or {}
-            action_status = stored.get("action_status") or "open"
-
-            logged = round(float(hours_by_key.get((uid, day), 0.0)), 2)
-            has_log = (uid, day) in log_count_by_key
-            cin = att.get("check_in") or att.get("punch_in")
-            cout = att.get("check_out") or att.get("punch_out")
-            has_checkin = bool(cin)
-            has_checkout = bool(cout)
-            try:
-                worked = float(att.get("work_hours") or 0)
-            except (TypeError, ValueError):
-                worked = 0.0
-            is_wfh = bool(target.get("is_wfh") or att.get("is_wfh"))
-            if has_checkout:
-                compare_ready = True
-            elif is_wfh and not has_checkin:
-                worked = float(target.get("expected_hours") or 0)
-                compare_ready = True
-            else:
-                compare_ready = False
-
-            due = person_day_is_due(
-                day,
-                today,
-                target,
-                {
-                    **att,
-                    "has_checkout": has_checkout,
-                    "has_checkin": has_checkin,
-                    "work_hours": worked,
-                    "is_wfh": is_wfh,
-                },
-            )
-            open_case = action_status in ("waiting_on_employee", "waiting_on_reviewer", "escalated") or bool(stored.get("escalated"))
-            if not due and not open_case and not (has_log and logged > 0):
-                continue
-
-            status, exceptions = classify_day_status(
-                logged,
-                worked,
-                is_full_leave=False,
-                has_checkout=has_checkout,
-                has_checkin=has_checkin,
-                has_log=has_log,
-                is_wfh=is_wfh,
-                compare_ready=compare_ready,
-            )
-            is_missing = due and not has_log and (has_checkin or has_checkout or worked > 0 or is_wfh)
-            if is_missing:
-                status = "red"
-                exceptions = [{
-                    "type": "missing_log",
-                    "hours": worked or target.get("expected_hours") or 0,
-                    "severity": "high",
-                    "message": "Didn't log",
-                    "required_action": "correct",
-                }]
-            elif status == "green" and not open_case:
-                continue
-
-            signed = signed_hours_gap(logged, worked) if compare_ready else 0.0
-            if action_status in ("reviewed", "cleared"):
-                probe = {
-                    "action_status": action_status,
-                    "accepted_signed_gap_hours": stored.get("accepted_signed_gap_hours"),
-                }
-                apply_accepted_gap_state(
-                    probe,
-                    status=status,
-                    exceptions=exceptions,
-                    signed_gap=signed,
-                    previous_signed_gap=stored.get("signed_gap_hours"),
-                )
-                if probe.get("action_status") in ("reviewed", "cleared"):
-                    continue
-                action_status = probe.get("action_status") or "open"
-                stored = {**stored, **probe}
-                if stored.get("user_id") and stored.get("date"):
-                    await db.daily_log_day_scores.update_one(
-                        {"user_id": stored["user_id"], "date": stored["date"]},
-                        {
-                            "$set": {
-                                "action_status": action_status,
-                                "accepted_signed_gap_hours": probe.get("accepted_signed_gap_hours"),
-                                "previously_accepted_signed_gap_hours": probe.get("previously_accepted_signed_gap_hours"),
-                                "reopen_note": probe.get("reopen_note") or "",
-                                "gap_reopened_at": probe.get("gap_reopened_at"),
-                                "employee_notified": False,
-                                "escalated": False,
-                            }
-                        },
-                    )
-
-            # Auto-repair legacy false +0:00 reopen notes from DB
-            existing_reopen = str(stored.get("reopen_note") or "")
-            prev_gap_val = stored.get("previously_accepted_signed_gap_hours")
-            if existing_reopen and (
-                "+0:00" in existing_reopen
-                or "-0:00" in existing_reopen
-                or "+0h" in existing_reopen
-                or "-0h" in existing_reopen
-                or (prev_gap_val is not None and abs(float(prev_gap_val)) <= 0.05)
-            ):
-                stored["reopen_note"] = ""
-                stored["previously_accepted_signed_gap_hours"] = None
-                stored["gap_reopened_at"] = None
-                if stored.get("user_id") and stored.get("date"):
-                    await db.daily_log_day_scores.update_one(
-                        {"user_id": stored["user_id"], "date": stored["date"]},
-                        {
-                            "$set": {
-                                "reopen_note": "",
-                                "previously_accepted_signed_gap_hours": None,
-                                "gap_reopened_at": None,
-                            }
-                        },
-                    )
-
-            row = {
-                "id": stored.get("id") or (f"missing:{uid}:{day}" if is_missing else f"gap:{uid}:{day}"),
-                "user_id": uid,
-                "date": day,
-                "full_name": user.get("full_name") or user.get("name") or stored.get("full_name") or "User",
-                "department": user.get("department") or "",
-                "role": urole,
-                "expected_hours": target.get("expected_hours") or 0,
-                "logged_hours": logged,
-                "worked_hours": worked,
-                "gap_hours": abs(signed) if compare_ready else (0 if not is_missing else (worked or target.get("expected_hours") or 0)),
-                "signed_gap_hours": signed,
-                "has_checkin": has_checkin,
-                "has_checkout": has_checkout,
-                "compare_ready": compare_ready,
-                "tasks_completed": int(tasks_by_key.get((uid, day), 0)),
-                "status": stored.get("status") or status,
-                "exceptions": exceptions or stored.get("exceptions") or [],
-                "action_status": action_status,
-                "action_type": stored.get("action_type"),
-                "action_by_name": stored.get("action_by_name"),
-                "action_by_role": stored.get("action_by_role"),
-                "escalated": bool(stored.get("escalated")),
-                "employee_notified": bool(stored.get("employee_notified")),
-                "member_reason": stored.get("member_reason") or "",
-                "previously_accepted_signed_gap_hours": stored.get("previously_accepted_signed_gap_hours"),
-                "reopen_note": _clean_reopen_note(
-                    stored.get("reopen_note"),
-                    stored.get("previously_accepted_signed_gap_hours"),
-                ),
-            }
-            items.append(_to_item(row, is_missing=is_missing))
-
-    items.sort(
-        key=lambda r: (
-            0 if r.get("escalated") or r.get("action_status") == "escalated" else 1,
-            0 if r.get("action_status") == "waiting_on_reviewer" else 1,
-            r.get("date") or "",
-            r.get("full_name") or "",
-        ),
-        reverse=False,
-    )
+    items.sort(key=lambda x: (x.date, x.full_name), reverse=True)
     return items
 
 
@@ -396,9 +155,16 @@ async def act_on_exception(
     body: ExceptionActionRequest,
     current_user: dict = Depends(require_lead_or_hr),
 ):
+    """
+    Restore base act_on_exception endpoint (§2.7.1).
+    Stores name, department, role, dls- id, accepted_signed_gap_hours, and live hours from shared service.
+    """
     action = (body.action or "").strip().lower()
     if action not in ("explain", "correct", "review", "escalate", "accept", "ask_again"):
-        raise HTTPException(status_code=400, detail="Unknown action. Use explain, correct, review, escalate, accept, or ask_again.")
+        raise HTTPException(
+            status_code=400,
+            detail="Unknown action. Use explain, correct, review, escalate, accept, or ask_again.",
+        )
 
     role = str(current_user.get("role") or "").lower()
     if action == "escalate" and role != "team_lead":
@@ -429,10 +195,11 @@ async def act_on_exception(
     if not user_id or not date_str:
         raise HTTPException(status_code=404, detail="Exception not found.")
 
-    member = await company_member_user(user_id, db=db)
+    member = await company_member_user(user_id, db=db, include_inactive=True)
     if not member:
         raise HTTPException(status_code=404, detail="Employee not found.")
     member_role = str(member.get("role") or "").lower()
+
     if role == "team_lead":
         if member_role not in ("team_member", "member"):
             raise HTTPException(status_code=403, detail="Team leads only act on their team members.")
@@ -442,24 +209,34 @@ async def act_on_exception(
             normalize_dept,
             get_user_primary_department,
         )
-        lead_user_doc = await company_member_user(current_user.get("id"), db=db)
+        lead_user_doc = await company_member_user(current_user.get("id"), db=db, include_inactive=True)
         ctx = await load_context(lead_user_doc or current_user, db=db)
         lead_depts = [normalize_dept(d) for d in departments_with(ctx, "exceptions", "department")]
         if not lead_depts:
+            dept = current_user.get("department") or current_user.get("primary_department")
+            if dept:
+                lead_depts = [normalize_dept(dept)]
+        if not lead_depts:
             raise HTTPException(status_code=403, detail="Your account has no department assigned.")
-        member_primary = normalize_dept(get_user_primary_department(member))
+        member_primary = normalize_dept(get_user_primary_department(member) or member.get("department") or "")
         if not member_primary or member_primary not in lead_depts:
             raise HTTPException(status_code=403, detail="This employee is outside your department.")
         if user_id == current_user.get("id"):
             raise HTTPException(status_code=403, detail="Your own log is reviewed by HR.")
-    else:
-        if member_role not in ("team_member", "team_lead"):
+    elif role == "hr":
+        if member_role not in ("team_member", "member", "team_lead"):
             raise HTTPException(status_code=403, detail="HR inbox covers team members and team leads only.")
         if user_id == current_user.get("id"):
             raise HTTPException(status_code=403, detail="Your own log is reviewed by Admin.")
+    else:
+        # Admin or operations: may act on team_member, member, team_lead, and hr
+        if member_role not in ("team_member", "member", "team_lead", "hr"):
+            raise HTTPException(status_code=403, detail="Role not authorized to act on this employee.")
 
     now_iso = datetime.now(timezone.utc).isoformat()
     actor_name = current_user.get("full_name") or current_user.get("name") or "Reviewer"
+    actor_id = current_user.get("id")
+    actor_role = role
     existing_status = (score or {}).get("action_status") or "open"
     already_notified = bool((score or {}).get("employee_notified")) or existing_status in (
         "waiting_on_employee",
@@ -502,8 +279,53 @@ async def act_on_exception(
         raise HTTPException(status_code=400, detail="Unknown action.")
 
     raw_id = str((score or {}).get("id") or score_id)
-    score_id_value = raw_id if raw_id and not raw_id.startswith(("missing:", "gap:")) else f"dls-{uuid.uuid4().hex[:12]}"
-    live = await live_day_hours(user_id, date_str)
+    score_id_value = (
+        raw_id
+        if raw_id and not raw_id.startswith(("missing:", "gap:"))
+        else f"dls-{uuid.uuid4().hex[:12]}"
+    )
+
+    # Compute live day hours from shared service (§2.7.1)
+    pdata_map = await _compute_person_days(
+        db=db,
+        users=[member],
+        s_clean=date_str,
+        e_clean=date_str,
+        today=pkt_today(),
+    )
+    pdata = pdata_map.get(user_id, {})
+    day_res = pdata["days"][0] if pdata.get("days") else None
+    if day_res:
+        worked_h = round(day_res["worked"] / 60.0, 2)
+        logged_h = round(day_res["logged"] / 60.0, 2)
+        gap_h = round(max(0, day_res["worked"] - day_res["logged"]) / 60.0, 2)
+        signed_gap_h = (
+            round((day_res["logged"] - day_res["worked"]) / 60.0, 2)
+            if day_res["compare_ready"]
+            else 0.0
+        )
+        has_checkin = bool(day_res["check_in"])
+        has_checkout = bool(day_res["check_out"])
+        compare_ready = bool(day_res["compare_ready"])
+    else:
+        worked_h = 0.0
+        logged_h = 0.0
+        gap_h = 0.0
+        signed_gap_h = 0.0
+        has_checkin = False
+        has_checkout = False
+        compare_ready = False
+
+    live = {
+        "worked_hours": worked_h,
+        "logged_hours": logged_h,
+        "gap_hours": gap_h,
+        "signed_gap_hours": signed_gap_h,
+        "has_checkin": has_checkin,
+        "has_checkout": has_checkout,
+        "compare_ready": compare_ready,
+    }
+
     accept_fields: dict = {}
     if new_status == "reviewed":
         accept_fields = {
@@ -513,6 +335,7 @@ async def act_on_exception(
             "reopen_note": "",
             "gap_reopened_at": None,
         }
+
     await db.daily_log_day_scores.update_one(
         {"user_id": user_id, "date": date_str},
         {
@@ -522,16 +345,16 @@ async def act_on_exception(
                 "date": date_str,
                 "full_name": member.get("full_name") or member.get("name") or "User",
                 "email": member.get("email"),
-                "department": member.get("department") or "",
+                "department": member.get("department") or member.get("primary_department") or "",
                 "role": member_role,
                 "action_status": new_status,
                 "action_type": action if action in ("explain", "correct", "ask_again") else (score or {}).get("action_type"),
-                "action_by": current_user.get("id"),
+                "action_by": actor_id,
                 "action_by_name": actor_name,
-                "action_by_role": role,
+                "action_by_role": actor_role,
                 "action_at": now_iso,
                 "escalated": set_escalated,
-                "employee_notified": already_notified or ping,
+                "employee_notified": ping or already_notified,
                 "logged_hours": live["logged_hours"],
                 "worked_hours": live["worked_hours"],
                 "gap_hours": live["gap_hours"],
@@ -573,8 +396,6 @@ async def act_on_exception(
         "emailed": False,
         "already_requested": False,
     }
-
-
 @router.post("/my-reason")
 async def submit_member_reason(
     body: MemberReasonRequest,
@@ -625,612 +446,427 @@ async def get_operating_snapshot(
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom end date"),
     current_user: dict = Depends(require_management_role),
 ):
+    """
+    Thin adapter over compute_log_variance, preserving response shape for LogComplianceCard.
+    """
     db = get_database()
     date_str = date or pkt_today()
     range_lower = str(range_mode).lower()
     s_clean = start_date if isinstance(start_date, str) and start_date.strip() else None
     e_clean = end_date if isinstance(end_date, str) and end_date.strip() else None
-    has_custom_dates = bool(s_clean and e_clean)
-    range_key = "range" if (range_lower == "range" or has_custom_dates) else ("week" if range_lower == "week" else "today")
 
-    from datetime import timedelta
-    computed_start: Optional[str] = None
-    computed_end: Optional[str] = None
-
-    if range_key == "range" and s_clean and e_clean:
-        try:
-            s_dt = datetime.strptime(s_clean, "%Y-%m-%d").date()
-            e_dt = datetime.strptime(e_clean, "%Y-%m-%d").date()
-            if s_dt > e_dt:
-                s_dt, e_dt = e_dt, s_dt
-            delta = min((e_dt - s_dt).days, 90)
-            window = [(s_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(delta + 1)]
-            computed_start = s_dt.strftime("%Y-%m-%d")
-            computed_end = (s_dt + timedelta(days=delta)).strftime("%Y-%m-%d")
-        except Exception:
-            window = [date_str]
-            computed_start = date_str
-            computed_end = date_str
-    elif range_key == "week":
-        try:
-            anchor_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
-            # Week is strictly Monday to Saturday (6 days)
-            monday = anchor_dt - timedelta(days=anchor_dt.weekday())
-            saturday = monday + timedelta(days=5)
-            window = [(monday + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6)]
-            computed_start = monday.strftime("%Y-%m-%d")
-            computed_end = saturday.strftime("%Y-%m-%d")
-        except Exception:
-            window = [date_str]
-            computed_start = date_str
-            computed_end = date_str
+    if (range_lower == "range" or (s_clean and e_clean)) and s_clean and e_clean:
+        computed_start = s_clean
+        computed_end = e_clean
+        range_key = "range"
+    elif range_lower == "week":
+        anchor_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+        monday = anchor_dt - timedelta(days=anchor_dt.weekday())
+        saturday = monday + timedelta(days=5)
+        computed_start = monday.strftime("%Y-%m-%d")
+        computed_end = saturday.strftime("%Y-%m-%d")
+        range_key = "week"
     else:
-        window = [date_str]
         computed_start = date_str
         computed_end = date_str
+        range_key = "today"
 
-    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
-    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
-    empty = SnapshotResponse(date=date_str, range=range_key, start_date=computed_start, end_date=computed_end)
-    if db is None:
-        return empty
-
-    users = await company_member_users(
-        {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}},
+    data = await compute_log_variance(
+        current_user=current_user,
+        start_date=computed_start,
+        end_date=computed_end,
         db=db,
-        projection={"_id": 0, "hashed_password": 0},
-        limit=500,
     )
-    from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "daily_log")]
 
-    targets = await batch_expected_targets(users, window)
-    all_user_ids = [u.get("id") for u in users if u.get("id")]
-    att_by_key: dict = {}
-    if all_user_ids:
-        att_docs_early = await db.attendance_records.find(
-            {"user_id": {"$in": all_user_ids}, "date": {"$in": window}},
-            {"_id": 0, "user_id": 1, "date": 1, "work_hours": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "status": 1, "is_wfh": 1},
-        ).to_list(4000)
-        for rec in att_docs_early:
-            if rec.get("user_id") and rec.get("date"):
-                att_by_key[(rec["user_id"], rec["date"])] = rec
+    summary = data.get("summary", {})
+    rows = data.get("rows", [])
 
-    expected_people = []
-    for user in users:
-        uid = user.get("id")
-        if not uid:
-            continue
-        skip_all = True
-        for day in window:
-            target = targets.get((uid, day)) or {}
-            att = att_by_key.get((uid, day)) or {}
-            try:
-                workday = off_idx.is_workday_iso(day) if off_idx is not None else True
-            except Exception:
-                workday = True
-            if workday and not person_day_is_leave(target, att):
-                skip_all = False
-                break
-        if not skip_all:
-            expected_people.append(user)
+    # People with days_present > 0 and days_missing == 0
+    submitted_count = sum(
+        1 for r in rows if (r.get("days_present", 0) > 0 and r.get("days_missing", 0) == 0)
+    )
+    expected_people = sum(1 for r in rows if r.get("days_present", 0) > 0)
+    if expected_people == 0:
+        expected_people = len(rows)
 
-    logger_ids = [u.get("id") for u in expected_people if u.get("id")]
-    employees_expected = len(expected_people)
+    comp_pct = float(summary.get("submission_pct") or 0.0)
 
-    entries = await db.daily_log_entries.find({"date": {"$in": window}}, {"_id": 0}).to_list(8000)
-    logged_hours = 0.0
-    tasks_completed = 0
-    hours_by_user: dict = {uid: 0.0 for uid in logger_ids}
-    days_logged_by_user: dict = {uid: set() for uid in logger_ids}
-    submitted_ids = set()
-    for entry in entries:
-        uid = entry.get("user_id")
-        try:
-            hrs = float(entry.get("hours_utilized") or 0)
-        except (TypeError, ValueError):
-            hrs = 0.0
-        logged_hours += hrs
-        if uid:
-            submitted_ids.add(uid)
-            if uid in hours_by_user:
-                hours_by_user[uid] += hrs
-            if uid in days_logged_by_user and entry.get("date"):
-                days_logged_by_user[uid].add(entry.get("date"))
-        if str(entry.get("task_status") or "") == "Completed":
-            tasks_completed += 1
+    worked_h = round(summary.get("worked", 0) / 60.0, 2)
+    logged_h = round(summary.get("logged", 0) / 60.0, 2)
+    expected_h = round(summary.get("expected", 0) / 60.0, 2)
+    unallocated_h = round(max(0, summary.get("worked", 0) - summary.get("logged", 0)) / 60.0, 2)
 
-    expected_hours = 0.0
-    for user in expected_people:
-        uid = user.get("id")
-        for day in window:
-            target = targets.get((uid, day)) or {}
-            att = att_by_key.get((uid, day)) or {}
-            if person_day_is_leave(target, att):
-                continue
-            expected_hours += float(target.get("expected_hours") or 0)
-
-    logs_submitted = 0
-    if range_key == "today":
-        logs_submitted = sum(1 for u in expected_people if u.get("id") in submitted_ids)
-    else:
-        logs_submitted = sum(1 for u in expected_people if days_logged_by_user.get(u.get("id")))
-
-    today_iso = pkt_today()
-    from app.services.attendance_service import bind_relaxed_days
-    from app.services.relaxed_day import extra_for_record
-    await bind_relaxed_days(min(window), max(window))
-    worked_by_user: dict = {uid: 0.0 for uid in logger_ids}
-    checkin_by_user: dict = {uid: False for uid in logger_ids}
-    checkout_by_user: dict = {uid: False for uid in logger_ids}
-    active_shift_by_user: dict = {uid: False for uid in logger_ids}
-    worked_hours = 0.0
-    for (uid, day), rec in att_by_key.items():
-        if uid not in worked_by_user:
-            continue
-        if person_day_is_leave(targets.get((uid, day)) or {}, rec):
-            continue
-        try:
-            hrs = float(rec.get("work_hours") or 0)
-        except (TypeError, ValueError):
-            hrs = 0.0
-
-        cin = rec.get("check_in") or rec.get("punch_in")
-        cout = rec.get("check_out") or rec.get("punch_out")
-        if cin:
-            checkin_by_user[uid] = True
-        if cout:
-            checkout_by_user[uid] = True
-
-        if day == today_iso and cin and not cout:
-            active_shift_by_user[uid] = True
-            tgt = targets.get((uid, day)) or {}
-            is_wfh_live = bool(tgt.get("is_wfh") or rec.get("is_wfh"))
-            live_h = compute_time_at_work_hours(
-                date_str=day,
-                check_in=cin,
-                check_out=cout,
-                work_hours=hrs,
-                has_checkin=True,
-                has_checkout=False,
-                is_wfh=is_wfh_live,
-                expected_hours=float(tgt.get("expected_hours") or 0),
-                shift_start=tgt.get("shift_start"),
-                shift_end=tgt.get("shift_end"),
-                break_duration_minutes=int(tgt.get("break_duration_minutes") or 0),
-                break_start_time=tgt.get("break_start_time"),
-                break_end_time=tgt.get("break_end_time"),
-                is_night_shift=bool(tgt.get("is_night_shift")),
-                count_from_actual_check_in=bool(
-                    extra_for_record({"user_id": uid, "date": day, "is_wfh": is_wfh_live}).get(
-                        "count_from_actual_check_in"
-                    )
-                ),
+    departments: List[SnapshotDepartment] = []
+    for d in data.get("departments", []):
+        departments.append(
+            SnapshotDepartment(
+                name=d["department"],
+                total=d["people"],
+                logged=max(0, d["people"] - d["days_missing"]),
+                missing=d["days_missing"],
+                worked_hours=round(d["worked"] / 60.0, 2),
+                logged_hours=round(d["logged"] / 60.0, 2),
             )
-            hrs = max(hrs, live_h)
+        )
 
-        worked_hours += hrs
-        worked_by_user[uid] += hrs
-
-    unallocated = round(max(0.0, worked_hours - logged_hours), 2)
-
-    scores = await db.daily_log_day_scores.find(
-        {"date": {"$in": window}, "status": {"$in": ["amber", "red"]}},
-        {"_id": 0},
-    ).to_list(2000)
-    open_scores = []
-    for s in scores:
-        if person_day_is_leave(
-            targets.get((s.get("user_id"), s.get("date"))) or {},
-            att_by_key.get((s.get("user_id"), s.get("date"))),
-        ):
-            continue
-        action = s.get("action_status") or "open"
-        if action in ("reviewed", "cleared"):
-            probe = {
-                "action_status": action,
-                "accepted_signed_gap_hours": s.get("accepted_signed_gap_hours"),
-            }
-            apply_accepted_gap_state(
-                probe,
-                status=s.get("status") or "amber",
-                exceptions=s.get("exceptions") or [],
-                signed_gap=float(s.get("signed_gap_hours") or 0),
-                previous_signed_gap=s.get("signed_gap_hours"),
-            )
-            if probe.get("action_status") in ("reviewed", "cleared"):
-                continue
-        open_scores.append(s)
-    open_request_ids = list({
-        s.get("user_id")
-        for s in scores
-        if s.get("user_id") and (s.get("action_status") or "open") in ("waiting_on_employee", "waiting_on_reviewer")
-    })
-
-    past_days = [day for day in window if day < today_iso]
-    past_expected_ids = set()
-    for user in expected_people:
-        uid = user.get("id")
-        for day in past_days:
-            target = targets.get((uid, day)) or {}
-            if person_day_is_leave(target, att_by_key.get((uid, day))):
-                continue
-            try:
-                if off_idx is not None:
-                    if not off_idx.is_workday_iso(day):
-                        continue
-                else:
-                    from datetime import datetime as dt
-                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                        continue
-            except Exception:
-                continue
-            past_expected_ids.add(uid)
-            break
-
-    dept_map: dict = {}
     people: List[SnapshotPerson] = []
-    for user in expected_people:
-        uid = user.get("id")
-        dept = user.get("department") or "Unassigned"
-        logged_h = round(hours_by_user.get(uid, 0.0), 2)
-        worked_h = round(worked_by_user.get(uid, 0.0), 2)
-        did_log = bool(days_logged_by_user.get(uid) if range_key in ("week", "range") else uid in submitted_ids)
-        has_active_shift = bool(active_shift_by_user.get(uid))
-        has_checkout = bool(checkout_by_user.get(uid))
-        compare_ready = has_checkout or worked_h > 0
-        signed = signed_hours_gap(logged_h, worked_h) if compare_ready else 0.0
-        on_leave = all(
-            person_day_is_leave(targets.get((uid, day)) or {}, att_by_key.get((uid, day)))
-            for day in window
-        )
-        due = (not on_leave) and bool(did_log or has_checkout or worked_h > 0 or uid in past_expected_ids)
-        in_shift_flag = has_active_shift if (range_key == "today" or today_iso in window) else False
-        if dept not in dept_map:
-            dept_map[dept] = {"name": dept, "total": 0, "logged": 0, "missing": 0, "worked_hours": 0.0, "logged_hours": 0.0}
-        dept_map[dept]["total"] += 1
-        if did_log:
-            dept_map[dept]["logged"] += 1
-        elif due:
-            dept_map[dept]["missing"] += 1
-        dept_map[dept]["worked_hours"] += worked_h
-        dept_map[dept]["logged_hours"] += logged_h
-        people.append(SnapshotPerson(
-            user_id=uid,
-            full_name=user.get("full_name") or user.get("name") or "User",
-            department=dept,
-            role=str(user.get("role") or "team_member"),
-            logged=did_log,
-            worked_hours=worked_h,
-            logged_hours=logged_h,
-            gap_hours=abs(signed),
-            signed_gap_hours=signed,
-            has_open_request=uid in open_request_ids,
-            has_checkin=in_shift_flag,
-            has_checkout=has_checkout,
-            due=due,
-            is_full_leave=on_leave,
-        ))
+    for r in rows:
+        r_worked_h = round(r.get("worked", 0) / 60.0, 2)
+        r_logged_h = round(r.get("logged", 0) / 60.0, 2)
+        r_exp_h = round(r.get("expected", 0) / 60.0, 2)
+        r_signed_gap = round((r.get("logged", 0) - r.get("worked", 0)) / 60.0, 2)
+        r_gap = round(abs(r.get("variance", 0)) / 60.0, 2)
 
-    missing_count = sum(1 for p in people if p.due and not p.logged)
-    due_count = sum(1 for p in people if p.due)
-    exception_count = len(open_scores) + missing_count
-    compliance = round((logs_submitted / due_count) * 100, 1) if due_count else 100.0
-    if range_key == "week":
-        noun = f"for week ({computed_start} to {computed_end})"
-    elif range_key == "range":
-        noun = f"from {computed_start} to {computed_end}"
-    else:
-        noun = "today" if date_str == pkt_today() else f"on {date_str}"
-    if range_key == "today" and date_str == pkt_today() and due_count == 0:
-        summary = (
-            f"Today's shift has not started yet. {employees_expected} {people_noun(employees_expected)} expected — "
-            "status waits until they check out."
-        )
-    else:
-        summary = (
-            f"{logs_submitted} of {employees_expected} {people_noun(employees_expected)} logged {noun}. "
-            f"Team was at work {format_hours_hm(worked_hours)} and accounted for {format_hours_hm(logged_hours)} in the log."
+        people.append(
+            SnapshotPerson(
+                user_id=r["user_id"],
+                full_name=r["name"],
+                department=r.get("department"),
+                role=r.get("role", "team_member"),
+                expected_hours=r_exp_h,
+                worked_hours=r_worked_h,
+                logged_hours=r_logged_h,
+                gap_hours=r_gap,
+                signed_gap_hours=r_signed_gap,
+                has_open_request=r.get("open_exceptions", 0) > 0,
+                has_checkin=r.get("days_present", 0) > 0,
+                has_checkout=r.get("days_present", 0) > 0,
+                due=r.get("days_present", 0) > 0,
+                is_full_leave=r.get("days_leave", 0) > 0 and r.get("days_present", 0) == 0,
+            )
         )
 
-    highlights: List[SnapshotHighlight] = []
-    mismatch = sorted(open_scores, key=lambda s: float(s.get("gap_hours") or 0), reverse=True)
-    if mismatch:
-        top = mismatch[0]
-        highlights.append(SnapshotHighlight(
-            label="Biggest hours gap",
-            value=(
-                f"{top.get('full_name')} · {format_hours_hm(top.get('logged_hours') or 0)} logged / "
-                f"{format_hours_hm(top.get('worked_hours') or top.get('expected_hours') or 0)} at work"
-            ),
-            user_name=top.get("full_name"),
-        ))
-    highlights.append(SnapshotHighlight(label="Didn't log", value=str(missing_count)))
-
-    hr_exceptions = [_to_item(s) for s in open_scores if str(s.get("role") or "").lower() == "hr"]
-    top_exceptions = [_to_item(s) for s in open_scores[:8]]
-
-    departments = [
-        SnapshotDepartment(
-            name=v["name"],
-            total=v["total"],
-            logged=v["logged"],
-            missing=v["missing"],
-            worked_hours=round(v["worked_hours"], 2),
-            logged_hours=round(v["logged_hours"], 2),
-        )
-        for v in dept_map.values()
-    ]
-
-    due_ids = {p.user_id for p in people if p.due}
-    missed_workdays = 0
-    for user in expected_people:
-        uid = user.get("id")
-        logged_set = days_logged_by_user.get(uid) or set()
-        for day in window:
-            target = targets.get((uid, day)) or {}
-            if person_day_is_leave(target, att_by_key.get((uid, day))):
-                continue
-            try:
-                if off_idx is not None:
-                    if not off_idx.is_workday_iso(day):
-                        continue
-                else:
-                    from datetime import datetime as dt
-                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                        continue
-            except Exception:
-                continue
-            if day not in logged_set:
-                if day == today_iso and uid not in due_ids:
-                    continue
-                missed_workdays += 1
+    summary_sentence = (
+        f"{submitted_count} of {expected_people} logged ({comp_pct:.0f}%) · "
+        f"{format_hm(summary.get('worked', 0))} at work vs {format_hm(summary.get('logged', 0))} logged"
+    )
 
     return SnapshotResponse(
         date=date_str,
         range=range_key,
         start_date=computed_start,
         end_date=computed_end,
-        employees_expected=employees_expected,
-        logs_submitted=logs_submitted,
-        compliance_pct=compliance,
-        expected_hours=round(expected_hours, 2),
-        logged_hours=round(logged_hours, 2),
-        unallocated_hours=unallocated,
-        tasks_completed=tasks_completed,
+        employees_expected=expected_people,
+        logs_submitted=submitted_count,
+        compliance_pct=comp_pct,
+        expected_hours=expected_h,
+        logged_hours=logged_h,
+        unallocated_hours=unallocated_h,
+        tasks_completed=0,
         estimate_variance_hours=0.0,
         rework_hours=0.0,
-        exception_count=exception_count,
-        summary=summary,
-        worked_hours=round(worked_hours, 2),
-        missed_workdays=missed_workdays,
+        exception_count=summary.get("open_exceptions", 0),
+        summary=summary_sentence,
+        worked_hours=worked_h,
+        missed_workdays=summary.get("days_missing", 0),
+        highlights=[],
+        hr_exceptions=[],
+        top_exceptions=[],
+        departments=departments,
+        people=people,
+        open_request_user_ids=[],
+    )
+
+
+@router.get("/snapshot", response_model=SnapshotResponse, dependencies=[Depends(require_management_role)])
+async def get_operating_snapshot(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today PKT"),
+    range_mode: str = Query("today", alias="range", description="today | week | range"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom start date"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom end date"),
+    current_user: dict = Depends(require_management_role),
+):
+    """
+    Thin adapter over compute_log_variance and get_exceptions (§2.7.3).
+    Restores department counts, highlights, top_exceptions, hr_exceptions, and open_request_user_ids.
+    """
+    db = get_database()
+    date_str = date or pkt_today()
+    range_lower = str(range_mode).lower()
+    s_clean = start_date if isinstance(start_date, str) and start_date.strip() else None
+    e_clean = end_date if isinstance(end_date, str) and end_date.strip() else None
+
+    if (range_lower == "range" or (s_clean and e_clean)) and s_clean and e_clean:
+        computed_start = s_clean
+        computed_end = e_clean
+        range_key = "range"
+    elif range_lower == "week":
+        anchor_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+        monday = anchor_dt - timedelta(days=anchor_dt.weekday())
+        saturday = monday + timedelta(days=5)
+        computed_start = monday.strftime("%Y-%m-%d")
+        computed_end = saturday.strftime("%Y-%m-%d")
+        range_key = "week"
+    else:
+        computed_start = date_str
+        computed_end = date_str
+        range_key = "today"
+
+    data = await compute_log_variance(
+        current_user=current_user,
+        start_date=computed_start,
+        end_date=computed_end,
+        db=db,
+    )
+
+    exceptions_data = await get_exceptions(
+        current_user=current_user,
+        start_date=computed_start,
+        end_date=computed_end,
+        group_by="employee",
+        include_reviewed=False,
+        db=db,
+    )
+
+    summary = data.get("summary", {})
+    rows = data.get("rows", [])
+
+    # People with days_present > 0 and days_missing == 0
+    submitted_count = sum(
+        1 for r in rows if (r.get("days_present", 0) > 0 and r.get("days_missing", 0) == 0)
+    )
+    expected_people = sum(1 for r in rows if r.get("days_present", 0) > 0)
+    if expected_people == 0:
+        expected_people = len(rows)
+
+    comp_pct = float(summary.get("submission_pct") or 0.0)
+
+    worked_h = round(summary.get("worked", 0) / 60.0, 2)
+    logged_h = round(summary.get("logged", 0) / 60.0, 2)
+    expected_h = round(summary.get("expected", 0) / 60.0, 2)
+    unallocated_h = round(max(0, summary.get("worked", 0) - summary.get("logged", 0)) / 60.0, 2)
+
+    # Department breakdown (§2.7.3)
+    dept_rows_map: Dict[str, List[Dict[str, Any]]] = {}
+    for r in rows:
+        dept_name = r.get("department") or "General"
+        dept_rows_map.setdefault(dept_name, []).append(r)
+
+    departments: List[SnapshotDepartment] = []
+    for d_name in sorted(dept_rows_map.keys()):
+        d_rows = dept_rows_map[d_name]
+        d_total = len(d_rows)
+        d_logged = sum(1 for r in d_rows if r.get("days_present", 0) > 0 and r.get("days_missing", 0) == 0)
+        d_missing = sum(1 for r in d_rows if r.get("days_missing", 0) > 0)
+        d_worked_h = round(sum(r.get("worked", 0) for r in d_rows) / 60.0, 2)
+        d_logged_h = round(sum(r.get("logged", 0) for r in d_rows) / 60.0, 2)
+        departments.append(
+            SnapshotDepartment(
+                name=d_name,
+                total=d_total,
+                logged=d_logged,
+                missing=d_missing,
+                worked_hours=d_worked_h,
+                logged_hours=d_logged_h,
+            )
+        )
+
+    people: List[SnapshotPerson] = []
+    for r in rows:
+        r_worked_h = round(r.get("worked", 0) / 60.0, 2)
+        r_logged_h = round(r.get("logged", 0) / 60.0, 2)
+        r_exp_h = round(r.get("expected", 0) / 60.0, 2)
+        r_signed_gap = round((r.get("logged", 0) - r.get("worked", 0)) / 60.0, 2)
+        r_gap = round(abs(r.get("variance", 0)) / 60.0, 2)
+
+        people.append(
+            SnapshotPerson(
+                user_id=r["user_id"],
+                full_name=r["name"],
+                department=r.get("department"),
+                role=r.get("role", "team_member"),
+                expected_hours=r_exp_h,
+                worked_hours=r_worked_h,
+                logged_hours=r_logged_h,
+                gap_hours=r_gap,
+                signed_gap_hours=r_signed_gap,
+                has_open_request=r.get("open_exceptions", 0) > 0,
+                has_checkin=r.get("days_present", 0) > 0,
+                has_checkout=r.get("days_present", 0) > 0,
+                due=r.get("days_present", 0) > 0,
+                is_full_leave=r.get("days_leave", 0) > 0 and r.get("days_present", 0) == 0,
+            )
+        )
+
+    # Collect open exception items
+    open_items: List[Dict[str, Any]] = []
+    for group in exceptions_data.get("groups", []):
+        for it in group.get("items", []):
+            open_items.append(it)
+
+    # Top exceptions: first 8 by gap descending (§2.7.3)
+    sorted_open_items = sorted(open_items, key=lambda x: abs(x.get("variance", 0)), reverse=True)
+    top_exceptions = [_raw_to_exception_item(it) for it in sorted_open_items[:8]]
+
+    # HR exceptions: open items where role is "hr" (§2.7.3)
+    hr_exceptions = [
+        _raw_to_exception_item(it)
+        for it in sorted_open_items
+        if str(it.get("role") or "").lower() == "hr"
+    ]
+
+    # Open request user IDs: people waiting on employee or reviewer (§2.7.3)
+    open_request_user_ids = list({
+        it["user_id"]
+        for it in open_items
+        if it.get("action_status") in ("waiting_on_employee", "waiting_on_reviewer")
+    })
+
+    # Highlights (§2.7.3)
+    highlights: List[SnapshotHighlight] = []
+    if sorted_open_items:
+        top_mismatch = sorted_open_items[0]
+        u_name = top_mismatch.get("user_name") or "User"
+        highlights.append(
+            SnapshotHighlight(
+                label="Biggest hours gap",
+                value=f"{u_name} · {format_hm(top_mismatch.get('logged', 0))} logged / {format_hm(top_mismatch.get('worked', 0))} at work",
+                user_name=u_name,
+            )
+        )
+    people_missing_count = sum(1 for r in rows if r.get("days_missing", 0) > 0)
+    highlights.append(
+        SnapshotHighlight(label="Didn't log", value=str(people_missing_count))
+    )
+
+    summary_sentence = (
+        f"{submitted_count} of {expected_people} logged ({comp_pct:.0f}%) · "
+        f"{format_hm(summary.get('worked', 0))} at work vs {format_hm(summary.get('logged', 0))} logged"
+    )
+
+    return SnapshotResponse(
+        date=date_str,
+        range=range_key,
+        start_date=computed_start,
+        end_date=computed_end,
+        employees_expected=expected_people,
+        logs_submitted=submitted_count,
+        compliance_pct=comp_pct,
+        expected_hours=expected_h,
+        logged_hours=logged_h,
+        unallocated_hours=unallocated_h,
+        tasks_completed=summary.get("tasks_completed", 0),
+        estimate_variance_hours=0.0,
+        rework_hours=0.0,
+        exception_count=summary.get("open_exceptions", 0),
+        summary=summary_sentence,
+        worked_hours=worked_h,
+        missed_workdays=summary.get("days_missing", 0),
         highlights=highlights,
         hr_exceptions=hr_exceptions,
         top_exceptions=top_exceptions,
         departments=departments,
         people=people,
-        open_request_user_ids=open_request_ids,
+        open_request_user_ids=open_request_user_ids,
     )
 
 
-@router.get("/employee-detail", response_model=EmployeeComplianceDetailResponse, dependencies=[Depends(require_management_role)])
-async def get_employee_compliance_detail(
-    user_id: str = Query(..., description="Target employee user ID"),
-    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
-    end_date: str = Query(..., description="End date YYYY-MM-DD"),
-    current_user: dict = Depends(require_management_role),
+@router.get("/employee-detail", response_model=EmployeeComplianceDetailResponse, dependencies=[Depends(require_lead_or_hr)])
+async def get_employee_detail(
+    user_id: str = Query(..., description="Employee user ID"),
+    date: Optional[str] = Query(None, description="Anchor date YYYY-MM-DD, defaults to today PKT"),
+    range_mode: str = Query("week", alias="range", description="today | week | range"),
+    start_date: Optional[str] = Query(None, description="Custom start date"),
+    end_date: Optional[str] = Query(None, description="Custom end date"),
+    current_user: dict = Depends(require_lead_or_hr),
 ):
-    """Returns day-by-day attendance and daily log breakdown for an employee across a date window."""
+    """
+    Thin adapter over get_employee_variance, keeping existing response shape.
+    """
     db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable.")
+    date_str = date or pkt_today()
+    range_lower = str(range_mode).lower()
+    s_clean = start_date.strip() if isinstance(start_date, str) and start_date.strip() else None
+    e_clean = end_date.strip() if isinstance(end_date, str) and end_date.strip() else None
 
-    member = await company_member_user(user_id, db=db)
-    if not member:
-        raise HTTPException(status_code=404, detail="Employee not found.")
+    if (range_lower == "range" or (s_clean and e_clean)) and s_clean and e_clean:
+        computed_start = s_clean
+        computed_end = e_clean
+    elif range_lower == "week":
+        anchor_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+        monday = anchor_dt - timedelta(days=anchor_dt.weekday())
+        saturday = monday + timedelta(days=5)
+        computed_start = monday.strftime("%Y-%m-%d")
+        computed_end = saturday.strftime("%Y-%m-%d")
+    else:
+        computed_start = date_str
+        computed_end = date_str
 
-    from app.services.access import is_tracked
-    if not is_tracked(member, "daily_log"):
-        raise HTTPException(status_code=400, detail="Daily log is off for this account.")
+    emp_data = await get_employee_variance(
+        current_user=current_user,
+        target_user_id=user_id,
+        start_date=computed_start,
+        end_date=computed_end,
+        db=db,
+    )
 
-    try:
-        s_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-        e_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-        if s_dt > e_dt:
-            s_dt, e_dt = e_dt, s_dt
-        from datetime import timedelta
-        delta = min((e_dt - s_dt).days, 90)
-        date_list = [(s_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(delta + 1)]
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD.")
+    user_info = emp_data["user"]
+    summary = emp_data["summary"]
 
-    parsed_days = [parse_iso_date(d) for d in date_list if parse_iso_date(d)]
-    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
-
-    from app.services.attendance_service import bind_relaxed_days
-    from app.services.relaxed_day import extra_for_record
-    if date_list:
-        await bind_relaxed_days(date_list[0], date_list[-1])
-    targets = await batch_expected_targets([member], date_list)
-    att_records = await db.attendance_records.find(
-        {"user_id": user_id, "date": {"$in": date_list}},
-        {"_id": 0},
-    ).to_list(len(date_list) + 10)
-    att_by_date = {rec.get("date"): rec for rec in att_records if rec.get("date")}
-
-    entries = await db.daily_log_entries.find(
-        {"user_id": user_id, "date": {"$in": date_list}},
-        {"_id": 0},
-    ).to_list(2000)
-    entries_by_date: Dict[str, list] = {}
-    for entry in entries:
-        d = entry.get("date")
-        if d:
-            entries_by_date.setdefault(d, []).append(entry)
-
-    scores = await db.daily_log_day_scores.find(
-        {"user_id": user_id, "date": {"$in": date_list}},
-        {"_id": 0},
-    ).to_list(len(date_list) + 10)
-    scores_by_date = {s.get("date"): s for s in scores if s.get("date")}
-
-    day_details: List[DayComplianceDetail] = []
-    total_worked = 0.0
-    total_logged = 0.0
-    days_expected = 0
-    days_logged = 0
-    days_missing = 0
-
-    today_pkt = pkt_today()
-
-    for d_str in date_list:
-        cur_dt = datetime.strptime(d_str, "%Y-%m-%d")
-        day_name = cur_dt.strftime("%A")
-
-        target = targets.get((user_id, d_str)) or {}
-        att = att_by_date.get(d_str) or {}
-        score = scores_by_date.get(d_str) or {}
-        day_entries = entries_by_date.get(d_str) or []
-
-        is_workday_flag = True
-        is_off_day_flag = False
-        off_label = None
-        if off_idx is not None:
-            try:
-                is_workday_flag = off_idx.is_workday_iso(d_str)
-                off_info = off_idx.get_off_day(cur_dt.date())
-                is_off_day_flag = not is_workday_flag
-                off_label = off_info.label if off_info and off_info.is_off else ("Off Day" if not is_workday_flag else None)
-            except Exception:
-                is_workday_flag = cur_dt.weekday() < 6
-                is_off_day_flag = not is_workday_flag
-        else:
-            is_workday_flag = cur_dt.weekday() < 6
-            is_off_day_flag = not is_workday_flag
-
-        is_leave_flag = person_day_is_leave(target, att)
-
-        try:
-            w_hrs = float(att.get("work_hours") or 0.0)
-        except (TypeError, ValueError):
-            w_hrs = 0.0
-
-        l_hrs = sum(float(e.get("hours_utilized") or 0.0) for e in day_entries)
-
-        cin = att.get("check_in") or att.get("punch_in")
-        cout = att.get("check_out") or att.get("punch_out")
-        has_checkin = bool(cin)
-        has_checkout = bool(cout)
-
-        is_live_shift = False
-        if d_str == today_pkt and has_checkin and not has_checkout:
-            is_live_shift = True
-            is_wfh_live = bool(target.get("is_wfh") or att.get("is_wfh"))
-            live_h = compute_time_at_work_hours(
-                date_str=d_str,
-                check_in=cin,
-                check_out=cout,
-                work_hours=w_hrs,
-                has_checkin=True,
-                has_checkout=False,
-                is_wfh=is_wfh_live,
-                expected_hours=float(target.get("expected_hours") or 0),
-                shift_start=target.get("shift_start"),
-                shift_end=target.get("shift_end"),
-                break_duration_minutes=int(target.get("break_duration_minutes") or 0),
-                break_start_time=target.get("break_start_time"),
-                break_end_time=target.get("break_end_time"),
-                is_night_shift=bool(target.get("is_night_shift")),
-                count_from_actual_check_in=bool(
-                    extra_for_record({"user_id": user_id, "date": d_str, "is_wfh": is_wfh_live}).get(
-                        "count_from_actual_check_in"
-                    )
-                ),
-            )
-            w_hrs = max(w_hrs, live_h)
-
-        compare_ready = has_checkout or w_hrs > 0
-
-        signed_gap = signed_hours_gap(l_hrs, w_hrs) if compare_ready else 0.0
-        gap_h = abs(signed_gap)
-
-        due_flag = is_workday_flag and not is_leave_flag and (has_checkout or w_hrs > 0 or d_str < today_pkt)
-        did_log_day = len(day_entries) > 0
-
-        if is_leave_flag:
-            st = "on_leave"
-        elif did_log_day:
-            st = "submitted"
-        elif due_flag:
-            st = "missing"
-        elif has_checkin and d_str == today_pkt:
-            st = "in_shift"
-        else:
-            st = "not_started"
-
-        if is_workday_flag and not is_leave_flag:
-            days_expected += 1
-            if did_log_day:
-                days_logged += 1
-            elif due_flag:
-                days_missing += 1
-
-        total_worked += w_hrs
-        total_logged += l_hrs
+    days_detail: List[DayComplianceDetail] = []
+    for d in emp_data.get("days", []):
+        parsed_d = parse_iso_date(d["date"])
+        day_name = parsed_d.strftime("%a") if parsed_d else ""
+        worked_h = round(d["worked"] / 60.0, 2)
+        logged_h = round(d["logged"] / 60.0, 2)
+        gap_h = round(abs(d["variance"]) / 60.0, 2)
+        signed_h = round((d["logged"] - d["worked"]) / 60.0, 2)
 
         tasks = [
             DailyTaskItem(
-                id=e.get("id"),
-                task_description=e.get("task_description") or "",
-                client_project=e.get("client_project"),
-                task_type=e.get("task_type"),
-                task_status=e.get("task_status"),
-                hours_utilized=float(e.get("hours_utilized") or 0.0),
-                progress_percentage=e.get("progress_percentage"),
-                blockers=e.get("blockers"),
+                id=t.get("id"),
+                task_description=t.get("task_description", ""),
+                client_project=t.get("client_project"),
+                task_type=t.get("task_type"),
+                task_status=t.get("task_status"),
+                hours_utilized=float(t.get("hours_utilized") or 0.0),
+                progress_percentage=t.get("progress_percentage"),
+                blockers=t.get("blockers"),
             )
-            for e in day_entries
+            for t in d.get("tasks", [])
         ]
 
-        day_details.append(DayComplianceDetail(
-            date=d_str,
-            day_name=day_name,
-            is_workday=is_workday_flag,
-            is_off_day=is_off_day_flag,
-            off_day_label=off_label,
-            is_leave=is_leave_flag,
-            status=st,
-            check_in=cin,
-            check_out=cout,
-            worked_hours=round(w_hrs, 2),
-            logged_hours=round(l_hrs, 2),
-            gap_hours=round(gap_h, 2),
-            signed_gap_hours=round(signed_gap, 2),
-            due=due_flag,
-            tasks=tasks,
-            member_reason=score.get("member_reason"),
-            action_status=score.get("action_status"),
-            action_type=score.get("action_type"),
-            is_live=is_live_shift,
-        ))
+        days_detail.append(
+            DayComplianceDetail(
+                date=d["date"],
+                day_name=day_name,
+                is_workday=d["scheduled"],
+                is_off_day=d["status"] in ("off", "holiday"),
+                off_day_label=d.get("status_label"),
+                is_leave=d["status"] == "leave",
+                status=d["status"],
+                check_in=d.get("check_in"),
+                check_out=d.get("check_out"),
+                worked_hours=worked_h,
+                logged_hours=logged_h,
+                gap_hours=gap_h,
+                signed_gap_hours=signed_h,
+                due=d["compare_ready"],
+                tasks=tasks,
+                member_reason=(d.get("score_doc") or {}).get("member_reason"),
+                action_status=(d.get("score_doc") or {}).get("action_status"),
+                action_type=(d.get("score_doc") or {}).get("action_type"),
+                is_live=d["status"] == "live",
+            )
+        )
 
-    total_signed_gap = round(total_logged - total_worked, 2)
+    total_worked_h = round(summary.get("worked", 0) / 60.0, 2)
+    total_logged_h = round(summary.get("logged", 0) / 60.0, 2)
+    total_signed_gap_h = round((summary.get("logged", 0) - summary.get("worked", 0)) / 60.0, 2)
 
     return EmployeeComplianceDetailResponse(
-        user_id=user_id,
-        full_name=member.get("full_name") or member.get("name") or "User",
-        email=member.get("email"),
-        department=member.get("department"),
-        role=str(member.get("role") or "team_member"),
-        start_date=start_date,
-        end_date=end_date,
-        total_worked_hours=round(total_worked, 2),
-        total_logged_hours=round(total_logged, 2),
-        total_signed_gap_hours=total_signed_gap,
-        days_expected=days_expected,
-        days_logged=days_logged,
-        days_missing=days_missing,
-        days=day_details,
+        user_id=user_info["user_id"],
+        full_name=user_info["name"],
+        email=user_info.get("email"),
+        department=user_info.get("department"),
+        role=user_info.get("role", "team_member"),
+        start_date=computed_start,
+        end_date=computed_end,
+        total_worked_hours=total_worked_h,
+        total_logged_hours=total_logged_h,
+        total_signed_gap_hours=total_signed_gap_h,
+        days_expected=summary.get("days_scheduled", 0),
+        days_logged=summary.get("days_logged", 0),
+        days_missing=summary.get("days_missing", 0),
+        days=days_detail,
     )
-
-

@@ -158,7 +158,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         const panelLabel = user?.role === 'hr' ? 'HR panel' : user?.role === 'operations' ? 'Operations panel' : 'Admin panel';
         const adminLabels: Record<string, string> = {
           directory: 'Team directory',
-          compliance: 'Log compliance',
+          compliance: 'Log variance',
           workspaces: 'Client workspaces',
           companies: 'Companies',
         };

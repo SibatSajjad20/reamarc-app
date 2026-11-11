@@ -233,7 +233,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   return (
     <div className="flex flex-col h-full w-full min-h-0 bg-canvas text-fg overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto flex flex-col custom-scrollbar">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col custom-scrollbar">
         {activeSection === 'directory' && (
           <UserManagementSection
             members={members}
