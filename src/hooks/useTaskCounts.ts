@@ -23,11 +23,22 @@ const store: Store = {
   lastFocusRefresh: 0,
 };
 
+let taskCountsEnabled = true;
+
 function notify() {
   store.listeners.forEach((fn) => fn());
 }
 
+function stopTimer() {
+  if (typeof window === 'undefined') return;
+  if (store.timer != null) {
+    window.clearInterval(store.timer);
+    store.timer = null;
+  }
+}
+
 async function refresh() {
+  if (!taskCountsEnabled) return;
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   if (store.inflight) return;
   store.inflight = true;
@@ -50,6 +61,7 @@ async function refresh() {
 }
 
 function refreshFocusThrottled() {
+  if (!taskCountsEnabled) return;
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
   const now = Date.now();
   if (now - store.lastFocusRefresh < FOCUS_THROTTLE_MS) return;
@@ -58,6 +70,7 @@ function refreshFocusThrottled() {
 }
 
 function ensureSafetyTimer() {
+  if (!taskCountsEnabled) return;
   if (typeof window === 'undefined') return;
   if (store.timer != null) return;
   store.timer = window.setInterval(() => {
@@ -68,15 +81,38 @@ function ensureSafetyTimer() {
 }
 
 function onVisibility() {
+  if (!taskCountsEnabled) return;
   if (document.visibilityState === 'visible') refreshFocusThrottled();
 }
 
 function onFocus() {
+  if (!taskCountsEnabled) return;
   refreshFocusThrottled();
 }
 
 function onChanged() {
+  if (!taskCountsEnabled) return;
   void refresh();
+}
+
+export function setTaskCountsEnabled(enabled: boolean) {
+  if (taskCountsEnabled === enabled) {
+    if (enabled) ensureSafetyTimer();
+    return;
+  }
+  taskCountsEnabled = enabled;
+  if (!enabled) {
+    stopTimer();
+    store.canSeeTasks = false;
+    store.counts = null;
+    store.inflight = false;
+    notify();
+    return;
+  }
+  if (store.listeners.size > 0) {
+    ensureSafetyTimer();
+    void refresh();
+  }
 }
 
 export function useTaskCounts() {
@@ -85,28 +121,29 @@ export function useTaskCounts() {
   useEffect(() => {
     const listener = () => setTick((n) => n + 1);
     store.listeners.add(listener);
-    ensureSafetyTimer();
-    void refresh();
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('focus', onFocus);
-    window.addEventListener('reamarc-tasks-changed', onChanged);
-    window.addEventListener('reamarc-task-activity', onChanged);
+    if (taskCountsEnabled) {
+      ensureSafetyTimer();
+      void refresh();
+      document.addEventListener('visibilitychange', onVisibility);
+      window.addEventListener('focus', onFocus);
+      window.addEventListener('reamarc-tasks-changed', onChanged);
+      window.addEventListener('reamarc-task-activity', onChanged);
+    }
     return () => {
       store.listeners.delete(listener);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('focus', onFocus);
       window.removeEventListener('reamarc-tasks-changed', onChanged);
       window.removeEventListener('reamarc-task-activity', onChanged);
-      if (store.listeners.size === 0 && store.timer != null) {
-        window.clearInterval(store.timer);
-        store.timer = null;
+      if (store.listeners.size === 0) {
+        stopTimer();
       }
     };
   }, []);
 
   return {
     counts: store.counts,
-    canSeeTasks: store.canSeeTasks,
+    canSeeTasks: taskCountsEnabled && store.canSeeTasks,
     refresh,
   };
 }

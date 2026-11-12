@@ -34,6 +34,7 @@ export interface AuthUser {
   content_stages?: string[];
   company_id?: string;
   is_super_admin?: boolean;
+  company_modules?: string[] | null;
   company?: {
     id?: string;
     name?: string;
@@ -44,6 +45,7 @@ export interface AuthUser {
     logo_url?: string | null;
     accent_color?: string;
     timezone?: string;
+    enabled_modules?: string[] | null;
   };
   impersonating?: boolean;
   read_only?: boolean;

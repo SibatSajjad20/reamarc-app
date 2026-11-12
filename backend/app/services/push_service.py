@@ -53,11 +53,49 @@ def _notification_company_id(item: Optional[dict] = None) -> Optional[str]:
     return None
 
 
+async def _unknown_kind_blocked(kind: str, item: Optional[dict] = None) -> bool:
+    """Unknown kinds are dropped only when the company has a company_modules row."""
+    from app.services.company_modules import get_company_modules
+
+    cid = _notification_company_id(item)
+    if not cid:
+        return False
+    company_mods = await get_company_modules(str(cid))
+    if company_mods is not None:
+        logger.warning("Blocked unknown notification kind %s", kind)
+        return True
+    return False
+
+
 async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Optional[dict] = None) -> List[str]:
     """Filters recipient user IDs based on effective access and tracking switches for notification kind."""
     if not user_ids:
         return []
     k = (kind or "").strip().lower()
+
+    from app.services.company_modules import (
+        get_company_modules,
+        module_enabled,
+        module_for_notification_kind,
+    )
+
+    notify_cid_early = _notification_company_id(item)
+    try:
+        kind_module = module_for_notification_kind(k)
+    except ValueError:
+        if await _unknown_kind_blocked(k, item):
+            return []
+        kind_module = None
+    if kind_module:
+        cid = notify_cid_early
+        if not cid:
+            from app.core.tenant import get_tenant_context
+            ctx = get_tenant_context()
+            cid = ctx.company_id if ctx else None
+        if cid:
+            company_mods = await get_company_modules(str(cid))
+            if not module_enabled(company_mods, kind_module):
+                return []
 
     db = get_database()
     if db is None:
@@ -393,6 +431,42 @@ async def dispatch_to_users(
     data: Optional[dict] = None,
     item: Optional[dict] = None,
 ) -> dict:
+    from app.services.company_modules import (
+        get_company_modules,
+        module_enabled,
+        module_for_notification_kind,
+    )
+
+    if user_ids is None:
+        try:
+            kind_module = module_for_notification_kind((kind or "").strip().lower())
+        except ValueError:
+            if await _unknown_kind_blocked((kind or "").strip().lower(), item):
+                return {
+                    "sent": 0,
+                    "skipped": 0,
+                    "in_app": 0,
+                    "web_sent": 0,
+                    "message": "No recipients.",
+                }
+            kind_module = None
+        if kind_module:
+            cid = _notification_company_id(item)
+            if not cid:
+                from app.core.tenant import get_tenant_context
+                ctx = get_tenant_context()
+                cid = ctx.company_id if ctx else None
+            if cid:
+                company_mods = await get_company_modules(str(cid))
+                if not module_enabled(company_mods, kind_module):
+                    return {
+                        "sent": 0,
+                        "skipped": 0,
+                        "in_app": 0,
+                        "web_sent": 0,
+                        "message": "No recipients.",
+                    }
+
     if user_ids is not None:
         user_ids = await filter_allowed_recipients(user_ids, kind, item=item)
 
@@ -503,6 +577,26 @@ async def try_claim_scheduled_push(user_id: str, date_str: str, kind: str) -> bo
     db = get_database()
     if db is None:
         return False
+    from app.services.company_modules import (
+        get_company_modules,
+        module_enabled,
+        module_for_notification_kind,
+    )
+    from app.core.tenant import get_tenant_context
+
+    try:
+        kind_module = module_for_notification_kind((kind or "").strip().lower().split(":", 1)[0])
+    except ValueError:
+        if await _unknown_kind_blocked((kind or "").strip().lower().split(":", 1)[0]):
+            return False
+        kind_module = None
+    if kind_module:
+        ctx = get_tenant_context()
+        cid = ctx.company_id if ctx else None
+        if cid:
+            company_mods = await get_company_modules(str(cid))
+            if not module_enabled(company_mods, kind_module):
+                return False
     try:
         await db.mobile_push_receipts.insert_one(
             {
@@ -534,6 +628,26 @@ async def mark_sent(user_id: str, date_str: str, kind: str) -> None:
     db = get_database()
     if db is None:
         return
+    from app.services.company_modules import (
+        get_company_modules,
+        module_enabled,
+        module_for_notification_kind,
+    )
+    from app.core.tenant import get_tenant_context
+
+    try:
+        kind_module = module_for_notification_kind((kind or "").strip().lower().split(":", 1)[0])
+    except ValueError:
+        if await _unknown_kind_blocked((kind or "").strip().lower().split(":", 1)[0]):
+            return
+        kind_module = None
+    if kind_module:
+        ctx = get_tenant_context()
+        cid = ctx.company_id if ctx else None
+        if cid:
+            company_mods = await get_company_modules(str(cid))
+            if not module_enabled(company_mods, kind_module):
+                return
     await db.mobile_push_receipts.update_one(
         {"user_id": user_id, "date": date_str, "kind": kind},
         {

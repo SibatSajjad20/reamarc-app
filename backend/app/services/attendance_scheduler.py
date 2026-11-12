@@ -377,7 +377,7 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             async def _for_comp(comp):
                 cid = comp.get("id") or str(comp.get("_id"))
                 results[cid] = await _run_midnight_attendance_internal(target_date, company=comp)
-            await for_each_active_company(_for_comp)
+            await for_each_active_company(_for_comp, module="attendance")
             return {"multi_tenant": True, "results": results}
     else:
         return await _run_midnight_attendance_internal(target_date)
@@ -514,7 +514,7 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
             async def _for_comp(comp):
                 cid = comp.get("id") or str(comp.get("_id"))
                 results[cid] = await _close_elapsed_shifts_internal(company=comp)
-            await for_each_active_company(_for_comp)
+            await for_each_active_company(_for_comp, module="attendance")
             return {"multi_tenant": True, "results": results}
     else:
         return await _close_elapsed_shifts_internal()
@@ -635,7 +635,7 @@ async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] 
             async def _for_comp(comp):
                 cid = comp.get("id") or str(comp.get("_id"))
                 results[cid] = await _run_monthly_settlement_internal(target_year_month, company=comp)
-            await for_each_active_company(_for_comp)
+            await for_each_active_company(_for_comp, module="attendance")
             return {"multi_tenant": True, "results": results}
     else:
         return await _run_monthly_settlement_internal(target_year_month)

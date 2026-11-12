@@ -1,5 +1,7 @@
 import React from 'react';
 import type { CrmLead } from '../../types/crm';
+import { useAuth } from '../../context/AuthContext';
+import { showWonDealClientWorkspaceCta } from '../../utils/companyModules';
 import { StatusPill, type statusPillVariants } from '../ui/StatusPill';
 import type { VariantProps } from 'class-variance-authority';
 
@@ -8,13 +10,13 @@ type PillVariant = NonNullable<VariantProps<typeof statusPillVariants>['variant'
 export function leadOperationalStatus(lead: Pick<
   CrmLead,
   'outcome' | 'contacted' | 'next_follow_up_at' | 'approval_status' | 'converted_workspace_id'
->): {
+>, options?: { showClientForm?: boolean }): {
   variant: PillVariant;
   label: string;
   dotClass: string;
 } {
   if (lead.outcome === 'won') {
-    if (!lead.converted_workspace_id) {
+    if (!lead.converted_workspace_id && options?.showClientForm !== false) {
       return { variant: 'warning', label: 'Needs client form', dotClass: 'bg-warning-fg' };
     }
     return { variant: 'success', label: 'Won', dotClass: 'bg-success-fg' };
@@ -46,7 +48,8 @@ export const CrmStatusBadge: React.FC<{
   >;
   className?: string;
 }> = ({ lead, className }) => {
-  const status = leadOperationalStatus(lead);
+  const { user } = useAuth();
+  const status = leadOperationalStatus(lead, { showClientForm: showWonDealClientWorkspaceCta(user) });
   return (
     <StatusPill
       variant={status.variant}

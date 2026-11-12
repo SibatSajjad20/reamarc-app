@@ -347,6 +347,12 @@ def resolve(
         return "none"
 
     if role == "admin":
+        from app.services.company_modules import company_key_for_perm_module, module_enabled, modules_from_user
+
+        cm = modules_from_user(user)
+        company_key = company_key_for_perm_module(module)
+        if company_key and not module_enabled(cm, company_key):
+            return "none"
         return "all" if "all" in MODULE_LEVELS.get(module, ["none"]) else "manage"
 
     if role == "client":

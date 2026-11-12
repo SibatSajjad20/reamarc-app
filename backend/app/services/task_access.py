@@ -132,6 +132,10 @@ def is_task_excluded(user: Optional[Dict[str, Any]], settings: Optional[Dict[str
 def module_on(user: Optional[Dict[str, Any]]) -> bool:
     if not user:
         return False
+    from app.services.company_modules import module_enabled, modules_from_user
+
+    if not module_enabled(modules_from_user(user), "tasks"):
+        return False
     if is_admin(user):
         return True
     return bool(effective_access(user)["modules"].get("tasks"))
@@ -139,6 +143,10 @@ def module_on(user: Optional[Dict[str, Any]]) -> bool:
 
 def can_open_module(user: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
     if not user or user.get("is_active") is False:
+        return False
+    from app.services.company_modules import module_enabled, modules_from_user
+
+    if not module_enabled(modules_from_user(user), "tasks"):
         return False
     if is_client(user):
         return False

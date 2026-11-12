@@ -19,6 +19,7 @@ import { canAssignCrmLeads } from '../../utils/crmAccess';
 import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 import { followUpBucket, isClosedLeadOutcome } from '../../utils/followUpBuckets';
 import { formatOpenDealTotals } from '../../utils/money';
+import { showWonDealClientWorkspaceCta } from '../../utils/companyModules';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -515,9 +516,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     ).length;
   }, [leads]);
 
+  const showClientWorkspaceCta = showWonDealClientWorkspaceCta(user);
   const pendingClientFormCount = useMemo(
-    () => leads.filter((l) => l.outcome === 'won' && !l.converted_workspace_id).length,
-    [leads]
+    () => (showClientWorkspaceCta ? leads.filter((l) => l.outcome === 'won' && !l.converted_workspace_id).length : 0),
+    [leads, showClientWorkspaceCta]
   );
 
   const pendingOpsDealCount = useMemo(

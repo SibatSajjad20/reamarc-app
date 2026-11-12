@@ -32,6 +32,8 @@ import type {
 } from '../../types/crm';
 import type { CrmLeadCreatePayload } from '../../types/crm';
 import { crmService } from '../../services/crmService';
+import { useAuth } from '../../context/AuthContext';
+import { showWonDealClientWorkspaceCta } from '../../utils/companyModules';
 import { formatDealMoney, formatOpenDealTotals } from '../../utils/money';
 import { CrmCreateLeadModal } from './CrmCreateLeadModal';
 import { DrawerSkeleton } from '../ui/Skeletons';
@@ -224,6 +226,8 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   initialTab = 'overview',
   canManageWorkspaces = false,
 }) => {
+  const { user } = useAuth();
+  const showClientWorkspaceCta = showWonDealClientWorkspaceCta(user);
   const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
   const [note, setNote] = useState('');
   const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
@@ -602,7 +606,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       {activeTab === 'overview' && (
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 custom-scrollbar">
           {/* Operations Approval / Client Form status */}
-          {lead.outcome === 'won' && (
+          {lead.outcome === 'won' && showClientWorkspaceCta && (
             <div className="p-3.5 rounded-lg bg-success-bg/40 border border-success-bd space-y-2">
               <div className="flex items-start gap-2.5">
                 {lead.converted_workspace_id ? (
@@ -1110,6 +1114,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       {/* Footer */}
       {!closed ? (
         <div className="bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 shrink-0">
+          {showClientWorkspaceCta && (
           <Button
             type="button"
             variant="primary"
@@ -1121,6 +1126,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
             Register as client
           </Button>
+          )}
           <Button
             type="button"
             variant="secondary"

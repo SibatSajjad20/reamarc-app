@@ -500,6 +500,10 @@ async def get_public_campaign_review(
             raise HTTPException(status_code=404, detail="Campaign review link not found.")
         cid = doc.get("company_id") or "company_reamarc"
 
+    from app.services.company_modules import get_company_modules, module_enabled
+    if not module_enabled(await get_company_modules(cid), "content_calendar"):
+        raise HTTPException(status_code=404, detail="Campaign review link not found.")
+
     with tenant_scope(cid):
         db = get_database()
         res = await content_calendar_service.get_public_review_item(db, token=token)
@@ -534,6 +538,10 @@ async def submit_public_campaign_review(
             raise HTTPException(status_code=404, detail="Campaign review link not found.")
         cid = doc.get("company_id") or "company_reamarc"
 
+    from app.services.company_modules import get_company_modules, module_enabled
+    if not module_enabled(await get_company_modules(cid), "content_calendar"):
+        raise HTTPException(status_code=404, detail="Campaign review link not found.")
+
     with tenant_scope(cid):
         db = get_database()
         return await content_calendar_service.action_public_review_item(
@@ -566,6 +574,10 @@ async def get_public_campaign_asset(
         if not doc:
             raise HTTPException(status_code=404, detail="Campaign review link not found.")
         cid = doc.get("company_id") or "company_reamarc"
+
+    from app.services.company_modules import get_company_modules, module_enabled
+    if not module_enabled(await get_company_modules(cid), "content_calendar"):
+        raise HTTPException(status_code=404, detail="Campaign review link not found.")
 
     with tenant_scope(cid):
         db = get_database()

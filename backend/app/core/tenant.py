@@ -124,6 +124,7 @@ GLOBAL_COLLECTIONS: Set[str] = frozenset({
     "security_events",
     "password_resets",
     "job_locks",
+    "company_modules",
 })
 
 TENANT_COLLECTIONS: Set[str] = frozenset({
@@ -593,15 +594,32 @@ async def get_owned_or_404(coll: Any, doc_id: Union[str, Any]) -> Dict[str, Any]
     return doc
 
 
-async def for_each_active_company(fn: Callable[[Dict[str, Any]], Awaitable[None]]):
-    """Iterates through all active companies, sets tenant context for each, and executes fn."""
+async def for_each_active_company(
+    fn: Callable[[Dict[str, Any]], Awaitable[None]],
+    module: Optional[str] = None,
+):
+    """Iterates through all active companies, sets tenant context for each, and executes fn.
+
+    When ``module`` is set, companies that have that company-module disabled are skipped.
+    """
     gdb = get_global_db()
     if gdb is None:
         return
 
+    mods_map: Dict[str, Any] = {}
+    if module:
+        from app.services.company_modules import load_all_company_modules, module_enabled
+
+        mods_map = await load_all_company_modules()
+
     cursor = gdb.companies.find({"status": "active"})
     async for company in cursor:
         cid = company.get("id") or str(company.get("_id"))
+        if module:
+            from app.services.company_modules import module_enabled
+
+            if not module_enabled(mods_map.get(cid), module):
+                continue
         with tenant_scope(company_id=cid):
             try:
                 await fn(company)

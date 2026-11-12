@@ -80,6 +80,24 @@ export const ownerService = {
     return apiClient.get<Company & { users?: any[]; workspaces?: any[] }>(`/owner/companies/${id}`);
   },
 
+  async getCompanyModules(id: string) {
+    return apiClient.get<{
+      company_id: string;
+      enabled_modules: string[] | null;
+      all_modules: string[];
+      is_default: boolean;
+    }>(`/owner/companies/${id}/modules`);
+  },
+
+  async setCompanyModules(id: string, enabled_modules: string[]) {
+    return apiClient.put<{
+      company_id: string;
+      enabled_modules: string[] | null;
+      all_modules: string[];
+      is_default: boolean;
+    }>(`/owner/companies/${id}/modules`, { enabled_modules });
+  },
+
   async createCompany(payload: CreateCompanyPayload) {
     return apiClient.post<Company>('/owner/companies', payload);
   },

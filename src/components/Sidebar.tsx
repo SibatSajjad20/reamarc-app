@@ -66,6 +66,7 @@ import {
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { getGroupedVisibleSettings } from '@/utils/settingsAccess';
+import { isCompanyModuleEnabled } from '@/utils/companyModules';
 import { prefetchView } from '@/routes/lazyViews';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
 
@@ -185,7 +186,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isAdminExpanded, setIsAdminExpanded] = useState(() => currentView === 'admin');
   const [isWebsiteExpanded, setIsWebsiteExpanded] = useState(() => currentView === 'website-pipeline');
   const [isTasksExpanded, setIsTasksExpanded] = useState(() => currentView === 'tasks');
-  const { counts: taskCounts, canSeeTasks } = useTaskCounts();
+  const { counts: taskCounts, canSeeTasks: countsOk } = useTaskCounts();
   const [activeTaskSection, setActiveTaskSection] = useState('todo');
   const [isPortalExpanded, setIsPortalExpanded] = useState(() => currentView === 'portal');
   const [requestCount, setRequestCount] = useState(0);
@@ -234,18 +235,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
   const eff = user?.effective_access;
-  const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
-  const canSeeCrm = eff ? !!eff.sales : perms.canAccessCrm;
-  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.canAccessContentCalendar;
-  const canSeeWebsitePipeline = eff ? !!eff.website : perms.canAccessWebsitePipeline;
-  const canSeeAttendance = isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance);
-  const canSeeDailyLog = isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog);
+  const canSeeExceptions = perms.can('exceptions', 'department') && isCompanyModuleEnabled(user, 'daily_log');
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view') && isCompanyModuleEnabled(user, 'active_clients');
+  const canSeeCrm = (eff ? !!eff.sales : perms.canAccessCrm) && isCompanyModuleEnabled(user, 'sales');
+  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals && isCompanyModuleEnabled(user, 'sales');
+  const canSeeContentCalendar = (eff ? !!eff.content_calendar : perms.canAccessContentCalendar) && isCompanyModuleEnabled(user, 'content_calendar');
+  const canSeeWebsitePipeline = (eff ? !!eff.website : perms.canAccessWebsitePipeline) && isCompanyModuleEnabled(user, 'website');
+  const canSeeAttendance = (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance)) && isCompanyModuleEnabled(user, 'attendance');
+  const canSeeDailyLog = (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog)) && isCompanyModuleEnabled(user, 'daily_log');
   const isManagementRole = isAdmin || isHR || isOperations;
+  const canSeeTasks = Boolean(countsOk && isCompanyModuleEnabled(user, 'tasks'));
+  const canSeeDashboard = !isClient && isCompanyModuleEnabled(user, 'dashboard');
 
-  const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
-  const canSeeFinance = isAdmin || isOperations;
+  const canSeeMarketing = (eff ? !!eff.ads : perms.canAccessAds) && isCompanyModuleEnabled(user, 'ads');
+  const canSeeFinance = (isAdmin || isOperations) && isCompanyModuleEnabled(user, 'finance');
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -272,8 +275,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const adminSubItems = [
     { id: 'directory' as AdminSectionType, label: 'Team directory', visible: true },
-    { id: 'compliance' as AdminSectionType, label: 'Log variance', visible: isAdmin },
-    { id: 'workspaces' as AdminSectionType, label: 'Client workspaces', visible: isAdmin || isOperations },
+    { id: 'compliance' as AdminSectionType, label: 'Log variance', visible: isAdmin && isCompanyModuleEnabled(user, 'daily_log') },
+    { id: 'workspaces' as AdminSectionType, label: 'Client workspaces', visible: (isAdmin || isOperations) && isCompanyModuleEnabled(user, 'active_clients') },
     { id: 'companies' as AdminSectionType, label: 'Companies', visible: Boolean(user?.is_super_admin) },
   ].filter((item) => item.visible);
 
@@ -318,13 +321,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           id: 'overview',
           label: 'Overview',
-          items: [
-            {
-              id: 'dashboard' as ViewType,
-              label: 'Dashboard',
-              icon: LayoutDashboard,
-            },
-          ],
+          items: canSeeDashboard
+            ? [
+                {
+                  id: 'dashboard' as ViewType,
+                  label: 'Dashboard',
+                  icon: LayoutDashboard,
+                },
+              ]
+            : [],
         },
       ]
     : [
@@ -332,7 +337,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'overview',
       label: 'Overview',
       items: [
-        ...(!isClient
+        ...(canSeeDashboard
           ? [
               {
                 id: 'dashboard' as ViewType,
@@ -815,7 +820,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : 'opacity-100 translate-x-0 relative flex-1'
           )}
         >
-          {groups.map((group, groupIndex) => (
+          {groups.filter((group) => group.items.length > 0).map((group, groupIndex) => (
             <div key={group.id} role="group" aria-labelledby={`nav-group-${group.id}`}>
             {/* Group Label / Divider */}
             <div className="relative">

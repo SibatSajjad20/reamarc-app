@@ -1035,3 +1035,107 @@ async def remove_company_access(
         "status": "removed",
     }
 
+
+@router.get("/companies/{company_id}/modules")
+async def get_company_modules_endpoint(
+    company_id: str,
+    current_user: dict = Depends(require_owner),
+):
+    from app.services.company_modules import (
+        COMPANY_MODULE_KEYS,
+        get_company_modules,
+        serialize_enabled_modules,
+    )
+
+    gdb = get_global_db()
+    comp = await gdb.companies.find_one({"id": company_id}, {"_id": 1, "id": 1})
+    if not comp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+    mods = await get_company_modules(company_id)
+    serialized = serialize_enabled_modules(mods)
+    return {
+        "company_id": company_id,
+        "enabled_modules": serialized,
+        "all_modules": list(COMPANY_MODULE_KEYS),
+        "is_default": serialized is None,
+    }
+
+
+@router.put("/companies/{company_id}/modules")
+async def put_company_modules_endpoint(
+    company_id: str,
+    body: Dict[str, Any],
+    current_user: dict = Depends(require_owner),
+):
+    from datetime import datetime, timezone
+    from app.services.company_modules import (
+        COMPANY_MODULE_KEYS,
+        COMPANY_MODULE_KEY_SET,
+        get_company_modules,
+        invalidate_company_modules,
+        serialize_enabled_modules,
+    )
+
+    gdb = get_global_db()
+    comp = await gdb.companies.find_one({"id": company_id}, {"_id": 1, "id": 1})
+    if not comp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+
+    raw = body.get("enabled_modules")
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="enabled_modules must be a non-empty list of module keys.",
+        )
+    unknown = [k for k in raw if str(k) not in COMPANY_MODULE_KEY_SET]
+    if unknown:
+        def _fmt_key(val: Any) -> str:
+            s = str(val)
+            return s[:40] + "…" if len(s) > 40 else s
+
+        shown = [_fmt_key(k) for k in unknown[:5]]
+        extra = len(unknown) - 5
+        tail = f" (+{extra} more)" if extra > 0 else ""
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown module keys: {', '.join(shown)}{tail}",
+        )
+    enabled = sorted({str(k) for k in raw})
+    before = serialize_enabled_modules(await get_company_modules(company_id))
+
+    if set(enabled) == set(COMPANY_MODULE_KEYS):
+        await gdb.company_modules.delete_one({"_id": company_id})
+        after = None
+    else:
+        now = datetime.now(timezone.utc)
+        await gdb.company_modules.update_one(
+            {"_id": company_id},
+            {
+                "$set": {
+                    "_id": company_id,
+                    "company_id": company_id,
+                    "enabled_modules": enabled,
+                    "updated_at": now,
+                    "updated_by": current_user.get("id"),
+                }
+            },
+            upsert=True,
+        )
+        after = enabled
+
+    invalidate_company_modules(company_id)
+    invalidate_auth_cache()
+    await record_owner_audit_event(
+        global_db=gdb,
+        action="company_modules_updated",
+        actor_user_id=current_user.get("id"),
+        target_company_id=company_id,
+        details={"before": before, "after": after},
+    )
+    return {
+        "company_id": company_id,
+        "enabled_modules": after,
+        "all_modules": list(COMPANY_MODULE_KEYS),
+        "is_default": after is None,
+    }
+

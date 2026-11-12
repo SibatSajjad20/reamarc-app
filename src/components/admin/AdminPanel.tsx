@@ -20,6 +20,7 @@ import type {
   AdAccount,
 } from '../../types/admin';
 import type { Workspace } from '../../types';
+import { isCompanyModuleEnabled } from '../../utils/companyModules';
 
 export interface AdminPanelProps {
   activeSection?: AdminSectionType;
@@ -42,6 +43,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const canManageMembers = isAdmin || isHR;
   const canManageWorkspaces = isAdmin || isOperations;
+  const canSeeCompliance = isAdmin && isCompanyModuleEnabled(user, 'daily_log');
+  const canSeeWorkspacesSection = canManageWorkspaces && isCompanyModuleEnabled(user, 'active_clients');
 
   const [activeSection, setActiveSection] = useState<AdminSectionType>(() => {
     return propActiveSection || 'directory';
@@ -61,8 +64,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setActiveSection('directory');
     } else if (isOperations && activeSection === 'compliance') {
       setActiveSection('directory');
+    } else if (activeSection === 'compliance' && !canSeeCompliance) {
+      setActiveSection('directory');
+    } else if (activeSection === 'workspaces' && !canSeeWorkspacesSection) {
+      setActiveSection('directory');
     }
-  }, [user?.role, activeSection, isHR, isOperations, isSuperAdmin, propActiveSection]);
+  }, [user?.role, activeSection, isHR, isOperations, isSuperAdmin, propActiveSection, canSeeCompliance, canSeeWorkspacesSection]);
 
   const initialMembers = adminService.getCachedMembers()?.data || [];
   const initialActivitiesList = adminService.getCachedActivities()?.data || [];
@@ -109,7 +116,11 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [addToast]);
 
+  const dailyLogOn = isCompanyModuleEnabled(user, 'daily_log');
+  const adsOn = isCompanyModuleEnabled(user, 'ads');
+
   const fetchActivities = useCallback(async () => {
+    if (!dailyLogOn) return;
     try {
       const res = await adminService.getMembersActivity();
       const map: Record<string, MemberActivity> = {};
@@ -120,16 +131,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     } catch {
       // Activity fetch failure non-fatal
     }
-  }, []);
+  }, [dailyLogOn]);
 
   const fetchAdAccounts = useCallback(async () => {
+    if (!adsOn) return;
     try {
       const res = await adminService.getAdAccounts();
       setAdAccounts(res || []);
     } catch {
       // Ad accounts fetch failure non-fatal
     }
-  }, []);
+  }, [adsOn]);
 
   useEffect(() => {
     let isMounted = true;
@@ -255,7 +267,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           />
         )}
 
-        {activeSection === 'compliance' && isAdmin && (
+        {activeSection === 'compliance' && canSeeCompliance && (
           <ComplianceRemindersSection
             activities={activities}
             isLoading={isLoadingMembers}
@@ -264,7 +276,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           />
         )}
 
-        {activeSection === 'workspaces' && (isAdmin || isOperations) && (
+        {activeSection === 'workspaces' && canSeeWorkspacesSection && (
           <WorkspacesSection
             workspaces={workspaces}
             onAddWorkspace={() => onAddWorkspace?.()}

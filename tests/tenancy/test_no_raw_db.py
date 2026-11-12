@@ -51,6 +51,7 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "workspaces.py",
     "company_members.py",
     "thumbs.py",  # company-scoped media_thumbs cache after authorize_stored_upload
+    "company_modules.py",  # global company_modules allow-list (approved)
 }
 
 ALLOW_LIST_RAW_DB = {

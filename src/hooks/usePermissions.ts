@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { isCompanyModuleEnabled } from '@/utils/companyModules';
 
 const MODULE_LEVEL_RANKS: Record<string, Record<string, number>> = {
   daily_log: { none: 0, own: 1, department: 2, all: 3 },
@@ -35,13 +36,19 @@ function levelGte(module: string, current: string | undefined, target: string): 
   return cRank >= tRank;
 }
 
+function companyKeyForPermModule(module: string): string {
+  if (module === 'exceptions') return 'daily_log';
+  return module;
+}
+
 export function userCan(
-  user: { role?: string; is_active?: boolean; permissions?: any } | null | undefined,
+  user: { role?: string; is_active?: boolean; permissions?: any; company_modules?: string[] | null } | null | undefined,
   module: string,
   minLevel: string,
   _department?: string,
 ): boolean {
   if (!user || user.is_active === false) return false;
+  if (!isCompanyModuleEnabled(user, companyKeyForPermModule(module))) return false;
   const role = String(user.role || '').toLowerCase();
   if (role === 'admin') return true;
   if (role === 'client') return false;
@@ -104,6 +111,7 @@ export function usePermissions() {
     user,
     permissions,
     can,
+    companyModuleEnabled: (key: string) => isCompanyModuleEnabled(user, key),
     primaryDepartment,
     departments,
     isAdmin: role === 'admin',

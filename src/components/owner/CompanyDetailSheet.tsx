@@ -15,8 +15,12 @@ import { CompanyMark } from './CompanyMark';
 import { ownerService, type Company, type OwnerMember } from '@/services/ownerService';
 import { getRoleDisplayName } from '@/lib/roleLabel';
 import { useToast } from '@/context/ToastContext';
+import { useConfirm } from '@/components/ui/ConfirmProvider';
 import { Palette, Settings2, ArrowRight } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
+import { Callout } from '@/components/ui/Callout';
+import { COMPANY_MODULE_KEYS, COMPANY_MODULE_LABELS, type CompanyModuleKey } from '@/utils/companyModules';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { DEFAULT_TIMEZONE, getTimezoneOptions } from '@/utils/timezones';
 
@@ -57,6 +61,7 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
   onCompanyUpdated,
 }) => {
   const { addToast } = useToast();
+  const confirm = useConfirm();
   const [company, setCompany] = useState<Company | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +71,10 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
   const [editTimezone, setEditTimezone] = useState(DEFAULT_TIMEZONE);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
   const timezoneOptions = getTimezoneOptions();
+  const [moduleDraft, setModuleDraft] = useState<string[]>([...COMPANY_MODULE_KEYS]);
+  const [modulesDefault, setModulesDefault] = useState(true);
+  const [modulesLoading, setModulesLoading] = useState(false);
+  const [modulesSaving, setModulesSaving] = useState(false);
 
   const loadDetail = async (id: string) => {
     setIsLoading(true);
@@ -74,6 +83,17 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
       const data = await ownerService.getCompany(id);
       setCompany(data);
       setEditTimezone(data.timezone || DEFAULT_TIMEZONE);
+      setModulesLoading(true);
+      try {
+        const mods = await ownerService.getCompanyModules(id);
+        setModulesDefault(mods.is_default);
+        setModuleDraft(mods.enabled_modules ? [...mods.enabled_modules] : [...COMPANY_MODULE_KEYS]);
+      } catch {
+        setModulesDefault(true);
+        setModuleDraft([...COMPANY_MODULE_KEYS]);
+      } finally {
+        setModulesLoading(false);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to load company details.');
     } finally {
@@ -235,6 +255,92 @@ export const CompanyDetailSheet: React.FC<CompanyDetailSheetProps> = ({
                       </dd>
                     </div>
                   </dl>
+                </div>
+
+                {/* Modules */}
+                <div className="space-y-3 pt-4 border-t border-border">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-small font-semibold text-fg tracking-tight">Modules</div>
+                    {modulesDefault && <Badge>Default (all modules)</Badge>}
+                  </div>
+                  {modulesLoading ? (
+                    <Skeleton className="h-24 w-full" />
+                  ) : (
+                    <div className="space-y-2">
+                      {COMPANY_MODULE_KEYS.map((key) => (
+                        <div key={key} className="flex items-center justify-between gap-3 py-1">
+                          <span className="text-ui text-fg">{COMPANY_MODULE_LABELS[key as CompanyModuleKey]}</span>
+                          <ToggleSwitch
+                            checked={moduleDraft.includes(key)}
+                            onChange={(checked) => {
+                              setModuleDraft((prev) => {
+                                if (checked) return Array.from(new Set([...prev, key]));
+                                if (prev.length <= 1) return prev;
+                                return prev.filter((k) => k !== key);
+                              });
+                            }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <Callout variant="info">
+                    Changes apply within about 90 seconds; people already signed in see them after a refresh.
+                  </Callout>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      size="sm"
+                      loading={modulesSaving}
+                      disabled={modulesLoading || moduleDraft.length < 1}
+                      onClick={async () => {
+                        if (!company) return;
+                        setModulesSaving(true);
+                        try {
+                          const saved = await ownerService.setCompanyModules(company.id, moduleDraft);
+                          setModulesDefault(saved.is_default);
+                          setModuleDraft(saved.enabled_modules ? [...saved.enabled_modules] : [...COMPANY_MODULE_KEYS]);
+                          addToast('Modules updated', undefined, 'success');
+                        } catch (err: any) {
+                          addToast("Couldn't update modules", err.message, 'error');
+                        } finally {
+                          setModulesSaving(false);
+                        }
+                      }}
+                    >
+                      Save
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={modulesLoading || modulesSaving}
+                      onClick={async () => {
+                        if (!company) return;
+                        const confirmed = await confirm({
+                          title: 'Turn on all modules?',
+                          description: 'Reset to default turns ON every module for this company. People will see them after a refresh.',
+                          confirmLabel: 'Turn on all modules',
+                          tone: 'danger',
+                        });
+                        if (!confirmed) return;
+                        setModulesSaving(true);
+                        try {
+                          const saved = await ownerService.setCompanyModules(company.id, [...COMPANY_MODULE_KEYS]);
+                          setModulesDefault(saved.is_default);
+                          setModuleDraft([...COMPANY_MODULE_KEYS]);
+                          addToast('Modules reset to default', undefined, 'success');
+                        } catch (err: any) {
+                          addToast("Couldn't reset modules", err.message, 'error');
+                        } finally {
+                          setModulesSaving(false);
+                        }
+                      }}
+                    >
+                      Reset to default
+                    </Button>
+                  </div>
                 </div>
 
                 {/* People with access */}

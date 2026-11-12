@@ -1,5 +1,7 @@
 export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'won-deal-approvals' | 'content-calendar' | 'website-pipeline' | 'tasks' | 'portal' | 'settings' | 'owner' | 'finance';
 
+export type CompanyModulesPayload = string[] | null;
+
 export * from './attendance';
 export * from './websiteProject';
 

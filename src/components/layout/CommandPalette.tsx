@@ -6,6 +6,7 @@ import type { AdminSectionType } from '@/types/admin';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { useAuth } from '@/context/AuthContext';
 import { getVisibleSettingsSections } from '@/utils/settingsAccess';
+import { isCompanyModuleEnabled } from '@/utils/companyModules';
 import {
   CommandDialog,
   CommandInput,
@@ -70,6 +71,8 @@ interface CommandPaletteProps {
   activeSettingsSection?: SettingsSectionSlug;
   onSelectSettingsSection?: (section: SettingsSectionSlug) => void;
   canSeeAdmin: boolean;
+  canSeeDashboard?: boolean;
+  canSeeTasks?: boolean;
   adminLabel: string;
   isManagementRole: boolean;
   canAssignCrm?: boolean;
@@ -104,6 +107,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   canSeeDailyLog,
   canSeeExceptions,
   canSeeAdmin,
+  canSeeDashboard = true,
+  canSeeTasks = true,
   adminLabel,
   isManagementRole,
   isClient,
@@ -174,6 +179,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               const meta = pagesMap[viewId];
               if (!meta) return null;
               if (viewId === 'finance' && !canSeeFinance) return null;
+              if (viewId === 'dashboard' && !canSeeDashboard) return null;
+              if (viewId === 'tasks' && !canSeeTasks) return null;
               const Icon = meta.icon;
               return (
                 <CommandItem
@@ -193,7 +200,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
         {/* All Accessible Pages */}
         <CommandGroup heading="Pages">
-          {!isClient && (
+          {!isClient && canSeeDashboard && (
             <CommandItem
               onSelect={() => handleSelectPage('dashboard')}
               className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
@@ -263,6 +270,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             >
               <Globe size={16} className="text-fg-muted shrink-0" />
               <span>Website pipeline</span>
+            </CommandItem>
+          )}
+          {canSeeTasks && (
+            <CommandItem
+              onSelect={() => handleSelectPage('tasks')}
+              className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+            >
+              <CheckSquare size={16} className="text-fg-muted shrink-0" />
+              <span>Tasks</span>
             </CommandItem>
           )}
           {canSeeAttendance && (
@@ -468,7 +484,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     <Shield size={16} className="text-fg-muted shrink-0" />
                     <span>Admin: Team directory</span>
                   </CommandItem>
-                  {isAdmin && (
+                  {isAdmin && isCompanyModuleEnabled(user, 'daily_log') && (
                     <CommandItem
                       onSelect={() => {
                         onSelectView('admin');
@@ -481,7 +497,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       <span>Admin: Log variance</span>
                     </CommandItem>
                   )}
-                  {(isAdmin || user?.role === 'operations') && (
+                  {(isAdmin || user?.role === 'operations') && isCompanyModuleEnabled(user, 'active_clients') && (
                     <CommandItem
                       onSelect={() => {
                         onSelectView('admin');

@@ -211,6 +211,7 @@ def _build_user_response(user_doc: dict) -> dict:
         "needs_setup": bool(user_doc.get("needs_setup", False)),
         "membership_id": user_doc.get("membership_id"),
         "companies": user_doc.get("companies"),
+        "company_modules": user_doc.get("company_modules"),
     }
 
 
@@ -406,6 +407,8 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             "accent_color": company_doc.get("accent_color", "#6847E0"),
             "timezone": company_doc.get("timezone", "Asia/Karachi"),
         }
+        from app.services.company_modules import apply_to_auth_payload
+        await apply_to_auth_payload(user_doc, cid, user_doc["company"])
 
     role_str = _normalize_role(user_doc.get("role"))
     base_claims = {
@@ -573,6 +576,8 @@ async def refresh_token(request: Request, response: Response):
             "accent_color": company_doc.get("accent_color", "#6847E0"),
             "timezone": company_doc.get("timezone", "Asia/Karachi"),
         }
+        from app.services.company_modules import apply_to_auth_payload
+        await apply_to_auth_payload(user_doc, cid, user_doc["company"])
 
     base_claims = {
         "sub": user_id,
@@ -698,7 +703,10 @@ async def get_me(current_user: dict = Depends(get_current_user)):
             "logo_url": c_logo,
             "accent_color": curr_comp.get("accent_color", "#6847E0"),
             "timezone": curr_comp.get("timezone", "Asia/Karachi"),
+            "enabled_modules": current_user.get("company_modules"),
         }
+
+    resp["company_modules"] = current_user.get("company_modules")
 
     return resp
 
@@ -972,6 +980,8 @@ async def switch_company(
         "accent_color": company_doc.get("accent_color", "#6847E0"),
         "timezone": company_doc.get("timezone", "Asia/Karachi"),
     }
+    from app.services.company_modules import apply_to_auth_payload
+    await apply_to_auth_payload(actor_doc, target_cid, actor_doc["company"])
     actor_doc["companies"] = companies_list
 
     wants_json = _wants_json_tokens(request)

@@ -42,6 +42,7 @@ class UserResponse(BaseModel):
     membership_id: Optional[str] = None
     companies: Optional[List[dict]] = None
     effective_access: Optional[dict] = None
+    company_modules: Optional[List[str]] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

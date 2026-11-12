@@ -35,6 +35,7 @@ import { cn } from '@/lib/utils';
 import { taskService } from '@/services/taskService';
 import type { AccessModuleStatus } from '@/services/accessService';
 import type { TaskSettings } from '@/types/task';
+import { isCompanyModuleEnabled } from '@/utils/companyModules';
 
 type ModuleKey =
   | 'attendance'
@@ -90,6 +91,11 @@ export const AccessSection: React.FC = () => {
   const [mutatingUsers, setMutatingUsers] = useState<Record<string, boolean>>({});
   const [taskSettings, setTaskSettings] = useState<TaskSettings | null>(null);
   const [taskSettingsBusy, setTaskSettingsBusy] = useState(false);
+  const visibleModuleColumns = useMemo(
+    () => MODULE_COLUMNS.filter((col) => isCompanyModuleEnabled(currentUser, col.key)),
+    [currentUser],
+  );
+  const tasksModuleOn = isCompanyModuleEnabled(currentUser, 'tasks');
 
   const loadUsers = useCallback(async () => {
     setIsLoading(true);
@@ -117,12 +123,12 @@ export const AccessSection: React.FC = () => {
   }, [loadUsers]);
 
   useEffect(() => {
-    if (currentUser?.role !== 'admin') return;
+    if (currentUser?.role !== 'admin' || !tasksModuleOn) return;
     taskService
       .getSettings()
       .then(setTaskSettings)
       .catch(() => setTaskSettings(null));
-  }, [currentUser?.role]);
+  }, [currentUser?.role, tasksModuleOn]);
 
   // Distinct department list from loaded users for the dropdown
   const departmentOptions = useMemo(() => {
@@ -428,7 +434,7 @@ export const AccessSection: React.FC = () => {
             <thead>
               <tr className="bg-subtle/50 border-b border-border text-[12px] font-semibold text-fg-muted uppercase tracking-wider select-none">
                 <th className="py-3 px-4 w-[240px] font-medium">Employee</th>
-                {MODULE_COLUMNS.map((col) => (
+                {visibleModuleColumns.map((col) => (
                   <th
                     key={col.key}
                     className="py-3 px-3 text-center font-medium w-[120px]"
@@ -533,7 +539,7 @@ export const AccessSection: React.FC = () => {
                           </span>
                         </td>
                       ) : (
-                        MODULE_COLUMNS.map((col) => {
+                        visibleModuleColumns.map((col) => {
                           const status = (row.modules as Record<string, AccessModuleStatus | undefined>)[col.key];
                           if (!status) {
                             return <td key={col.key} className="py-3 px-3 text-center text-fg-muted">—</td>;
@@ -739,7 +745,7 @@ export const AccessSection: React.FC = () => {
         </div>
       </div>
 
-      {currentUser?.role === 'admin' && taskSettings && (
+      {currentUser?.role === 'admin' && taskSettings && tasksModuleOn && (
         <div className="mt-4 p-4 bg-surface border border-border rounded-xl shadow-xs flex items-center justify-between gap-4">
           <div>
             <h3 className="text-sm font-semibold text-fg">Task Manager</h3>

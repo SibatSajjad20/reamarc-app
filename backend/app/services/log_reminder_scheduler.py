@@ -339,7 +339,7 @@ async def start_automated_log_reminder_scheduler():
                                         await _mark_run_today("evening", today_comp)
                                         await run_evening_log_reminder_check(company=comp, now_override=now_comp)
 
-                        await for_each_active_company(_check_company_reminders)
+                        await for_each_active_company(_check_company_reminders, module="daily_log")
                     else:
                         now_pk = datetime.now(PK_TZ)
                         today_str = now_pk.strftime("%Y-%m-%d")

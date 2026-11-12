@@ -45,6 +45,37 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def _attach_company_modules(rows: List[Dict[str, Any]], current_user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    from app.services.company_modules import get_company_modules, serialize_enabled_modules, modules_from_user
+
+    serialized = serialize_enabled_modules(modules_from_user(current_user))
+    if serialized is None:
+        serialized = serialize_enabled_modules(await get_company_modules(current_user.get("company_id")))
+    for row in rows:
+        row["company_modules"] = serialized
+    return rows
+
+
+async def _reject_enabling_disabled_module(current_user: Dict[str, Any], module: str, value: bool) -> None:
+    if not value:
+        return
+    from app.services.company_modules import (
+        get_company_modules,
+        module_disabled_http_detail,
+        module_enabled,
+        modules_from_user,
+    )
+
+    mods = modules_from_user(current_user)
+    if mods is None:
+        mods = await get_company_modules(current_user.get("company_id"))
+    if not module_enabled(mods, module):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=module_disabled_http_detail(module),
+        )
+
+
 class AccessPatchRequest(BaseModel):
     module: Optional[str] = None
     value: Optional[bool] = None
@@ -152,7 +183,7 @@ async def list_access_users(
 
         mems = await gdb.company_memberships.find(mem_query).to_list(2000)
         if not mems:
-            return []
+            return await _attach_company_modules([], current_user)
 
         user_ids = [m["user_id"] for m in mems]
         users = await gdb.users.find({"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]}).to_list(2000)
@@ -196,7 +227,7 @@ async def list_access_users(
 
             rows.append(row)
 
-        return rows
+        return await _attach_company_modules(rows, current_user)
 
     db = get_database()
     if db is None:
@@ -236,7 +267,7 @@ async def list_access_users(
 
         rows.append(row)
 
-    return rows
+    return await _attach_company_modules(rows, current_user)
 
 
 @router.patch("/users/{user_id}")
@@ -300,6 +331,7 @@ async def patch_user_access(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Field 'value' (boolean) is required when module is specified.",
             )
+        await _reject_enabling_disabled_module(current_user, payload.module, bool(payload.value))
 
         defaults = default_access(target)
         default_val = defaults[payload.module]
@@ -555,6 +587,7 @@ async def bulk_apply_access(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Invalid module '{payload.module}'. Valid: {', '.join(MODULES)}",
         )
+    await _reject_enabling_disabled_module(current_user, payload.module, bool(payload.value))
 
     db = get_database()
     if db is None:

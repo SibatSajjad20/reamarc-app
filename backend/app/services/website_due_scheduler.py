@@ -120,7 +120,7 @@ async def start_website_due_scheduler() -> None:
             async with job_lease("website_due_tick", ttl_seconds=3600) as acquired:
                 if acquired:
                     if getattr(settings, "MULTI_TENANT_ENABLED", False):
-                        await for_each_active_company(lambda comp: run_website_due_tick())
+                        await for_each_active_company(lambda comp: run_website_due_tick(), module="website")
                     else:
                         await run_website_due_tick()
         except asyncio.CancelledError:

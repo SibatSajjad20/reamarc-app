@@ -13,6 +13,8 @@ import { SourceIcon } from './SourceIcon';
 import { Button } from '../ui/button';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
+import { useAuth } from '../../context/AuthContext';
+import { showWonDealClientWorkspaceCta } from '../../utils/companyModules';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
 
@@ -66,6 +68,8 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   onLost,
   onReopen,
 }) => {
+  const { user } = useAuth();
+  const showClientWorkspaceCta = showWonDealClientWorkspaceCta(user);
   const { getAvatarUrl } = useMemberAvatars();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
@@ -223,7 +227,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         <div className="mt-2.5 pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs">
           <div className="min-w-0 flex items-center gap-1.5">
             {isWon ? (
-              lead.converted_workspace_id ? (
+              lead.converted_workspace_id || !showClientWorkspaceCta ? (
                 <span className="inline-flex items-center gap-1 text-xs font-medium text-success-fg">
                   <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Active</span>

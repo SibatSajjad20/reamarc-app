@@ -537,7 +537,7 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "daily_log": tracked_daily_log,
     }
 
-    return {
+    result = {
         "modules": modules,
         "levels": levels,
         "content_stages": content_stages,
@@ -546,6 +546,33 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "primary_department": primary_dept,
         "access_version": access_version,
     }
+
+    raw_cm = user.get("company_modules") if user else None
+    if isinstance(raw_cm, list):
+        from app.services.company_modules import COMPANY_MODULE_KEY_SET, module_enabled
+
+        enabled = frozenset(str(k) for k in raw_cm if str(k) in COMPANY_MODULE_KEY_SET)
+        if not enabled:
+            return result
+        for m in MODULES:
+            if not module_enabled(enabled, m):
+                result["modules"][m] = False
+                result["levels"][m] = "none"
+        if not module_enabled(enabled, "active_clients"):
+            result["levels"]["active_clients"] = "none"
+        if not module_enabled(enabled, "daily_log"):
+            result["levels"]["exceptions"] = "none"
+        if not module_enabled(enabled, "finance"):
+            result["levels"]["finance"] = "none"
+        if not module_enabled(enabled, "attendance"):
+            result["tracked"]["attendance"] = False
+            result["capabilities"]["approve_requests"] = False
+        if not module_enabled(enabled, "daily_log"):
+            result["tracked"]["daily_log"] = False
+        if not module_enabled(enabled, "content_calendar"):
+            result["content_stages"] = []
+
+    return result
 
 
 def is_tracked(user: Optional[Dict[str, Any]], module: str) -> bool:

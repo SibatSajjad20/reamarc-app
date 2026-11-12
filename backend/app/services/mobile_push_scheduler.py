@@ -178,7 +178,7 @@ async def run_mobile_reminder_tick() -> None:
         if not acquired:
             return
         if getattr(settings, "MULTI_TENANT_ENABLED", False):
-            await for_each_active_company(lambda comp: _tick_for_active_company(get_database(), comp))
+            await for_each_active_company(lambda comp: _tick_for_active_company(get_database(), comp), module="attendance")
         else:
             db = get_database()
             if db is not None:

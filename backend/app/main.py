@@ -132,7 +132,10 @@ async def lifespan(app: FastAPI):
                         await backfill_primary_departments(db)
                         await normalize_operations_role_labels(db)
                         await run_access_settings_migration(db)
-                        await backfill_share_tokens(db)
+                        from app.services.company_modules import get_company_modules, module_enabled
+                        cid = company.get("id") or str(company.get("_id") or "")
+                        if module_enabled(await get_company_modules(cid), "content_calendar"):
+                            await backfill_share_tokens(db)
 
                     await for_each_active_company(_startup_for_company)
                 else:
@@ -164,7 +167,7 @@ async def lifespan(app: FastAPI):
                     async with job_lease("marketing_metrics_sync", ttl_seconds=1800) as acquired:
                         if acquired:
                             if getattr(settings, "MULTI_TENANT_ENABLED", False):
-                                await for_each_active_company(lambda comp: run_daily_ad_metrics_sync())
+                                await for_each_active_company(lambda comp: run_daily_ad_metrics_sync(), module="ads")
                             else:
                                 await run_daily_ad_metrics_sync()
                 except asyncio.CancelledError:

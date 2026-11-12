@@ -174,7 +174,7 @@ async def start_task_due_scheduler() -> None:
             async with job_lease("task_due_tick", ttl_seconds=TICK_SECONDS) as acquired:
                 if acquired:
                     if getattr(settings, "MULTI_TENANT_ENABLED", False):
-                        await for_each_active_company(_tick_company)
+                        await for_each_active_company(_tick_company, module="tasks")
                     else:
                         await run_task_due_tick()
         except asyncio.CancelledError:
@@ -201,7 +201,7 @@ async def run_once(now: Optional[datetime] = None) -> Dict[str, int]:
             totals[k] = totals.get(k, 0) + int(v)
 
     if getattr(settings, "MULTI_TENANT_ENABLED", False):
-        await for_each_active_company(_one)
+        await for_each_active_company(_one, module="tasks")
     else:
         stats = await run_task_due_tick(now=now)
         for k, v in stats.items():

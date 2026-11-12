@@ -5,6 +5,7 @@ import {
   isCreativeLead,
   isPerformance,
 } from './contentCalendarWorkflow';
+import { isCompanyModuleEnabled, type CompanyModuleKey } from './companyModules';
 
 export interface SettingsSectionItem extends SettingsSectionMetadata {
   isAllowed: (user: any) => boolean;
@@ -52,7 +53,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Organization',
     label: 'Attendance & shifts',
     description: 'Work schedules, shift rules, and member assignments.',
-    isAllowed: (user) => user?.role === 'admin' || user?.role === 'hr',
+    isAllowed: (user) => (user?.role === 'admin' || user?.role === 'hr') && isCompanyModuleEnabled(user, 'attendance'),
   },
   {
     slug: 'holidays',
@@ -60,7 +61,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Organization',
     label: 'Holidays & calendar',
     description: 'Official holidays and company non-working dates.',
-    isAllowed: (user) => user?.role === 'admin' || user?.role === 'hr',
+    isAllowed: (user) => (user?.role === 'admin' || user?.role === 'hr') && isCompanyModuleEnabled(user, 'attendance'),
   },
   {
     slug: 'leave-quotas',
@@ -68,7 +69,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Organization',
     label: 'Leave quotas',
     description: 'Annual leave allocations and employee quota balances.',
-    isAllowed: (user) => user?.role === 'admin' || user?.role === 'hr',
+    isAllowed: (user) => (user?.role === 'admin' || user?.role === 'hr') && isCompanyModuleEnabled(user, 'attendance'),
   },
   {
     slug: 'daily-log-fields',
@@ -76,7 +77,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Organization',
     label: 'Daily log fields',
     description: 'Column structure and custom attributes for daily logs.',
-    isAllowed: (user) => user?.role === 'admin',
+    isAllowed: (user) => user?.role === 'admin' && isCompanyModuleEnabled(user, 'daily_log'),
   },
   {
     slug: 'mobile-alerts',
@@ -84,7 +85,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Organization',
     label: 'Mobile & alerts',
     description: 'Authorized mobile devices and push alert broadcasts.',
-    isAllowed: (user) => user?.role === 'admin' || user?.role === 'hr',
+    isAllowed: (user) => (user?.role === 'admin' || user?.role === 'hr') && isCompanyModuleEnabled(user, 'attendance'),
   },
   {
     slug: 'access',
@@ -102,7 +103,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Sales pipeline',
     label: 'Lead sources',
     description: 'Inbound webhooks, Meta Lead Ads pages, and queue health.',
-    isAllowed: (user) => canAssignCrmLeads(user),
+    isAllowed: (user) => canAssignCrmLeads(user) && isCompanyModuleEnabled(user, 'sales'),
   },
   {
     slug: 'booking-scheduler',
@@ -110,7 +111,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Sales pipeline',
     label: 'Booking scheduler',
     description: 'Consultation scheduling links and embed codes.',
-    isAllowed: (user) => canAssignCrmLeads(user),
+    isAllowed: (user) => canAssignCrmLeads(user) && isCompanyModuleEnabled(user, 'sales'),
   },
   {
     slug: 'message-templates',
@@ -118,7 +119,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Sales pipeline',
     label: 'Message templates',
     description: 'Reusable WhatsApp outreach and follow-up templates.',
-    isAllowed: (user) => canAssignCrmLeads(user),
+    isAllowed: (user) => canAssignCrmLeads(user) && isCompanyModuleEnabled(user, 'sales'),
   },
   {
     slug: 'lead-routing',
@@ -126,7 +127,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Sales pipeline',
     label: 'Lead routing',
     description: 'Automated assignment rules, pools, and fallback reps.',
-    isAllowed: (user) => canAssignCrmLeads(user),
+    isAllowed: (user) => canAssignCrmLeads(user) && isCompanyModuleEnabled(user, 'sales'),
   },
 
   // Content calendar
@@ -136,7 +137,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Content calendar',
     label: 'Field values',
     description: 'Predefined creative deliverables, pillars, and review statuses.',
-    isAllowed: (user) => canEditContentCalendarFields(user),
+    isAllowed: (user) => canEditContentCalendarFields(user) && isCompanyModuleEnabled(user, 'content_calendar'),
   },
 
   // Performance marketing
@@ -146,7 +147,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Performance marketing',
     label: 'Ad accounts',
     description: 'Connected ad accounts and marketing platform credentials.',
-    isAllowed: (user) => user?.role === 'admin',
+    isAllowed: (user) => user?.role === 'admin' && isCompanyModuleEnabled(user, 'ads'),
   },
 ];
 
@@ -159,6 +160,29 @@ export function isSettingsSectionAllowed(slug: string, user: any): boolean {
   if (!user) return false;
   const section = SETTINGS_SECTIONS.find((s) => s.slug === slug);
   return section ? section.isAllowed(user) : false;
+}
+
+export function settingsSectionCompanyModule(slug: string): CompanyModuleKey | null {
+  switch (slug) {
+    case 'attendance-shifts':
+    case 'holidays':
+    case 'leave-quotas':
+    case 'mobile-alerts':
+      return 'attendance';
+    case 'daily-log-fields':
+      return 'daily_log';
+    case 'lead-sources':
+    case 'booking-scheduler':
+    case 'message-templates':
+    case 'lead-routing':
+      return 'sales';
+    case 'content-calendar-fields':
+      return 'content_calendar';
+    case 'ad-accounts':
+      return 'ads';
+    default:
+      return null;
+  }
 }
 
 export function getSettingsSection(slug: string): SettingsSectionItem | undefined {

@@ -20,6 +20,7 @@ import { viewForNotificationKind } from '@/utils/notificationRoute';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { shouldSwitchCompanyForPush } from '@/utils/notificationCompany';
+import { isCompanyModuleEnabled } from '@/utils/companyModules';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { emitInvalidation, useCacheInvalidation } from '@/utils/cacheBus';
@@ -120,12 +121,14 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
 
   const unreadCount = items.filter((item) => !item.read).length;
 
+  const tasksEnabled = isCompanyModuleEnabled(user, 'tasks');
   const emitTaskActivity = useCallback((kind?: string, taskId?: string) => {
+    if (!tasksEnabled) return;
     if (!kind || !kind.startsWith('task_')) return;
     window.dispatchEvent(
       new CustomEvent('reamarc-task-activity', { detail: { kind, task_id: taskId } }),
     );
-  }, []);
+  }, [tasksEnabled]);
 
   const noteNewestTask = useCallback((rows: InboxItem[]) => {
     const newest = rows

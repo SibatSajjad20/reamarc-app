@@ -8,7 +8,7 @@ import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
 import type { AdminSectionType } from './types/admin';
 import type { SettingsSectionSlug } from './types/settings';
-import { isSettingsSectionAllowed } from './utils/settingsAccess';
+import { isSettingsSectionAllowed, settingsSectionCompanyModule } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { BrandingProvider } from './context/BrandingProvider';
@@ -16,7 +16,8 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { usePermissions } from './hooks/usePermissions';
 import { viewFromNotificationPath } from './utils/notificationRoute';
-import { useTaskCounts } from './hooks/useTaskCounts';
+import { setTaskCountsEnabled, useTaskCounts } from './hooks/useTaskCounts';
+import { isCompanyModuleEnabled } from './utils/companyModules';
 import { TaskChatWidget } from './components/task-manager/TaskChatWidget';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
@@ -66,6 +67,15 @@ import {
 function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading, pendingBrand } = useAuth();
+  useEffect(() => {
+    const onModuleDisabled = (event: Event) => {
+      const detail = (event as CustomEvent)?.detail;
+      const message = detail?.message || "This module isn't enabled for your company.";
+      addToast('Module unavailable', message, 'info');
+    };
+    window.addEventListener('reamarc-module-disabled', onModuleDisabled);
+    return () => window.removeEventListener('reamarc-module-disabled', onModuleDisabled);
+  }, [addToast]);
   const moduleClicksBlocked = useModuleLoadBlocked();
   // Splash never waits on dashboard/attendance data. Remove as soon as auth
   // (or a public route) is ready, and force-remove at most 1.5s after auth.
@@ -182,19 +192,21 @@ function AppInner() {
   const isClient = user?.role === 'client';
 
   const eff = user?.effective_access;
-  const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
-  const canSeeFinance = isAdmin || isOperations;
+  setTaskCountsEnabled(Boolean(user && user.role !== 'client' && isCompanyModuleEnabled(user, 'tasks')));
+  const canSeeMarketing = (eff ? !!eff.ads : perms.can('ads', 'view')) && isCompanyModuleEnabled(user, 'ads');
+  const canSeeFinance = (isAdmin || isOperations) && isCompanyModuleEnabled(user, 'finance');
   const canSeeAdmin = isAdmin || isHR || isOperations;
-  const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
-  const canSeeCrm = eff ? !!eff.sales : perms.can('sales', 'own');
-  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
-  const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
+  const canSeeExceptions = perms.can('exceptions', 'department') && isCompanyModuleEnabled(user, 'daily_log');
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view') && isCompanyModuleEnabled(user, 'active_clients');
+  const canSeeCrm = (eff ? !!eff.sales : perms.can('sales', 'own')) && isCompanyModuleEnabled(user, 'sales');
+  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals && isCompanyModuleEnabled(user, 'sales');
+  const canSeeContentCalendar = (eff ? !!eff.content_calendar : perms.can('content_calendar', 'view')) && isCompanyModuleEnabled(user, 'content_calendar');
+  const canSeeWebsitePipeline = (eff ? !!eff.website : perms.can('website', 'view')) && isCompanyModuleEnabled(user, 'website');
   const { canSeeTasks: countsOk } = useTaskCounts();
-  const canSeeTasks = Boolean(user && !isClient && countsOk);
-  const canSeeAttendance = !isClient && (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance));
-  const canSeeDailyLog = !isClient && (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog));
+  const canSeeTasks = Boolean(user && !isClient && countsOk && isCompanyModuleEnabled(user, 'tasks'));
+  const canSeeAttendance = !isClient && (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance)) && isCompanyModuleEnabled(user, 'attendance');
+  const canSeeDailyLog = !isClient && (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog)) && isCompanyModuleEnabled(user, 'daily_log');
+  const canSeeDashboard = !isClient && isCompanyModuleEnabled(user, 'dashboard');
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -220,8 +232,22 @@ function AppInner() {
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'portal';
-    return 'dashboard';
-  }, [isClient]);
+    if (canSeeDashboard) return 'dashboard';
+    const order: Array<[ViewType, boolean]> = [
+      ['crm', canSeeCrm],
+      ['won-deal-approvals', canSeeWonDealApprovals],
+      ['active-clients', canSeeActiveClients],
+      ['tasks', canSeeTasks],
+      ['content-calendar', canSeeContentCalendar],
+      ['website-pipeline', canSeeWebsitePipeline],
+      ['attendance', canSeeAttendance],
+      ['daily-log', canSeeDailyLog],
+      ['finance', canSeeFinance],
+      ['marketing', canSeeMarketing],
+    ];
+    const found = order.find(([, ok]) => ok);
+    return found ? found[0] : 'settings';
+  }, [isClient, canSeeDashboard, canSeeCrm, canSeeWonDealApprovals, canSeeActiveClients, canSeeTasks, canSeeContentCalendar, canSeeWebsitePipeline, canSeeAttendance, canSeeDailyLog, canSeeFinance, canSeeMarketing]);
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     if (isClient) return 'portal';
@@ -280,7 +306,7 @@ function AppInner() {
         setCurrentView(fallback);
         localStorage.setItem('reamarc_active_view', fallback);
       } else if (currentPath === 'dashboard') {
-        if (isClient) {
+        if (isClient || !isCompanyModuleEnabled(user, 'dashboard')) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -293,7 +319,13 @@ function AppInner() {
         const segments = currentPath.split('/');
         const sub = segments[1];
         if (sub && ['directory', 'compliance', 'workspaces', 'companies'].includes(sub)) {
-          setActiveAdminSection(sub as AdminSectionType);
+          if (sub === 'compliance' && !isCompanyModuleEnabled(user, 'daily_log')) {
+            setActiveAdminSection('directory');
+          } else if (sub === 'workspaces' && !isCompanyModuleEnabled(user, 'active_clients')) {
+            setActiveAdminSection('directory');
+          } else {
+            setActiveAdminSection(sub as AdminSectionType);
+          }
         }
         setCurrentView('admin');
         localStorage.setItem('reamarc_active_view', 'admin');
@@ -345,13 +377,27 @@ function AppInner() {
         setCurrentView('active-clients');
         localStorage.setItem('reamarc_active_view', 'active-clients');
       } else if (currentPath === 'active-clients' || currentPath === 'active_clients' || currentPath === 'clients') {
-        setClientPage(null);
-        setClientFormSeed(null);
-        setCurrentView('active-clients');
-        localStorage.setItem('reamarc_active_view', 'active-clients');
+        if (!isCompanyModuleEnabled(user, 'active_clients')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setClientPage(null);
+          setClientFormSeed(null);
+          setCurrentView('active-clients');
+          localStorage.setItem('reamarc_active_view', 'active-clients');
+        }
       } else if (currentPath === 'won-deal-approvals' || currentPath === 'won_deal_approvals') {
-        setCurrentView('won-deal-approvals');
-        localStorage.setItem('reamarc_active_view', 'won-deal-approvals');
+        if (!isCompanyModuleEnabled(user, 'sales')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setCurrentView('won-deal-approvals');
+          localStorage.setItem('reamarc_active_view', 'won-deal-approvals');
+        }
       } else if (currentPath === 'crm' || currentPath.startsWith('crm/') || currentPath === 'leads' || currentPath.startsWith('leads/')) {
         const segments = currentPath.split('/');
         const sub = segments[1];
@@ -361,12 +407,33 @@ function AppInner() {
         setCurrentView('crm');
         localStorage.setItem('reamarc_active_view', 'crm');
       } else if (currentPath === 'exceptions') {
-        setCurrentView('exceptions');
-        localStorage.setItem('reamarc_active_view', 'exceptions');
+        if (!isCompanyModuleEnabled(user, 'daily_log')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setCurrentView('exceptions');
+          localStorage.setItem('reamarc_active_view', 'exceptions');
+        }
       } else if (currentPath === 'content-calendar' || currentPath === 'calendar' || currentPath === 'content_calendar') {
-        setCurrentView('content-calendar');
-        localStorage.setItem('reamarc_active_view', 'content-calendar');
+        if (!isCompanyModuleEnabled(user, 'content_calendar')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setCurrentView('content-calendar');
+          localStorage.setItem('reamarc_active_view', 'content-calendar');
+        }
       } else if (currentPath === 'tasks' || currentPath.startsWith('tasks/')) {
+        if (!isCompanyModuleEnabled(user, 'tasks')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+          return;
+        }
         const segments = currentPath.split('/');
         const sub = segments[1];
         if (sub) {
@@ -397,6 +464,13 @@ function AppInner() {
         currentPath === 'website' ||
         currentPath.startsWith('website/')
       ) {
+        if (!isCompanyModuleEnabled(user, 'website')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+          return;
+        }
         const segments = currentPath.split('/');
         const sub = segments[1];
         if (sub && ['board', 'tasks', 'table'].includes(sub)) {
@@ -409,6 +483,11 @@ function AppInner() {
           window.history.replaceState(null, '', '/portal');
           setCurrentView('portal');
           localStorage.setItem('reamarc_active_view', 'portal');
+        } else if (!isCompanyModuleEnabled(user, 'ads')) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else {
           setCurrentView('marketing');
           localStorage.setItem('reamarc_active_view', 'marketing');
@@ -432,10 +511,18 @@ function AppInner() {
           setActiveSettingsSection(requestedSlug);
           localStorage.setItem('reamarc_active_view', 'settings');
         } else {
-          window.history.replaceState(null, '', '/settings/profile');
-          setCurrentView('settings');
-          setActiveSettingsSection('profile');
-          localStorage.setItem('reamarc_active_view', 'settings');
+          const moduleKey = settingsSectionCompanyModule(requestedSlug);
+          if (moduleKey && !isCompanyModuleEnabled(user, moduleKey)) {
+            const fallback = getDefaultViewForUser();
+            window.history.replaceState(null, '', `/${fallback}`);
+            setCurrentView(fallback);
+            localStorage.setItem('reamarc_active_view', fallback);
+          } else {
+            window.history.replaceState(null, '', '/settings/profile');
+            setCurrentView('settings');
+            setActiveSettingsSection('profile');
+            localStorage.setItem('reamarc_active_view', 'settings');
+          }
         }
       } else if (currentPath === 'profile') {
         window.history.replaceState(null, '', '/settings/profile');
@@ -466,10 +553,10 @@ function AppInner() {
           setActiveSettingsSection('profile');
           localStorage.setItem('reamarc_active_view', 'settings');
         } else if (!isClient && (currentPath === '' || currentPath === '/')) {
-          // Team lead, team member, hr, operations, admin land on dashboard
-          window.history.replaceState(null, '', '/dashboard');
-          setCurrentView('dashboard');
-          localStorage.setItem('reamarc_active_view', 'dashboard');
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'active-clients' && !canSeeActiveClients) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -525,7 +612,7 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
-        } else if (currentSaved === 'dashboard' && isClient) {
+        } else if (currentSaved === 'dashboard' && (isClient || !canSeeDashboard)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -537,7 +624,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeFinance, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeWebsitePipeline, canSeeTasks, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeDashboard, canSeeMarketing, canSeeFinance, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeWebsitePipeline, canSeeTasks, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
     void (async () => {
@@ -548,7 +635,7 @@ function AppInner() {
       setClientPage(null);
       setClientFormSeed(null);
     let allowedViews: ViewType[] = [];
-    if (!isClient) {
+    if (!isClient && canSeeDashboard) {
       allowedViews.push('dashboard');
     }
     if (isClient) allowedViews.push('portal');
@@ -580,7 +667,13 @@ function AppInner() {
     }
 
     if (targetView === 'admin' && requestedSub && ['directory', 'compliance', 'workspaces', 'companies'].includes(requestedSub)) {
-      setActiveAdminSection(requestedSub as AdminSectionType);
+      if (requestedSub === 'compliance' && !isCompanyModuleEnabled(user, 'daily_log')) {
+        setActiveAdminSection('directory');
+      } else if (requestedSub === 'workspaces' && !isCompanyModuleEnabled(user, 'active_clients')) {
+        setActiveAdminSection('directory');
+      } else {
+        setActiveAdminSection(requestedSub as AdminSectionType);
+      }
     }
     if (targetView === 'attendance' && subSection && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals', 'timesheet', 'requests'].includes(subSection)) {
       setActiveAttendanceSection(subSection as AttendanceSubSection);
@@ -652,13 +745,20 @@ function AppInner() {
 
   const {
     workspaces,
-  } = useWorkspaces(Boolean(user));
+  } = useWorkspaces(
+    Boolean(user) && (
+      isCompanyModuleEnabled(user, 'active_clients')
+      || isCompanyModuleEnabled(user, 'content_calendar')
+      || isCompanyModuleEnabled(user, 'website')
+      || isCompanyModuleEnabled(user, 'ads')
+    ),
+  );
 
   const {
     adAccounts,
     selectedAdAccount,
     setSelectedAdAccount,
-  } = useAdAccounts(Boolean(isAdmin || perms.can('ads', 'view')));
+  } = useAdAccounts(Boolean((isAdmin || perms.can('ads', 'view')) && isCompanyModuleEnabled(user, 'ads')));
 
   const navigateToClientPage = useCallback((next: ClientPageState, seed?: WorkspaceFormSeed | null) => {
     void (async () => {
@@ -1229,6 +1329,8 @@ function AppInner() {
         canSeeDailyLog={canSeeDailyLog}
         canSeeExceptions={canSeeExceptions}
         canSeeAdmin={canSeeAdmin}
+        canSeeDashboard={canSeeDashboard}
+        canSeeTasks={canSeeTasks}
         adminLabel={adminLabel}
         isManagementRole={isManagementRole}
         canAssignCrm={canAssign}

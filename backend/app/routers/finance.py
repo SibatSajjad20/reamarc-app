@@ -886,6 +886,9 @@ async def get_public_invoice_endpoint(request: Request, share_token: str):
         raise HTTPException(status_code=404, detail="Invoice link not found or expired")
 
     cid = inv.get("company_id") or "company_reamarc"
+    from app.services.company_modules import get_company_modules, module_enabled
+    if not module_enabled(await get_company_modules(cid), "finance"):
+        raise HTTPException(status_code=404, detail="Invoice link not found or expired")
     with tenant_scope(cid):
         db = get_database()
         settings = await get_or_init_finance_settings(db, cid)
@@ -933,6 +936,9 @@ async def get_public_invoice_pdf_endpoint(request: Request, share_token: str):
         raise HTTPException(status_code=404, detail="Invoice link not found or expired")
 
     cid = inv.get("company_id") or "company_reamarc"
+    from app.services.company_modules import get_company_modules, module_enabled
+    if not module_enabled(await get_company_modules(cid), "finance"):
+        raise HTTPException(status_code=404, detail="Invoice link not found or expired")
     with tenant_scope(cid):
         db = get_database()
         settings = await get_or_init_finance_settings(db, cid)

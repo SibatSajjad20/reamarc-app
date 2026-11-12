@@ -449,10 +449,12 @@ async def get_current_user(
     now_mono = time.monotonic()
     cached = _AUTH_CACHE.get(cache_key)
     membership_doc = None
+    company_modules = None
     if cached and (now_mono - cached["time"] < _AUTH_CACHE_TTL_SECONDS):
         user_doc = cached["user"]
         company_doc = cached["company"]
         membership_doc = cached.get("membership")
+        company_modules = cached.get("company_modules")
     else:
         from app.core.tenant import get_global_db
         gdb = get_global_db()
@@ -496,10 +498,20 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        from app.services.company_modules import get_company_modules
+
+        company_modules = None
+        cid_for_mods = None
+        if company_doc:
+            cid_for_mods = company_doc.get("id") or str(company_doc.get("_id") or "")
+        if cid_for_mods:
+            company_modules = await get_company_modules(cid_for_mods)
+
         _AUTH_CACHE[cache_key] = {
             "user": user_doc,
             "company": company_doc,
             "membership": membership_doc,
+            "company_modules": company_modules,
             "time": now_mono,
         }
 
@@ -589,6 +601,8 @@ async def get_current_user(
             imp_comp = await gdb_inst.companies.find_one({"id": target_cid})
             if imp_comp:
                 company_doc = imp_comp
+                from app.services.company_modules import get_company_modules
+                company_modules = await get_company_modules(target_cid)
 
     # Multi-company validation
     multi_company_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
@@ -749,6 +763,24 @@ async def get_current_user(
     ))
     request.state.company_id = effective_cid
 
+    from app.services.company_modules import (
+        first_disabled_path_module,
+        module_disabled_http_detail,
+        module_for_path,
+        serialize_enabled_modules,
+    )
+
+    req_path = request.url.path
+    owner_root = f"{settings.API_V1_STR}/owner"
+    if req_path != owner_root and not req_path.startswith(owner_root + "/"):
+        requirement = module_for_path(request.method, req_path)
+        disabled_key = first_disabled_path_module(company_modules, requirement)
+        if disabled_key:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=module_disabled_http_detail(disabled_key),
+            )
+
     # Read-only impersonation restrictions
     if is_imp:
         req_path = request.url.path.rstrip("/")
@@ -773,6 +805,7 @@ async def get_current_user(
             "logo_url": c_logo,
             "accent_color": company_doc.get("accent_color", "#6847E0"),
             "timezone": company_doc.get("timezone", "Asia/Karachi"),
+            "enabled_modules": serialize_enabled_modules(company_modules),
         }
 
     return {
@@ -804,6 +837,7 @@ async def get_current_user(
         "needs_setup": needs_setup,
         "membership_id": membership_id,
         "session_id": session_id or None,
+        "company_modules": serialize_enabled_modules(company_modules),
     }
 
 

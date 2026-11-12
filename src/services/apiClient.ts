@@ -71,6 +71,17 @@ function formatApiErrorMessage(data: any, status: number): string {
   return `API Request failed with status ${status}`;
 }
 
+function maybeToastModuleDisabled(status: number, data: any) {
+  const detailCode = data?.detail && typeof data.detail === 'object' ? data.detail.code : undefined;
+  if (status === 403 && detailCode === 'module_disabled' && typeof window !== 'undefined') {
+    const flag = '__reamarc_module_disabled_toast';
+    if (!(window as any)[flag]) {
+      (window as any)[flag] = true;
+      window.dispatchEvent(new CustomEvent('reamarc-module-disabled', { detail: data.detail }));
+    }
+  }
+}
+
 interface RequestOptions extends RequestInit {
   timeout?: number;
   _retried?: boolean;
@@ -355,6 +366,7 @@ class ApiClient {
           this.onUnauthorizedCallback();
         }
 
+        maybeToastModuleDisabled(response.status, data);
         const errorMessage = formatApiErrorMessage(data, response.status);
         throw new ApiError(errorMessage, response.status, data);
       }
@@ -436,6 +448,7 @@ class ApiClient {
           this.onUnauthorizedCallback();
         }
 
+        maybeToastModuleDisabled(response.status, data);
         const errorMessage = formatApiErrorMessage(data, response.status);
         throw new ApiError(errorMessage, response.status, data);
       }
@@ -534,6 +547,7 @@ class ApiClient {
         }
         if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
       }
+      maybeToastModuleDisabled(response.status, data);
       throw new ApiError(data?.detail || data?.message || 'File upload failed.', response.status, data);
     }
     return data as T;
