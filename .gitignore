@@ -88,6 +88,7 @@ test-results/
 !backend/tests/
 backend/tests/*
 !backend/tests/test_dashboard_bootstrap_perf.py
+!backend/tests/test_checkout_push_nonblocking.py
 
 # Audit dumps & PDFs (do not commit)
 SECURITY_AUDIT.pdf

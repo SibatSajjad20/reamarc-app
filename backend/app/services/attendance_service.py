@@ -615,25 +615,6 @@ async def _upsert_overtime_request(
             "created_at": now_iso,
         }
     )
-
-    # Dispatch mobile push notification to HR & Operations (excluding admin)
-    try:
-        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
-        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
-        if notify_ids:
-            user_name = user.get("full_name") or user.get("name", "Employee")
-            await push_service.dispatch_to_users(
-                user_ids=notify_ids,
-                title="New Overtime Request 📥",
-                body=f"{user_name} claimed overtime (+{overtime_minutes}m) on {date_str}.",
-                kind="leave_submitted",
-                sender_id=user_id,
-                sender_name=user_name,
-                sender_role=user.get("role"),
-            )
-    except Exception as exc:
-        logger.warning("Failed to dispatch push notification for overtime request %s: %s", req_id, exc)
-
     return req_id
 
 
@@ -2067,6 +2048,58 @@ def _check_in_alert_body(
     return parts[0] + " · " + " · ".join(parts[1:]) + "."
 
 
+def _schedule_background(coro, *, what: str) -> None:
+    """Fire punch side-effects without holding up the HTTP response.
+
+    Leave submit already uses create_task for the same push fan-out. Check-in/out
+    used to await Expo + sequential web-push (10s each), which aborted the 15s
+    browser client while the punch was still in flight.
+    """
+    try:
+        task = asyncio.create_task(coro)
+    except RuntimeError:
+        logger.warning("Skipped background %s: no running event loop", what)
+        coro.close()
+        return
+
+    def _log_failure(done: asyncio.Task) -> None:
+        if done.cancelled():
+            return
+        err = done.exception()
+        if err is not None:
+            logger.warning("Background %s failed: %s", what, err)
+
+    task.add_done_callback(_log_failure)
+
+
+async def _notify_overtime_request_submitted(
+    user: dict,
+    *,
+    date_str: str,
+    overtime_minutes: int,
+    req_id: str,
+) -> None:
+    """Best-effort HR/Ops push for a new overtime claim. Never raises."""
+    try:
+        user_id = user.get("id")
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if not notify_ids:
+            return
+        user_name = user.get("full_name") or user.get("name", "Employee")
+        await push_service.dispatch_to_users(
+            user_ids=notify_ids,
+            title="New Overtime Request 📥",
+            body=f"{user_name} claimed overtime (+{overtime_minutes}m) on {date_str}.",
+            kind="leave_submitted",
+            sender_id=user_id,
+            sender_name=user_name,
+            sender_role=user.get("role"),
+        )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for overtime request %s: %s", req_id, exc)
+
+
 async def _notify_staff_punch_event(
     user: dict,
     *,
@@ -2321,17 +2354,20 @@ async def process_check_in(
             detail=f"Attendance already recorded for {date_str}.",
         )
 
-    await _notify_staff_punch_event(
-        user=user,
-        kind="attendance_check_in",
-        title=f"{user_name} checked in",
-        body=_check_in_alert_body(
-            user_name=user_name,
-            time_str=time_str,
-            is_late=bool(calc_res.is_late),
-            late_minutes=int(calc_res.late_minutes or 0),
-            is_wfh=is_wfh,
+    _schedule_background(
+        _notify_staff_punch_event(
+            user=user,
+            kind="attendance_check_in",
+            title=f"{user_name} checked in",
+            body=_check_in_alert_body(
+                user_name=user_name,
+                time_str=time_str,
+                is_late=bool(calc_res.is_late),
+                late_minutes=int(calc_res.late_minutes or 0),
+                is_wfh=is_wfh,
+            ),
         ),
+        what="check-in staff push",
     )
 
     return AttendanceRecordResponse.from_mongo(record_doc)
@@ -2526,11 +2562,24 @@ async def process_check_out(
         logger.exception("Failed to recompute daily log score after check-out")
 
     user_name = user.get("full_name") or user.get("name") or "Employee"
-    await _notify_staff_punch_event(
-        user=user,
-        kind="attendance_check_out",
-        title=f"{user_name} checked out",
-        body=f"{user_name} checked out at {time_str}.",
+    if gate == "overtime":
+        _schedule_background(
+            _notify_overtime_request_submitted(
+                user,
+                date_str=date_str,
+                overtime_minutes=settled.claimed_overtime_minutes,
+                req_id=str(result.get("overtime_request_id") or ""),
+            ),
+            what="overtime request push",
+        )
+    _schedule_background(
+        _notify_staff_punch_event(
+            user=user,
+            kind="attendance_check_out",
+            title=f"{user_name} checked out",
+            body=f"{user_name} checked out at {time_str}.",
+        ),
+        what="check-out staff push",
     )
 
     return AttendanceRecordResponse.from_mongo(result)
