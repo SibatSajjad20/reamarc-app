@@ -187,7 +187,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isWebsiteExpanded, setIsWebsiteExpanded] = useState(() => currentView === 'website-pipeline');
   const [isTasksExpanded, setIsTasksExpanded] = useState(() => currentView === 'tasks');
   const { counts: taskCounts, canSeeTasks: countsOk } = useTaskCounts();
-  const [activeTaskSection, setActiveTaskSection] = useState('todo');
+  const [activeTaskSection, setActiveTaskSection] = useState(() => {
+    try {
+      return sessionStorage.getItem('reamarc_tasks_section') || 'all';
+    } catch {
+      return 'all';
+    }
+  });
   const [isPortalExpanded, setIsPortalExpanded] = useState(() => currentView === 'portal');
   const [requestCount, setRequestCount] = useState(0);
 
@@ -286,6 +292,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'table' as const, label: 'Table view' },
   ];
 
+  const applyTaskSection = (id: string) => {
+    setActiveTaskSection(id);
+    try {
+      sessionStorage.setItem('reamarc_tasks_section', id);
+      window.dispatchEvent(new Event('reamarc-tasks-section'));
+    } catch {
+      /* ignore */
+    }
+  };
+
   const taskSubItems = [
     { id: 'todo', label: 'To Do', count: taskCounts?.todo ?? 0 },
     { id: 'in_progress', label: 'In Progress', count: taskCounts?.in_progress ?? 0 },
@@ -310,6 +326,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge?: number;
       badgeAttention?: boolean;
       hasSubItems?: boolean;
+      highlightParent?: boolean;
+      onParentSelect?: () => void;
       isExpanded?: boolean;
       onToggleExpand?: () => void;
       subItems?: { id: string; label: string; isActive: boolean; onSelect: () => void; badge?: number }[];
@@ -470,6 +488,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 label: 'Tasks',
                 icon: CheckSquare,
                 hasSubItems: true,
+                highlightParent: currentView === 'tasks' && activeTaskSection === 'all',
+                onParentSelect: () => applyTaskSection('all'),
                 isExpanded: isTasksExpanded,
                 onToggleExpand: () => setIsTasksExpanded(!isTasksExpanded),
                 badge: taskCounts?.open,
@@ -479,15 +499,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   badge: sub.count,
                   isActive: currentView === 'tasks' && activeTaskSection === sub.id,
                   onSelect: () => {
-                    setActiveTaskSection(sub.id);
-                    try {
-                      sessionStorage.setItem('reamarc_tasks_section', sub.id);
-                      window.dispatchEvent(new Event('reamarc-tasks-section'));
-                    } catch {
-                      /* ignore */
-                    }
+                    applyTaskSection(sub.id);
                     if (currentView !== 'tasks') onSelectView('tasks');
-                    else window.dispatchEvent(new Event('reamarc-tasks-section'));
                   },
                 })),
               },
@@ -853,6 +866,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 const Icon = item.icon;
                 const isItemActive = currentView === item.id;
                 const isParentOfActive = isItemActive && item.hasSubItems;
+                const parentFilled = isItemActive && (!item.hasSubItems || item.highlightParent);
 
                 // Collapsed item with Tooltip / DropdownMenu
                 if (isCollapsed) {
@@ -900,7 +914,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             {item.label}
                           </div>
                           <DropdownMenuSeparator />
-                          {item.subItems.map((sub) => (
+                          {(item.id === 'tasks'
+                            ? [
+                                {
+                                  id: 'all',
+                                  label: 'All tasks',
+                                  isActive: currentView === 'tasks' && activeTaskSection === 'all',
+                                  onSelect: () => {
+                                    onSelectView('tasks');
+                                    applyTaskSection('all');
+                                  },
+                                },
+                                ...item.subItems,
+                              ]
+                            : item.subItems
+                          ).map((sub) => (
                             <DropdownMenuItem
                               key={sub.id}
                               onClick={sub.onSelect}
@@ -937,7 +965,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <div
                       className={cn(
                         'h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none group',
-                        isItemActive && !item.hasSubItems
+                        parentFilled
                           ? 'bg-accent-soft text-accent-text font-medium'
                           : isParentOfActive
                           ? 'text-fg font-medium hover:bg-hover'
@@ -946,6 +974,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       onMouseEnter={() => prefetchView(item.id)}
                       onClick={() => {
                         onSelectView(item.id);
+                        item.onParentSelect?.();
                         if (item.hasSubItems && currentView === item.id) {
                           item.onToggleExpand?.();
                         }

@@ -61,6 +61,12 @@ import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
 import { isAdmin } from '@/utils/taskAccess';
 import type { BoardDensity } from '@/components/task-manager/TaskPipelineCard';
+import {
+  appendUniqueTasks,
+  mergePolledTaskPage,
+  taskListCacheKey,
+  taskManagerViewCache,
+} from '@/utils/taskManagerViewCache';
 
 const SCOPE_OPTIONS: { value: TaskScope; label: string }[] = [
   { value: 'mine', label: 'My tasks' },
@@ -122,6 +128,7 @@ function readSection(): { view?: TaskViewMode; stage?: TaskStatus | 'all' } {
     const raw = sessionStorage.getItem('reamarc_tasks_section') || '';
     if (raw === 'follow-up') return { view: 'follow-up' };
     if (raw === 'overview') return { view: 'overview' };
+    if (raw === 'all') return { stage: 'all' };
     if (['todo', 'in_progress', 'in_review', 'completed'].includes(raw)) return { stage: raw as TaskStatus };
   } catch {
     /* ignore */
@@ -187,6 +194,8 @@ export const TaskManagerView: React.FC = () => {
   const [importOpen, setImportOpen] = useState(false);
   const loadGen = useRef(0);
   const motionBusy = useRef(false);
+  const tasksRef = useRef<Task[]>([]);
+  tasksRef.current = tasks;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -198,23 +207,63 @@ export const TaskManagerView: React.FC = () => {
 
   motionBusy.current = Boolean(leavingId || arrivingId);
 
-  const load = useCallback(async (opts?: { silent?: boolean }) => {
-    const silent = Boolean(opts?.silent);
+  const persistList = (key: string, next: { items: Task[]; total: number; truncated: boolean; stage_counts?: Partial<Record<TaskStatus, number>> }) => {
+    taskManagerViewCache.setList(key, {
+      items: next.items,
+      total: next.total,
+      page: 1,
+      limit: next.items.length,
+      truncated: next.truncated,
+      stage_counts: next.stage_counts,
+    });
+  };
+
+  const load = useCallback(async (opts?: { silent?: boolean; append?: boolean }) => {
+    const append = Boolean(opts?.append);
+    let silent = Boolean(opts?.silent);
     const gen = ++loadGen.current;
+    const cacheKey = taskListCacheKey(filters);
+    if (!silent && !append) {
+      const hit = taskManagerViewCache.getList(cacheKey);
+      if (hit?.data) {
+        setTasks(hit.data.items || []);
+        setStageCounts(hit.data.stage_counts || {});
+        setTruncated(Boolean(hit.data.truncated) || (hit.data.total || 0) > (hit.data.items || []).length);
+        setLoading(false);
+        silent = true;
+      } else {
+        setTasks([]);
+        setLoading(true);
+      }
+    }
     if (!silent) setError(null);
     try {
       if (silent) {
-        const list = await taskService.getAllTasks(filters);
-        if (motionBusy.current) return;
-        setTasks(list.items || []);
+        const list = await taskService.getAllTasks(filters, { cap: Math.max(tasksRef.current.length, 200) });
+        if (motionBusy.current || gen !== loadGen.current) return;
+        const merged = mergePolledTaskPage(tasksRef.current, list.items || []);
+        const truncatedNow = Boolean(list.truncated) || (list.total || 0) > merged.length;
+        setTasks(merged);
         setStageCounts(list.stage_counts || {});
-        setTruncated(Boolean(list.truncated));
+        setTruncated(truncatedNow);
+        persistList(cacheKey, { items: merged, total: list.total, truncated: truncatedNow, stage_counts: list.stage_counts });
         if (viewMode === 'overview') {
           setOverview(await taskService.getOverview());
         }
         if (viewMode === 'follow-up') {
           setFollowUp(await taskService.getFollowUp());
         }
+        return;
+      }
+      if (append) {
+        const list = await taskService.getAllTasks(filters, { cap: tasksRef.current.length + 200 });
+        if (gen !== loadGen.current) return;
+        const merged = appendUniqueTasks(tasksRef.current, list.items || []);
+        const truncatedNow = Boolean(list.truncated) || (list.total || 0) > merged.length;
+        setTasks(merged);
+        setStageCounts(list.stage_counts || {});
+        setTruncated(truncatedNow);
+        persistList(cacheKey, { items: merged, total: list.total, truncated: truncatedNow, stage_counts: list.stage_counts });
         return;
       }
       const [list, c, a, views] = await Promise.all([
@@ -224,12 +273,15 @@ export const TaskManagerView: React.FC = () => {
         taskService.getSavedViews().catch(() => ({ items: [] as TaskSavedView[] })),
       ]);
       if (gen !== loadGen.current) return;
-      setTasks(list.items || []);
+      const nextItems = list.items || [];
+      const truncatedNow = Boolean(list.truncated) || (list.total || 0) > nextItems.length;
+      setTasks(nextItems);
       setCounts(c);
       setStageCounts(list.stage_counts || {});
-      setTruncated(Boolean(list.truncated));
+      setTruncated(truncatedNow);
       setAssignable(a.items || []);
       setSavedViews(views.items || []);
+      persistList(cacheKey, { items: nextItems, total: list.total, truncated: truncatedNow, stage_counts: list.stage_counts });
       if (viewMode === 'overview') {
         setOverview(await taskService.getOverview());
       }
@@ -237,13 +289,13 @@ export const TaskManagerView: React.FC = () => {
         setFollowUp(await taskService.getFollowUp());
       }
     } catch (err: any) {
-      if (!silent) {
+      if (!silent && !append) {
         setError(err?.message || 'Failed to load tasks');
         return;
       }
-      throw err;
+      if (silent) throw err;
     } finally {
-      if (!silent && gen === loadGen.current) setLoading(false);
+      if (!silent && !append && gen === loadGen.current) setLoading(false);
     }
   }, [filters, viewMode]);
 
@@ -677,7 +729,14 @@ export const TaskManagerView: React.FC = () => {
       </div>
 
       {truncated && (
-        <p className="px-5 py-1.5 text-xs text-fg-muted border-b border-border bg-subtle">Showing first 2000</p>
+        <div className="px-5 py-1.5 text-xs text-fg-muted border-b border-border bg-subtle flex items-center justify-between gap-3">
+          <span>
+            Showing {tasks.length} of more matching tasks
+          </span>
+          <Button type="button" size="sm" variant="secondary" onClick={() => void load({ append: true })}>
+            Load more
+          </Button>
+        </div>
       )}
       {error ? (
         <ErrorState title="Failed to load tasks" message={error} onRetry={() => void load()} />
@@ -796,13 +855,19 @@ export const TaskManagerView: React.FC = () => {
             next[idx] = { ...cur[idx], ...task };
             return next;
           });
-          if (opts?.refreshList !== false) void load();
+          if (opts?.refreshList !== false) {
+            taskManagerViewCache.invalidateLists();
+            void load();
+          }
         }}
       />
       <TaskImportModal
         isOpen={importOpen}
         onClose={() => setImportOpen(false)}
-        onSuccess={() => void load()}
+        onSuccess={() => {
+          taskManagerViewCache.invalidateLists();
+          void load();
+        }}
         people={assignable}
         clients={workspaces.map((w) => ({ id: w.id, name: w.name }))}
       />

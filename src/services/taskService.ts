@@ -39,9 +39,9 @@ export const taskService = {
   async getTasks(filter?: TaskFilters & { page?: number; limit?: number; parent_id?: string }): Promise<TaskListResponse> {
     return apiClient.get<TaskListResponse>(`/tasks${paramsOf(filter)}`);
   },
-  async getAllTasks(filter?: TaskFilters): Promise<TaskListResponse> {
+  async getAllTasks(filter?: TaskFilters, opts?: { cap?: number }): Promise<TaskListResponse> {
     const pageSize = 200;
-    const cap = 2000;
+    const cap = Math.max(pageSize, opts?.cap ?? pageSize);
     let page = 1;
     let items: Task[] = [];
     let total = 0;
@@ -60,7 +60,7 @@ export const taskService = {
       page: 1,
       limit: items.length,
       stage_counts,
-      truncated: total > cap,
+      truncated: total > items.length,
     };
   },
   async getCounts(): Promise<TaskCounts> {

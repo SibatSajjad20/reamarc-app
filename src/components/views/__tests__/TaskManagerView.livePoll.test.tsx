@@ -4,6 +4,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { TASKS_LIVE_POLL_MS, TaskManagerView } from '../TaskManagerView';
 import { taskService } from '@/services/taskService';
 import type { Task } from '@/types/task';
+import { taskManagerViewCache } from '@/utils/taskManagerViewCache';
 
 class MockResizeObserver {
   observe() {}
@@ -77,6 +78,7 @@ describe('TaskManagerView live poll while the board stays open', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    taskManagerViewCache.clearAll();
     emptyMeta();
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
   });

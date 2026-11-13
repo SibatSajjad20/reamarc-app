@@ -435,14 +435,12 @@ function AppInner() {
           return;
         }
         const segments = currentPath.split('/');
-        const sub = segments[1];
-        if (sub) {
-          try {
-            sessionStorage.setItem('reamarc_tasks_section', sub);
-            window.dispatchEvent(new Event('reamarc-tasks-section'));
-          } catch {
-            /* ignore */
-          }
+        const sub = segments[1] || 'all';
+        try {
+          sessionStorage.setItem('reamarc_tasks_section', sub);
+          window.dispatchEvent(new Event('reamarc-tasks-section'));
+        } catch {
+          /* ignore */
         }
         const params = new URLSearchParams(window.location.search);
         const taskId = params.get('task');

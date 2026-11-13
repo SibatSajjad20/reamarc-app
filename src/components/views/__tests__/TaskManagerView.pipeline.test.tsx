@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { TaskManagerView } from '../TaskManagerView';
 import { taskService } from '@/services/taskService';
+import { taskManagerViewCache } from '@/utils/taskManagerViewCache';
 
 class MockResizeObserver {
   observe() {}
@@ -56,6 +57,7 @@ describe('TaskManagerView pipeline', () => {
   beforeEach(() => {
     localStorage.clear();
     sessionStorage.clear();
+    taskManagerViewCache.clearAll();
     vi.mocked(taskService.getAllTasks).mockResolvedValue({ items: [], total: 0, page: 1, limit: 50, stage_counts: {} } as any);
     vi.mocked(taskService.getCounts).mockResolvedValue({
       todo: 0,
