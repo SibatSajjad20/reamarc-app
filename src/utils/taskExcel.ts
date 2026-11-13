@@ -204,7 +204,7 @@ function setStyledCell(ws: any, r: number, c: number, value: string | number, st
 function groupMergeRanges(headerRow: number) {
   const merges: Array<{ s: { r: number; c: number }; e: { r: number; c: number } }> = [];
   let start = 0;
-  let current = TASK_EXCEL_COLUMNS[0].group;
+  let current: (typeof TASK_EXCEL_COLUMNS)[number]['group'] | undefined = TASK_EXCEL_COLUMNS[0].group;
   for (let i = 1; i <= TASK_EXCEL_COLUMNS.length; i++) {
     const next = TASK_EXCEL_COLUMNS[i]?.group;
     if (next !== current) {

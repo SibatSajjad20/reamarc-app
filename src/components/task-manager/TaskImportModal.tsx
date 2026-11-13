@@ -132,7 +132,7 @@ export const TaskImportModal: React.FC<Props> = ({ isOpen, onClose, onSuccess, p
       const allErrors: string[] = [];
       for (let offset = 0; offset < parsedItems.length; offset += 500) {
         const res = await taskService.bulkImport({
-          items: parsedItems.slice(offset, offset + 500),
+          items: parsedItems.slice(offset, offset + 500) as unknown as Record<string, unknown>[],
           upsert_by_serial: upsertBySerial,
         });
         processed += res.total_processed;

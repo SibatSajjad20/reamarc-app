@@ -137,7 +137,7 @@ function groupMergeRanges(headerRow: number) {
 }
 
 function cellForExport(item: ContentCalendarItem, key: string): string {
-  return excelSafeCell((item as Record<string, unknown>)[key]);
+  return excelSafeCell((item as unknown as Record<string, unknown>)[key]);
 }
 
 export function styleContentCalendarSheet(ws: any, sheetData: string[][], dataRowCount: number) {

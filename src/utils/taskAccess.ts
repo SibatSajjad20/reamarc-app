@@ -69,11 +69,11 @@ function chainFromIds(task: Task): string[] {
 }
 
 function assignerIsAdmin(task: Task): boolean {
-  return roleOf({ role: task.assigner_role }) === 'admin';
+  return roleOf({ role: task.assigner_role ?? undefined }) === 'admin';
 }
 
 function assigneeIsMember(task: Task): boolean {
-  return roleOf({ role: task.assignee_role }) === 'team_member';
+  return roleOf({ role: task.assignee_role ?? undefined }) === 'team_member';
 }
 
 export function isApprover(user: TaskActor | null | undefined, task: Task): boolean {
