@@ -3,6 +3,8 @@ import {
   Activity,
   Calendar,
   ChevronDown,
+  Download,
+  FileSpreadsheet,
   Kanban,
   LayoutDashboard,
   List,
@@ -11,6 +13,7 @@ import {
   Rows4,
   Search,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -23,6 +26,9 @@ import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { useConfirm, usePrompt } from '@/components/ui/ConfirmProvider';
 import { taskService } from '@/services/taskService';
+import { TaskCompleteConfetti } from '@/components/task-manager/TaskCompleteConfetti';
+import { TaskImportModal } from '@/components/task-manager/TaskImportModal';
+import { downloadTaskTemplate, exportFilteredTasksToExcel } from '@/utils/taskExcel';
 import {
   type Task,
   type TaskActor,
@@ -152,6 +158,9 @@ export const TaskManagerView: React.FC = () => {
   }));
   const [searchInput, setSearchInput] = useState('');
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [arrivingId, setArrivingId] = useState<string | null>(null);
+  const [leavingId, setLeavingId] = useState<string | null>(null);
+  const [confetti, setConfetti] = useState<{ x: number; y: number; key: number } | null>(null);
   const [counts, setCounts] = useState<TaskCounts | null>(null);
   const [overview, setOverview] = useState<TaskOverview | null>(null);
   const [followUp, setFollowUp] = useState<Record<string, Task[]> | null>(null);
@@ -175,7 +184,9 @@ export const TaskManagerView: React.FC = () => {
   const [focusAssignee, setFocusAssignee] = useState(false);
   const [stageCounts, setStageCounts] = useState<Partial<Record<TaskStatus, number>>>({});
   const [truncated, setTruncated] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const loadGen = useRef(0);
+  const motionBusy = useRef(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -185,6 +196,8 @@ export const TaskManagerView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
+  motionBusy.current = Boolean(leavingId || arrivingId);
+
   const load = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = Boolean(opts?.silent);
     const gen = ++loadGen.current;
@@ -192,6 +205,7 @@ export const TaskManagerView: React.FC = () => {
     try {
       if (silent) {
         const list = await taskService.getAllTasks(filters);
+        if (motionBusy.current) return;
         setTasks(list.items || []);
         setStageCounts(list.stage_counts || {});
         setTruncated(Boolean(list.truncated));
@@ -260,6 +274,10 @@ export const TaskManagerView: React.FC = () => {
       if (cancelled) return;
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         if (fromTimer) schedule();
+        return;
+      }
+      if (motionBusy.current) {
+        schedule();
         return;
       }
       try {
@@ -342,22 +360,44 @@ export const TaskManagerView: React.FC = () => {
     setDialogOpen(true);
   };
 
-  const handleAction = async (task: Task, action: string) => {
+  const applyStageChange = async (task: Task, to: TaskStatus, origin?: { x: number; y: number }) => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const leavesFilteredStage = Boolean(filters.stage && filters.stage !== 'all' && filters.stage !== to);
+    if (leavesFilteredStage && !reduced) {
+      setLeavingId(task.id);
+      await new Promise((resolve) => window.setTimeout(resolve, 240));
+      setLeavingId(null);
+    }
+    setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, status: to } : t)));
+    if (!reduced) {
+      setArrivingId(task.id);
+      window.setTimeout(() => setArrivingId((current) => (current === task.id ? null : current)), 340);
+    }
+    if (to === 'completed' && !reduced && origin) {
+      setConfetti({ x: origin.x, y: origin.y, key: Date.now() });
+    }
+    try {
+      const updated = await taskService.changeStage(task.id, to);
+      setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+    } catch (err) {
+      setTasks((cur) => cur.map((t) => (t.id === task.id ? task : t)));
+      throw err;
+    }
+  };
+
+  const handleAction = async (task: Task, action: string, origin?: { x: number; y: number }) => {
     try {
       if (action === 'open') return openTask(task);
       if (action === 'start') {
-        const updated = await taskService.changeStage(task.id, 'in_progress');
-        setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+        await applyStageChange(task, 'in_progress', origin);
         return;
       }
       if (action === 'submit') {
-        const updated = await taskService.changeStage(task.id, 'in_review');
-        setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+        await applyStageChange(task, 'in_review', origin);
         return;
       }
       if (action === 'approve') {
-        const updated = await taskService.changeStage(task.id, 'completed');
-        setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
+        await applyStageChange(task, 'completed', origin);
         return;
       }
       if (action === 'reassign') {
@@ -419,6 +459,55 @@ export const TaskManagerView: React.FC = () => {
                 ...(isAdmin(actor) ? [{ value: 'activity', label: 'Activity', icon: Activity }] : []),
               ]}
             />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="secondary" size="sm" title="Export tasks to Excel or download template">
+                  <Download className="w-3.5 h-3.5 mr-1" />
+                  Export
+                  <ChevronDown className="w-3 h-3 ml-1 text-fg-muted" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64 p-1">
+                <DropdownMenuItem
+                  className="flex items-start gap-2.5 px-2.5 py-2 rounded-md cursor-pointer"
+                  onSelect={() => {
+                    if (!tasks.length) {
+                      addToast('Nothing to export', 'No tasks match the current filters.', 'info');
+                      return;
+                    }
+                    exportFilteredTasksToExcel(tasks);
+                    addToast(
+                      'Export complete',
+                      `Exported ${tasks.length} visible task ${tasks.length === 1 ? 'record' : 'records'} to Excel.`,
+                      'success',
+                    );
+                  }}
+                >
+                  <FileSpreadsheet className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-fg">Export visible tasks</div>
+                    <div className="text-[11px] text-fg-muted">Current filters and search only</div>
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="flex items-start gap-2.5 px-2.5 py-2 rounded-md cursor-pointer"
+                  onSelect={() => {
+                    downloadTaskTemplate();
+                    addToast('Template downloaded', 'Tasks blank Excel template saved to downloads.', 'info');
+                  }}
+                >
+                  <Download className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                  <div>
+                    <div className="text-xs font-semibold text-fg">Download template (.xlsx)</div>
+                    <div className="text-[11px] text-fg-muted">Blank sheet with the import columns</div>
+                  </div>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button type="button" variant="secondary" size="sm" title="Import task rows from Excel" onClick={() => setImportOpen(true)}>
+              <Upload className="w-3.5 h-3.5 mr-1" />
+              Import
+            </Button>
             <Button type="button" variant="primary" size="sm" onClick={() => openCreate()}>
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Add task
@@ -618,6 +707,17 @@ export const TaskManagerView: React.FC = () => {
           onViewAll={(stage) => setFilters((f) => ({ ...f, stage }))}
           focusedStage={filters.stage}
           stageCounts={stageCounts}
+          arrivingId={arrivingId}
+          leavingId={leavingId}
+          onDropTask={async (taskId, to) => {
+            const task = tasks.find((t) => t.id === taskId);
+            if (!task || task.status === to) return;
+            try {
+              await applyStageChange(task, to);
+            } catch (err: any) {
+              addToast('Action failed', err?.message || 'Could not update task', 'error');
+            }
+          }}
         />
       ) : viewMode === 'kanban' ? (
         <TaskKanbanView
@@ -699,6 +799,21 @@ export const TaskManagerView: React.FC = () => {
           if (opts?.refreshList !== false) void load();
         }}
       />
+      <TaskImportModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        onSuccess={() => void load()}
+        people={assignable}
+        clients={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+      />
+      {confetti ? (
+        <TaskCompleteConfetti
+          key={confetti.key}
+          x={confetti.x}
+          y={confetti.y}
+          onDone={() => setConfetti(null)}
+        />
+      ) : null}
     </div>
   );
 };

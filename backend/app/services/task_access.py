@@ -240,14 +240,37 @@ def is_department_lead_of_task(user: Optional[Dict[str, Any]], task: Optional[Di
     return task_dept in dept_set(user)
 
 
+def _task_role(task: Optional[Dict[str, Any]], key: str) -> str:
+    return normalize_role((task or {}).get(key))
+
+
+def assigner_is_admin(task: Optional[Dict[str, Any]]) -> bool:
+    return _task_role(task, "assigner_role") == "admin"
+
+
+def assignee_is_lead(task: Optional[Dict[str, Any]]) -> bool:
+    return _task_role(task, "assignee_role") == "team_lead"
+
+
+def assignee_is_member(task: Optional[Dict[str, Any]]) -> bool:
+    return _task_role(task, "assignee_role") == "team_member"
+
+
 def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
-    """Admin, every assignment_chain from_id, or the current assignee's department lead. Never the assignee."""
+    """Admin, chain assigners, or the assignee's department lead. Never the assignee,
+    except when an admin assigned the task directly to a team lead (that lead may self-approve).
+    When an admin assigned it to a team member, only that department's team lead may approve.
+    """
     if not user or not task or user.get("is_active") is False:
         return False
     if is_client(user) or is_task_excluded(user, settings):
         return False
+    if assigner_is_admin(task) and is_lead(user) and is_assignee(user, task):
+        return True
     if is_assignee(user, task):
         return False
+    if assigner_is_admin(task) and assignee_is_member(task):
+        return is_department_lead_of_task(user, task)
     if is_admin(user):
         return True
     if is_chain_assigner(user, task):
@@ -493,9 +516,7 @@ def can_transition(
         return False, "Only the assignee can submit this task for review"
 
     if dest == "completed":
-        if is_self_assigned(task) and assignee and current in ("in_progress", "todo", "in_review"):
-            return True, ""
-        if assignee:
+        if assignee and not is_approver(user, task, settings):
             return False, "You cannot approve your own task"
         if current != "in_review" and not admin:
             return False, "Approve from In Review"

@@ -8,10 +8,13 @@ interface Props {
   tasks: Task[];
   actor: TaskActor | null;
   onOpen: (task: Task) => void;
-  onAction: (task: Task, action: string) => void;
+  onAction: (task: Task, action: string, origin?: { x: number; y: number }) => void;
   onViewAll: (stage: TaskStatus) => void;
   focusedStage?: TaskStatus | 'all';
   stageCounts?: Partial<Record<TaskStatus, number>>;
+  arrivingId?: string | null;
+  leavingId?: string | null;
+  onDropTask?: (taskId: string, to: TaskStatus) => void;
 }
 
 export const TaskListView: React.FC<Props> = ({
@@ -22,6 +25,9 @@ export const TaskListView: React.FC<Props> = ({
   onViewAll,
   focusedStage,
   stageCounts,
+  arrivingId,
+  leavingId,
+  onDropTask,
 }) => {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     try {
@@ -65,6 +71,10 @@ export const TaskListView: React.FC<Props> = ({
           actor={actor}
           limitRows={focusedStage !== stage.value}
           count={stageCounts?.[stage.value]}
+          arrivingId={arrivingId}
+          leavingId={leavingId}
+          enableDrag={Boolean(onDropTask)}
+          onDropTask={onDropTask}
         />
       ))}
     </div>

@@ -14,7 +14,7 @@ from pymongo.errors import DuplicateKeyError
 from fastapi import HTTPException, status
 
 from app.core.tenant import company_singleton_id, company_tz
-from app.schemas.task import DEFAULT_REMINDER_OFFSETS, OPEN_STATUSES, TASK_PRIORITIES
+from app.schemas.task import DEFAULT_REMINDER_OFFSETS, OPEN_STATUSES, TASK_PRIORITIES, TASK_STATUSES, TaskImportItem
 from app.services.access import canonical_department, get_user_primary_department, parse_user_departments
 from app.services.company_members import company_member_user, company_member_users
 from app.services.task_access import (
@@ -38,6 +38,7 @@ from app.services.task_access import (
     display_name,
     is_admin,
     is_lead,
+    role_of,
     is_self_assigned,
     is_task_excluded,
     is_view_only,
@@ -414,8 +415,10 @@ async def create_task(db, payload: Dict[str, Any], actor: Dict[str, Any], settin
         "creator_name": actor_name,
         "assignee_id": uid_of(assignee),
         "assignee_name": display_name(assignee),
+        "assignee_role": role_of(assignee),
         "assigner_id": actor_id,
         "assigner_name": actor_name,
+        "assigner_role": role_of(actor),
         "department": department,
         "assignment_chain": [hop],
         "watcher_ids": watchers,
@@ -984,8 +987,10 @@ async def assign_task(db, task_id: str, assignee_id: str, actor: Dict[str, Any],
     updates = {
         "assignee_id": uid_of(target),
         "assignee_name": display_name(target),
+        "assignee_role": role_of(target),
         "assigner_id": actor_id,
         "assigner_name": display_name(actor),
+        "assigner_role": role_of(actor),
         "department": department,
         "assignment_chain": chain,
         "status": new_status,
@@ -1334,3 +1339,175 @@ async def delete_saved_view(db, view_id: str, user: Dict[str, Any]) -> Dict[str,
         raise HTTPException(status_code=404, detail="Saved view not found")
     await db.task_saved_views.delete_one({"id": view_id})
     return {"ok": True}
+
+
+def sanitize_spreadsheet_string(val: Any) -> Any:
+    """Same formula-injection guard as content calendar import."""
+    if isinstance(val, str) and (val.startswith(("\t", "\r")) or val.strip().startswith(("=", "+", "-", "@"))):
+        return "'" + val
+    return val
+
+
+def format_import_serial(raw: Optional[str]) -> Optional[str]:
+    s = str(raw or "").strip()
+    if not s or s.upper() == "AUTO":
+        return None
+    match = re.search(r"(\d+)", s)
+    if not match:
+        return None
+    n = int(match.group(1))
+    if n <= 0:
+        return None
+    return f"T-{n:04d}"
+
+
+def _match_named(needle: str, rows: List[Dict[str, Any]], keys: Tuple[str, ...]) -> Optional[Dict[str, Any]]:
+    n = (needle or "").strip().lower()
+    if not n:
+        return None
+    for row in rows:
+        if str(row.get("id") or "").strip().lower() == n:
+            return row
+        for key in keys:
+            if str(row.get(key) or "").strip().lower() == n:
+                return row
+    return None
+
+
+async def bulk_import_tasks(
+    db,
+    items: List[TaskImportItem],
+    actor: Dict[str, Any],
+    *,
+    upsert_by_serial: bool = True,
+) -> Dict[str, Any]:
+    cfg = await get_task_settings(db)
+    if not can_open_module(actor, cfg):
+        raise HTTPException(status_code=403, detail="You do not have access to Tasks")
+    if (actor.get("permissions") or {}).get("view_only"):
+        raise HTTPException(status_code=403, detail="Cannot import tasks")
+    if db is None or not items:
+        return {"total_processed": 0, "inserted_count": 0, "updated_count": 0, "errors": []}
+
+    people = await list_assignable(db, actor)
+    clients = []
+    try:
+        clients = await db.workspaces.find({"status": {"$ne": "inactive"}}, {"id": 1, "name": 1, "_id": 0}).to_list(500)
+    except Exception:
+        clients = []
+
+    inserted_count = 0
+    updated_count = 0
+    errors: List[str] = []
+
+    for idx, item in enumerate(items):
+        try:
+            doc = item.model_dump()
+            for k, v in list(doc.items()):
+                if isinstance(v, str):
+                    doc[k] = sanitize_spreadsheet_string(v)
+            title = str(doc.get("title") or "").strip()
+            if not title:
+                errors.append(f"Row {idx + 1}: Title is required")
+                continue
+
+            serial = format_import_serial(doc.get("serial"))
+            existing = None
+            if serial:
+                existing = await db.tasks.find_one({"serial": serial})
+                if existing and not upsert_by_serial:
+                    existing = None
+                    serial = None
+
+            assignee_id = str(doc.get("assignee_id") or "").strip() or None
+            assignee_name = str(doc.get("assignee_name") or "").strip() or None
+            matched_person = None
+            if assignee_id:
+                matched_person = _match_named(assignee_id, people, ("name", "full_name"))
+            if matched_person is None and assignee_name:
+                matched_person = _match_named(assignee_name, people, ("name", "full_name"))
+            if (assignee_id or assignee_name) and matched_person is None:
+                errors.append(f"Row {idx + 1} ({serial or 'AUTO'}): Assigned person was not found")
+                continue
+
+            client_id = str(doc.get("client_id") or "").strip() or None
+            client_name = str(doc.get("client_name") or "").strip() or None
+            matched_client = None
+            if client_id:
+                matched_client = _match_named(client_id, clients, ("name",))
+            if matched_client is None and client_name:
+                matched_client = _match_named(client_name, clients, ("name",))
+                if matched_client is None:
+                    clean_c = re.sub(r"\b(llc|inc|corp|ltd|co)\b", "", client_name.lower()).strip()
+                    if clean_c:
+                        for c in clients:
+                            wn = re.sub(r"\b(llc|inc|corp|ltd|co)\b", "", str(c.get("name") or "").lower()).strip()
+                            if wn and wn == clean_c:
+                                matched_client = c
+                                break
+            if (client_id or client_name) and matched_client is None:
+                errors.append(f"Row {idx + 1} ({serial or 'AUTO'}): Related project was not found")
+                continue
+
+            related = None
+            if matched_client:
+                related = {"workspace_id": matched_client.get("id"), "client_name": matched_client.get("name")}
+
+            if existing:
+                if not can_edit(actor, existing, cfg):
+                    errors.append(f"Row {idx + 1} ({existing.get('serial')}): Not permitted to edit this task.")
+                    continue
+                updates: Dict[str, Any] = {
+                    "title": title,
+                    "description": doc.get("description") or "",
+                    "priority": doc.get("priority") or existing.get("priority") or "medium",
+                    "start_date": doc.get("start_date"),
+                    "due_date": doc.get("due_date"),
+                    "due_time": doc.get("due_time"),
+                    "estimate_hours": doc.get("estimate_hours"),
+                    "updated_at": _now_iso(),
+                }
+                if doc.get("progress") is not None:
+                    updates["progress"] = doc.get("progress")
+                if related is not None:
+                    updates["related"] = related
+                if doc.get("blocked"):
+                    updates["blocked"] = True
+                    updates["blocked_reason"] = doc.get("blocked_reason")
+                if is_admin(actor) and doc.get("status") in TASK_STATUSES:
+                    updates["status"] = doc.get("status")
+                await db.tasks.update_one({"id": existing["id"]}, {"$set": updates})
+                updated_count += 1
+                continue
+
+            payload = {
+                "title": title,
+                "description": doc.get("description") or "",
+                "priority": doc.get("priority") or "medium",
+                "assignee_id": (matched_person or {}).get("id") or uid_of(actor),
+                "start_date": doc.get("start_date"),
+                "due_date": doc.get("due_date"),
+                "due_time": doc.get("due_time"),
+                "estimate_hours": doc.get("estimate_hours"),
+                "progress": doc.get("progress") or 0,
+                "related": related,
+                "blocked": bool(doc.get("blocked")),
+                "blocked_reason": doc.get("blocked_reason") if doc.get("blocked") else None,
+            }
+            created = await create_task(db, payload, actor, cfg)
+            if serial and serial != created.get("serial"):
+                clash = await db.tasks.find_one({"serial": serial})
+                if not clash:
+                    await db.tasks.update_one({"id": created["id"]}, {"$set": {"serial": serial}})
+            inserted_count += 1
+        except HTTPException as exc:
+            errors.append(f"Row {idx + 1}: {exc.detail}")
+        except Exception as exc:
+            errors.append(f"Row {idx + 1}: {str(exc)}")
+
+    return {
+        "total_processed": len(items),
+        "inserted_count": inserted_count,
+        "updated_count": updated_count,
+        "errors": errors,
+    }

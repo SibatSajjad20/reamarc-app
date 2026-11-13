@@ -120,6 +120,16 @@ export const taskService = {
     emitTasksChanged();
     return created;
   },
+  async bulkImport(payload: { items: Record<string, unknown>[]; upsert_by_serial?: boolean }) {
+    const res = await apiClient.post<{
+      total_processed: number;
+      inserted_count: number;
+      updated_count: number;
+      errors: string[];
+    }>('/tasks/bulk-import', payload);
+    emitTasksChanged();
+    return res;
+  },
   async patchTask(id: string, payload: Record<string, unknown>): Promise<Task> {
     const updated = await apiClient.patch<Task>(`/tasks/${id}`, payload);
     emitTasksChanged();

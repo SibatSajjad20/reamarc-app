@@ -9,6 +9,7 @@ import {
   changedFields,
   isApprover,
   isViewOnly,
+  listQuickActions,
   listRowAdvanceTo,
 } from './taskAccess';
 import type { Task, TaskActor } from '@/types/task';
@@ -104,21 +105,61 @@ describe('taskAccess', () => {
     expect(isViewOnly(leadC, peer)).toBe(true);
   });
 
-  it('transitions: self-assigned complete, send-back needs reason', () => {
+  it('transitions: team member cannot approve own work, send-back needs reason', () => {
     const assigned = task({ status: 'in_review' });
     expect(canTransitionTo(memberC1, assigned, 'completed')).toBe(false);
     expect(canTransitionTo(leadC, assigned, 'completed')).toBe(true);
     expect(canTransitionTo(leadC, assigned, 'in_progress')).toBe(false);
     expect(canTransitionTo(leadC, assigned, 'in_progress', 'fix it')).toBe(true);
     const selfTask = task({
-      status: 'in_progress',
+      status: 'in_review',
       assigner_id: 'member.content1',
       assignee_id: 'member.content1',
       creator_id: 'member.content1',
       involved_ids: ['member.content1'],
     });
-    expect(canTransitionTo(memberC1, selfTask, 'completed')).toBe(true);
+    expect(canTransitionTo(memberC1, selfTask, 'completed')).toBe(false);
+    expect(canTransitionTo(leadC, selfTask, 'completed')).toBe(true);
     expect(allowedTransitions(leadC, assigned)).toContain('completed');
+  });
+
+  it('admin assigned to a team lead: that lead can self-approve', () => {
+    const adminToLead = task({
+      status: 'in_review',
+      creator_id: 'admin',
+      assigner_id: 'admin',
+      assigner_role: 'admin',
+      assignee_id: 'lead.content',
+      assignee_role: 'team_lead',
+      department: 'Content',
+      involved_ids: ['admin', 'lead.content'],
+      assignment_chain: [{ from_id: 'admin', to_id: 'lead.content' }],
+    });
+    expect(isApprover(leadC, adminToLead)).toBe(true);
+    expect(canTransitionTo(leadC, adminToLead, 'completed')).toBe(true);
+    expect(listRowAdvanceTo(leadC, adminToLead)).toBe('completed');
+    expect(isApprover(memberC1, adminToLead)).toBe(false);
+  });
+
+  it('admin assigned to a team member: only that department lead can approve', () => {
+    const adminToMember = task({
+      status: 'in_review',
+      creator_id: 'admin',
+      assigner_id: 'admin',
+      assigner_role: 'admin',
+      assignee_id: 'member.content1',
+      assignee_role: 'team_member',
+      department: 'Content',
+      involved_ids: ['admin', 'member.content1'],
+      assignment_chain: [{ from_id: 'admin', to_id: 'member.content1' }],
+    });
+    expect(isApprover(leadC, adminToMember)).toBe(true);
+    expect(canTransitionTo(leadC, adminToMember, 'completed')).toBe(true);
+    expect(isApprover(admin, adminToMember)).toBe(false);
+    expect(canTransitionTo(admin, adminToMember, 'completed')).toBe(false);
+    expect(isApprover(memberC1, adminToMember)).toBe(false);
+    expect(canTransitionTo(memberC1, adminToMember, 'completed')).toBe(false);
+    expect(isApprover(leadW, adminToMember)).toBe(false);
   });
 
   it('list row checkbox: assignee starts/submits; lead/assigner approve in review', () => {
@@ -138,6 +179,18 @@ describe('taskAccess', () => {
     expect(listRowAdvanceTo(leadW, review)).toBeNull();
     expect(listRowAdvanceTo(memberC1, task({ status: 'completed' }))).toBeNull();
     expect(listRowAdvanceTo(leadC, task({ status: 'completed' }))).toBeNull();
+  });
+
+  it('list quick actions match the stage and omit copy link', () => {
+    const labels = (status: Task['status']) => listQuickActions(leadC, task({ status })).map((a) => a.action);
+    expect(labels('todo')).toEqual(['open', 'start', 'reassign', 'block', 'cancel']);
+    expect(labels('in_progress')).toContain('submit');
+    expect(labels('in_progress')).not.toContain('start');
+    expect(labels('in_review')).toEqual(['open', 'approve', 'reassign', 'block', 'cancel']);
+    expect(labels('in_review')).not.toContain('submit');
+    expect(labels('completed')).toEqual(['open']);
+    expect(listQuickActions(leadC, task({ status: 'todo' })).some((a) => a.action === 'copy')).toBe(false);
+    expect(listQuickActions(memberC1, task({ status: 'todo' })).map((a) => a.action)).toContain('start');
   });
 
   it('changedFields sends only diffs', () => {

@@ -68,10 +68,23 @@ function chainFromIds(task: Task): string[] {
   return (task.assignment_chain || []).map((h) => String(h.from_id || '')).filter(Boolean);
 }
 
+function assignerIsAdmin(task: Task): boolean {
+  return roleOf({ role: task.assigner_role }) === 'admin';
+}
+
+function assigneeIsMember(task: Task): boolean {
+  return roleOf({ role: task.assignee_role }) === 'team_member';
+}
+
 export function isApprover(user: TaskActor | null | undefined, task: Task): boolean {
   if (!user || !task) return false;
   const id = uid(user);
-  if (!id || id === task.assignee_id) return false;
+  if (!id) return false;
+  if (assignerIsAdmin(task) && roleOf(user) === 'team_lead' && id === task.assignee_id) return true;
+  if (id === task.assignee_id) return false;
+  if (assignerIsAdmin(task) && assigneeIsMember(task)) {
+    return roleOf(user) === 'team_lead' && Boolean(task.department && deptSet(user).has(task.department));
+  }
   if (isAdmin(user)) return true;
   if (chainFromIds(task).includes(id)) return true;
   if (roleOf(user) === 'team_lead' && task.department && deptSet(user).has(task.department)) return true;
@@ -122,8 +135,7 @@ export function canTransitionTo(
     return Boolean(assignee && !isSelfAssigned(task));
   }
   if (dest === 'completed') {
-    if (isSelfAssigned(task) && assignee) return true;
-    if (assignee) return false;
+    if (assignee && !isApprover(user, task)) return false;
     if (!isApprover(user, task)) return false;
     return current === 'in_review' || admin;
   }
@@ -157,6 +169,28 @@ export function listRowAdvanceAction(to: TaskStatus): 'start' | 'submit' | 'appr
   if (to === 'in_review') return 'submit';
   if (to === 'completed') return 'approve';
   return null;
+}
+
+export function listQuickActions(
+  user: TaskActor | null | undefined,
+  task: Task,
+): { action: string; label: string; danger?: boolean }[] {
+  const items: { action: string; label: string; danger?: boolean }[] = [{ action: 'open', label: 'Open' }];
+  if (task.status === 'todo' && canTransitionTo(user, task, 'in_progress')) {
+    items.push({ action: 'start', label: 'Start' });
+  }
+  if (task.status === 'in_progress' && canTransitionTo(user, task, 'in_review')) {
+    items.push({ action: 'submit', label: 'Submit for review' });
+  }
+  if (task.status === 'in_review' && canTransitionTo(user, task, 'completed')) {
+    items.push({ action: 'approve', label: 'Approve' });
+  }
+  if (canReassign(user, task)) items.push({ action: 'reassign', label: 'Reassign' });
+  if (task.status !== 'completed' && task.status !== 'cancelled') {
+    items.push({ action: 'block', label: task.blocked ? 'Unblock' : 'Mark blocked' });
+    items.push({ action: 'cancel', label: 'Cancel', danger: true });
+  }
+  return items;
 }
 
 export function canAssignTo(

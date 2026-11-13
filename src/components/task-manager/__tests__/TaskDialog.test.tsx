@@ -83,6 +83,8 @@ describe('TaskDialog', () => {
       />,
     );
     expect(screen.getByText('Create task')).toBeTruthy();
+    expect(screen.getByText(/Assigned person/)).toBeTruthy();
+    expect(screen.getByTestId('task-dialog-primary')).toHaveProperty('disabled', true);
     expect(screen.getByText('Department')).toBeTruthy();
     const dept = screen.getByDisplayValue('Content');
     expect(dept).toHaveProperty('readOnly', true);
@@ -190,13 +192,15 @@ describe('TaskDialog', () => {
         open
         defaultStage="in_progress"
         actor={{ id: 'admin', role: 'admin' }}
-        assignable={[]}
+        assignable={[{ id: 'admin', name: 'Ada Admin', role: 'admin', department: 'Content' }]}
         onClose={vi.fn()}
         onSaved={onSaved}
       />,
     );
     const title = screen.getByLabelText(/Title/i) as HTMLInputElement;
     fireEvent.change(title, { target: { value: 'From board' } });
+    fireEvent.click(screen.getByText('Select option...'));
+    fireEvent.click(screen.getByText('Ada Admin'));
     fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(taskService.createTask).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(taskService.changeStage).toHaveBeenCalledWith('new1', 'in_progress'));
@@ -213,12 +217,14 @@ describe('TaskDialog', () => {
         open
         defaultStage="in_progress"
         actor={{ id: 'admin', role: 'admin' }}
-        assignable={[]}
+        assignable={[{ id: 'admin', name: 'Ada Admin', role: 'admin', department: 'Content' }]}
         onClose={vi.fn()}
         onSaved={onSavedFail}
       />,
     );
     fireEvent.change(second.getByLabelText(/Title/i), { target: { value: 'From board' } });
+    fireEvent.click(second.getByText('Select option...'));
+    fireEvent.click(second.getByText('Ada Admin'));
     fireEvent.click(second.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(onSavedFail).toHaveBeenCalledWith(created));
     expect(mockAddToast).toHaveBeenCalledWith('Created in To Do', 'blocked by policy', 'error');
@@ -231,12 +237,14 @@ describe('TaskDialog', () => {
       <TaskDialog
         open
         actor={{ id: 'admin', role: 'admin' }}
-        assignable={[]}
+        assignable={[{ id: 'admin', name: 'Ada Admin', role: 'admin', department: 'Content' }]}
         onClose={vi.fn()}
         onSaved={onSavedBase}
       />,
     );
     fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: 'Plain' } });
+    fireEvent.click(screen.getByText('Select option...'));
+    fireEvent.click(screen.getByText('Ada Admin'));
     fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
     await waitFor(() => expect(taskService.createTask).toHaveBeenCalledTimes(1));
     expect(taskService.changeStage).not.toHaveBeenCalled();

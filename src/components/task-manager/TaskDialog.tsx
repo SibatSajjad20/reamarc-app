@@ -282,6 +282,7 @@ export const TaskDialog: React.FC<Props> = ({
   const validateClient = (): string | null => {
     const title = draft.title.trim();
     if (!title) return 'Title is required';
+    if (isCreate && !draft.assignee_id) return 'Assigned person is required';
     if (title.length > 200) return 'Title must be 1–200 characters';
     if ((draft.description || '').length > 10000) return 'Description must be 10,000 characters or fewer';
     if (draft.due_time && !draft.due_date) return 'Due time requires a due date';
@@ -532,12 +533,14 @@ export const TaskDialog: React.FC<Props> = ({
             </div>
             <CustomSelect
               label="Assigned person"
+              required={isCreate}
               id="task-assignee-picker"
               searchable
               autoOpen={Boolean(focusAssignee && open)}
               value={draft.assignee_id}
               disabled={!canChangeAssignee}
               onChange={(v) => set({ assignee_id: v })}
+              error={isCreate && !draft.assignee_id && serverError ? 'Assigned person is required' : undefined}
               options={pickerUsers.map((u) => ({
                 value: u.id,
                 label: u.name,
@@ -796,7 +799,7 @@ export const TaskDialog: React.FC<Props> = ({
           <Button
             type="submit"
             variant="primary"
-            disabled={busy || ((isCreate || showFieldSave) && !draft.title.trim())}
+            disabled={busy || ((isCreate || showFieldSave) && !draft.title.trim()) || (isCreate && !draft.assignee_id)}
             data-testid={showFieldSave ? 'task-dialog-save' : 'task-dialog-primary'}
           >
             {primaryLabel}

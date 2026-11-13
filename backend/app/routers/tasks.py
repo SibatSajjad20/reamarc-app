@@ -12,6 +12,8 @@ from app.schemas.task import (
     TaskAssignRequest,
     TaskBatchRequest,
     TaskBlockRequest,
+    TaskBulkImportRequest,
+    TaskBulkImportResponse,
     TaskCancelRequest,
     TaskCommentCreate,
     TaskCommentPatch,
@@ -259,6 +261,24 @@ async def list_tasks(
         related_client=related_client,
         page=page,
         limit=limit,
+    )
+
+
+@router.post("/bulk-import", response_model=TaskBulkImportResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
+async def bulk_import_tasks(
+    request: Request,
+    payload: TaskBulkImportRequest,
+    current_user: dict = Depends(require_tasks_user),
+):
+    """Bulk import tasks from Excel. Upsert by T-NNNN serial, with the same sanitization as content calendar."""
+    db = _db()
+    await task_service.ensure_task_indexes(db)
+    return await task_service.bulk_import_tasks(
+        db,
+        payload.items,
+        current_user,
+        upsert_by_serial=payload.upsert_by_serial,
     )
 
 

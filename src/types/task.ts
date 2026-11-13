@@ -63,8 +63,10 @@ export interface Task {
   creator_name?: string;
   assignee_id?: string | null;
   assignee_name?: string;
+  assignee_role?: string | null;
   assigner_id?: string | null;
   assigner_name?: string;
+  assigner_role?: string | null;
   department?: string;
   assignment_chain?: TaskAssignmentHop[];
   involved_ids?: string[];

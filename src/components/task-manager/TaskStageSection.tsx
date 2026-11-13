@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, MoreHorizontal, Repeat, Paperclip, MessageSquare } from 'lucide-react';
 import {
   TableCard,
@@ -23,7 +23,7 @@ import {
 import { TASK_STAGES, type Task, type TaskStatus } from '@/types/task';
 import { TaskPriorityPill, TaskStagePill, stageBarClass } from './TaskPriorityPill';
 import { isOverdue, isDueToday } from '@/utils/taskFollowUp';
-import { canReassign, canTransitionTo, listRowAdvanceAction, listRowAdvanceTo } from '@/utils/taskAccess';
+import { listQuickActions, listRowAdvanceAction, listRowAdvanceTo } from '@/utils/taskAccess';
 import { useMemberAvatars } from '@/hooks/useMemberAvatars';
 import { cn } from '@/lib/utils';
 import type { TaskActor } from '@/types/task';
@@ -46,13 +46,17 @@ interface Props {
   onToggle: () => void;
   onViewAll: () => void;
   onOpen: (task: Task) => void;
-  onAction: (task: Task, action: string) => void;
+  onAction: (task: Task, action: string, origin?: { x: number; y: number }) => void;
   actor: TaskActor | null;
   limitRows?: boolean;
   headerLabel?: string;
   hideViewAll?: boolean;
   hideRowCheckboxes?: boolean;
   count?: number;
+  arrivingId?: string | null;
+  leavingId?: string | null;
+  enableDrag?: boolean;
+  onDropTask?: (taskId: string, to: TaskStatus) => void;
 }
 
 export const TaskStageSection: React.FC<Props> = ({
@@ -69,18 +73,51 @@ export const TaskStageSection: React.FC<Props> = ({
   hideViewAll = false,
   hideRowCheckboxes = false,
   count,
+  arrivingId,
+  leavingId,
+  enableDrag = false,
+  onDropTask,
 }) => {
   const { getAvatarUrl } = useMemberAvatars();
   const label = headerLabel || TASK_STAGES.find((s) => s.value === status)?.label || status;
   const shown = limitRows ? tasks.slice(0, PREVIEW) : tasks;
   const firedAdvance = useRef(new Set<string>());
+  const confettiOrigin = useRef<{ x: number; y: number } | null>(null);
+  const skipRowOpen = useRef(false);
+  const dragged = useRef(false);
+  const [dropOver, setDropOver] = useState(false);
   const showAdvanceColumn = useMemo(() => {
     if (hideRowCheckboxes) return false;
     return shown.some((task) => Boolean(listRowAdvanceTo(actor, task)));
   }, [hideRowCheckboxes, shown, actor]);
 
+  const runMenuAction = (task: Task, action: string) => {
+    skipRowOpen.current = true;
+    window.setTimeout(() => {
+      skipRowOpen.current = false;
+    }, 400);
+    onAction(task, action);
+  };
+
   return (
-    <TableCard data-testid={`task-stage-${status}`}>
+    <TableCard
+      data-testid={`task-stage-${status}`}
+      className={cn(dropOver && 'outline outline-1 outline-dashed outline-accent-200 bg-accent-soft/40')}
+      onDragOver={(e) => {
+        if (!enableDrag || !onDropTask) return;
+        e.preventDefault();
+        setDropOver(true);
+      }}
+      onDragLeave={() => setDropOver(false)}
+      onDrop={(e) => {
+        if (!enableDrag || !onDropTask) return;
+        e.preventDefault();
+        setDropOver(false);
+        const id = e.dataTransfer.getData('text/plain');
+        if (!id) return;
+        onDropTask(id, status);
+      }}
+    >
       <div className="px-4 py-2.5 flex items-center justify-between gap-3 border-b border-border bg-surface">
         <button type="button" onClick={onToggle} className="flex items-center gap-2 min-w-0">
           <span className={cn('w-1.5 h-5 rounded-sm shrink-0', stageBarClass(status))} />
@@ -117,17 +154,54 @@ export const TaskStageSection: React.FC<Props> = ({
               const next = showAdvanceColumn ? listRowAdvanceTo(actor, task) : null;
               const action = next ? listRowAdvanceAction(next) : null;
               return (
-                <TR key={task.id} className="cursor-pointer" onClick={() => onOpen(task)}>
+                <TR
+                  key={task.id}
+                  draggable={enableDrag}
+                  className={cn(
+                    'cursor-pointer',
+                    enableDrag && 'cursor-grab active:cursor-grabbing',
+                    arrivingId === task.id && 'task-stage-arrive',
+                    leavingId === task.id && 'task-stage-leave',
+                  )}
+                  onDragStart={(e) => {
+                    if (!enableDrag) return;
+                    e.dataTransfer.setData('text/plain', task.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    dragged.current = true;
+                  }}
+                  onDragEnd={() => {
+                    window.setTimeout(() => {
+                      dragged.current = false;
+                    }, 50);
+                  }}
+                  onClick={() => {
+                    if (skipRowOpen.current || dragged.current) return;
+                    onOpen(task);
+                  }}
+                >
                   {showAdvanceColumn && (
                     <TD onClick={(e) => e.stopPropagation()}>
                       {next && action ? (
                         <Checkbox
                           checked={false}
+                          onPointerDown={(e) => {
+                            if (status !== 'in_review') return;
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            confettiOrigin.current = {
+                              x: rect.left + rect.width / 2,
+                              y: rect.top + rect.height / 2,
+                            };
+                          }}
                           onCheckedChange={(c) => {
                             if (c !== true) return;
                             if (firedAdvance.current.has(task.id)) return;
                             firedAdvance.current.add(task.id);
-                            onAction(task, action);
+                            const origin = status === 'in_review' ? confettiOrigin.current ?? undefined : undefined;
+                            void Promise.resolve(
+                              origin ? onAction(task, action, origin) : onAction(task, action),
+                            ).finally(() => {
+                              firedAdvance.current.delete(task.id);
+                            });
                           }}
                           aria-label={`Advance ${task.serial}`}
                           data-next-stage={next}
@@ -208,26 +282,25 @@ export const TaskStageSection: React.FC<Props> = ({
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onOpen(task)}>Open</DropdownMenuItem>
-                        {canTransitionTo(actor, task, 'in_progress') && task.status === 'todo' && (
-                          <DropdownMenuItem onClick={() => onAction(task, 'start')}>Start</DropdownMenuItem>
-                        )}
-                        {canTransitionTo(actor, task, 'in_review') && (
-                          <DropdownMenuItem onClick={() => onAction(task, 'submit')}>Submit for review</DropdownMenuItem>
-                        )}
-                        {canTransitionTo(actor, task, 'completed') && task.status === 'in_review' && (
-                          <DropdownMenuItem onClick={() => onAction(task, 'approve')}>Approve</DropdownMenuItem>
-                        )}
-                        {canReassign(actor, task) && (
-                          <DropdownMenuItem onClick={() => onAction(task, 'reassign')}>Reassign</DropdownMenuItem>
-                        )}
-                        <DropdownMenuItem onClick={() => onAction(task, 'block')}>
-                          {task.blocked ? 'Unblock' : 'Mark blocked'}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onAction(task, 'cancel')} className="text-danger-fg">
-                          Cancel
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onAction(task, 'copy')}>Copy link</DropdownMenuItem>
+                        {listQuickActions(actor, task).map((item) => (
+                          <DropdownMenuItem
+                            key={item.action}
+                            className={item.danger ? 'text-danger-fg' : undefined}
+                            onSelect={() => {
+                              if (item.action === 'open') {
+                                skipRowOpen.current = true;
+                                window.setTimeout(() => {
+                                  skipRowOpen.current = false;
+                                }, 400);
+                                onOpen(task);
+                                return;
+                              }
+                              runMenuAction(task, item.action);
+                            }}
+                          >
+                            {item.label}
+                          </DropdownMenuItem>
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </RowActions>

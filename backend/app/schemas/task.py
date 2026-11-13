@@ -491,8 +491,10 @@ class TaskResponse(BaseModel):
     creator_name: str = ""
     assignee_id: Optional[str] = None
     assignee_name: str = ""
+    assignee_role: Optional[str] = None
     assigner_id: Optional[str] = None
     assigner_name: str = ""
+    assigner_role: Optional[str] = None
     department: str = ""
     assignment_chain: List[Dict[str, Any]] = Field(default_factory=list)
     involved_ids: List[str] = Field(default_factory=list)
@@ -546,3 +548,70 @@ class TaskCountsResponse(BaseModel):
     no_due: int = 0
     blocked: int = 0
     open: int = 0
+
+
+class TaskImportItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    serial: Optional[str] = Field(default=None, max_length=40)
+    title: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=10000)
+    status: Optional[str] = None
+    priority: Optional[str] = "medium"
+    progress: Optional[int] = Field(default=None, ge=0, le=100)
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    start_date: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    estimate_hours: Optional[float] = Field(default=None, ge=0, le=1000)
+    client_id: Optional[str] = None
+    client_name: Optional[str] = None
+    blocked: bool = False
+    blocked_reason: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def strip_import_title(cls, v: str) -> str:
+        t = (v or "").strip()
+        if not t:
+            raise ValueError("Title is required")
+        return t
+
+    @field_validator("priority")
+    @classmethod
+    def validate_import_priority(cls, v: Optional[str]) -> str:
+        return validate_priority_value(v) or "medium"
+
+    @field_validator("status")
+    @classmethod
+    def validate_import_status(cls, v: Optional[str]) -> Optional[str]:
+        if not v:
+            return None
+        return validate_stage_value(v)
+
+    @field_validator("start_date", "due_date")
+    @classmethod
+    def validate_import_dates(cls, v: Optional[str], info) -> Optional[str]:
+        return parse_ymd(v, info.field_name)
+
+    @field_validator("due_time")
+    @classmethod
+    def validate_import_due_time(cls, v: Optional[str]) -> Optional[str]:
+        return validate_due_time_value(v)
+
+
+class TaskBulkImportRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    items: List[TaskImportItem] = Field(..., max_length=1000)
+    upsert_by_serial: bool = True
+
+
+class TaskBulkImportResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    total_processed: int
+    inserted_count: int
+    updated_count: int
+    errors: List[str] = []

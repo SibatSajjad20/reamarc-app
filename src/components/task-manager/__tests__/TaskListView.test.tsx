@@ -176,6 +176,44 @@ describe('TaskListView', () => {
     expect(screen.queryByLabelText('Advance T-WEB')).toBeNull();
   });
 
+  it('admin-assigned team lead can approve their own in-review task', () => {
+    const { onAction } = renderList(
+      [
+        task({
+          status: 'in_review',
+          serial: 'T-LEAD',
+          assignee_id: 'lead.web',
+          assignee_role: 'team_lead',
+          assigner_id: 'admin',
+          assigner_role: 'admin',
+          department: 'Website',
+          involved_ids: ['admin', 'lead.web'],
+        }),
+      ],
+      lead,
+    );
+    fireEvent.click(screen.getByLabelText('Advance T-LEAD'));
+    expect(onAction).toHaveBeenCalledWith(expect.anything(), 'approve');
+  });
+
+  it('admin cannot approve a member task they assigned', () => {
+    renderList(
+      [
+        task({
+          status: 'in_review',
+          serial: 'T-ADM',
+          assignee_id: 'member.web',
+          assignee_role: 'team_member',
+          assigner_id: 'admin',
+          assigner_role: 'admin',
+          involved_ids: ['admin', 'member.web'],
+        }),
+      ],
+      { id: 'admin', role: 'admin' },
+    );
+    expect(screen.queryByLabelText('Advance T-ADM')).toBeNull();
+  });
+
   it('unchecking does not send a reverse stage action', () => {
     const { onAction } = renderList([task({ status: 'todo', serial: 'T-0001' })], member);
     const box = screen.getByLabelText('Advance T-0001');
@@ -184,5 +222,25 @@ describe('TaskListView', () => {
     onAction.mockClear();
     fireEvent.click(box);
     expect(onAction).not.toHaveBeenCalled();
+  });
+
+  it('list rows are draggable onto another stage', () => {
+    const onDropTask = vi.fn();
+    render(
+      <TaskListView
+        tasks={[task({ status: 'todo', serial: 'T-DR' })]}
+        actor={member}
+        onOpen={vi.fn()}
+        onAction={vi.fn()}
+        onViewAll={vi.fn()}
+        onDropTask={onDropTask}
+      />,
+    );
+    const row = screen.getByText('Landing page copy').closest('tr') as HTMLElement;
+    expect(row.getAttribute('draggable')).toBe('true');
+    fireEvent.drop(screen.getByTestId('task-stage-in_progress'), {
+      dataTransfer: { getData: () => 'tsk1' },
+    });
+    expect(onDropTask).toHaveBeenCalledWith('tsk1', 'in_progress');
   });
 });

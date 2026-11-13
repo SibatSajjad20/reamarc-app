@@ -16,6 +16,7 @@ export interface CustomSelectProps {
   options: SelectOption[];
   placeholder?: string;
   label?: string;
+  required?: boolean;
   id?: string;
   name?: string;
   error?: React.ReactNode;
@@ -128,6 +129,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   options,
   placeholder = 'Select option...',
   label,
+  required = false,
   id,
   name,
   error,
@@ -191,7 +193,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       {label && (
         <label htmlFor={selectId} className="block text-label font-medium text-fg mb-1.5 flex items-center gap-1.5">
           {LeadingIcon && <LeadingIcon size={14} className="text-fg-muted" />}
-          <span>{label}</span>
+          <span>
+            {label}
+            {required ? <span className="text-danger-fg"> *</span> : null}
+          </span>
         </label>
       )}
 
