@@ -39,7 +39,12 @@ import { getStatusMapping } from '../../lib/statusMap';
 import { FacebookIcon, InstagramIcon, TikTokIcon, LinkedInIcon, MetaIcon, GoogleIcon } from '../ui/brand-icons';
 import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/contentCalendarWorkflow';
 import { ClientAvatar } from '../ui/ClientAvatar';
+import { Checkbox } from '../ui/checkbox';
 import { useResolvedClient } from '../../hooks/useClientLookup';
+
+const INDEX_COL_W = 44;
+const CHECK_COL_W = 36;
+const GUTTER_COLS = 2;
 
 export const renderPlatformIcon = (item: ContentCalendarItem) => {
   if (!item.channels || item.channels.length === 0) {
@@ -160,6 +165,7 @@ interface Props {
   rowHeightsResetKey?: number;
   onUpdateItemLocal?: (id: string, changes: Partial<ContentCalendarItem>) => void;
   onFilteredItemsChange?: (filtered: ContentCalendarItem[]) => void;
+  onSelectionMetaChange?: (meta: { selectedIds: string[]; visibleIds: string[] }) => void;
   constants?: ContentCalendarConstants | null;
   activeClients?: { id: string; name: string }[];
 }
@@ -174,6 +180,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
   rowHeightsResetKey,
   onUpdateItemLocal,
   onFilteredItemsChange,
+  onSelectionMetaChange,
   constants,
   activeClients = [],
 }) => {
@@ -322,6 +329,49 @@ export const ContentCalendarTableView: React.FC<Props> = ({
   useEffect(() => {
     onFilteredItemsChange?.(filteredItems);
   }, [filteredItems, onFilteredItemsChange]);
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const visibleIds = useMemo(() => filteredItems.map((item) => item.id), [filteredItems]);
+  const allVisibleSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
+  const someVisibleSelected = visibleIds.some((id) => selectedIds.has(id));
+
+  useEffect(() => {
+    const visible = new Set(visibleIds);
+    setSelectedIds((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      prev.forEach((id) => {
+        if (visible.has(id)) next.add(id);
+        else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [visibleIds]);
+
+  useEffect(() => {
+    onSelectionMetaChange?.({
+      selectedIds: Array.from(selectedIds),
+      visibleIds,
+    });
+  }, [selectedIds, visibleIds, onSelectionMetaChange]);
+
+  const toggleRowSelected = (id: string, on: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllVisible = (on: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (on) visibleIds.forEach((id) => next.add(id));
+      else visibleIds.forEach((id) => next.delete(id));
+      return next;
+    });
+  };
 
   // Inline Cell Editing & Debounced Persistence State
   const [editingCell, setEditingCell] = useState<{ rowId: string; colKey: string } | null>(null);
@@ -602,7 +652,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
       (sum, col) => sum + (columnWidths[col.key] || col.width),
       0
     );
-    return colsWidth + 44; // 44px for row index
+    return colsWidth + INDEX_COL_W + CHECK_COL_W;
   }, [columnWidths]);
 
   return (
@@ -651,7 +701,18 @@ export const ContentCalendarTableView: React.FC<Props> = ({
             <tr>
               {/* Row Index Header */}
               <th
-                style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                style={{ width: `${CHECK_COL_W}px`, minWidth: `${CHECK_COL_W}px`, maxWidth: `${CHECK_COL_W}px` }}
+                className="h-8 p-1.5 text-center font-medium border-b border-r border-border bg-subtle text-fg-muted z-30"
+              >
+                <Checkbox
+                  checked={allVisibleSelected ? true : someVisibleSelected ? 'indeterminate' : false}
+                  onCheckedChange={(c) => toggleSelectAllVisible(c === true)}
+                  aria-label="Select all visible campaigns"
+                  title="Select all visible campaigns"
+                />
+              </th>
+              <th
+                style={{ width: `${INDEX_COL_W}px`, minWidth: `${INDEX_COL_W}px`, maxWidth: `${INDEX_COL_W}px` }}
                 className="h-8 p-1.5 text-center font-numeric text-xs font-medium border-b border-r border-border bg-subtle text-fg-muted z-30"
               >
                 #
@@ -803,7 +864,13 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               Array.from({ length: 20 }).map((_, idx) => (
                 <tr key={`cc-skeleton-${idx}`} className="animate-pulse h-[var(--cc-row-height)]">
                   <td
-                    style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                    style={{ width: `${CHECK_COL_W}px`, minWidth: `${CHECK_COL_W}px`, maxWidth: `${CHECK_COL_W}px` }}
+                    className="p-2 text-center border-b border-r border-border bg-subtle"
+                  >
+                    <div className="h-3.5 w-3.5 bg-skel rounded mx-auto" />
+                  </td>
+                  <td
+                    style={{ width: `${INDEX_COL_W}px`, minWidth: `${INDEX_COL_W}px`, maxWidth: `${INDEX_COL_W}px` }}
                     className="p-2 text-center border-b border-r border-border bg-subtle"
                   >
                     <div className="h-3.5 w-4 bg-skel rounded mx-auto" />
@@ -824,7 +891,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               ))
             ) : error ? (
               <tr>
-                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
+                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + GUTTER_COLS} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <div className="w-12 h-12 rounded-xl bg-danger-bg border border-danger-bd flex items-center justify-center text-danger-fg mb-3">
                       <AlertTriangle className="w-6 h-6" />
@@ -838,7 +905,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               </tr>
             ) : items.length === 0 ? (
               <tr>
-                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
+                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + GUTTER_COLS} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <div className="w-12 h-12 rounded-xl bg-subtle border border-border flex items-center justify-center text-fg-muted mb-3">
                       <Calendar className="w-6 h-6" />
@@ -854,7 +921,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               </tr>
             ) : filteredItems.length === 0 ? (
               <tr>
-                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
+                <td colSpan={DEFAULT_CONTENT_COLUMNS.length + GUTTER_COLS} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
                     <div className="w-12 h-12 rounded-xl bg-subtle border border-border flex items-center justify-center text-fg-muted mb-3">
                       <Filter className="w-6 h-6" />
@@ -880,7 +947,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                 {paddingTop > 0 && (
                   <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
                     <td
-                      colSpan={DEFAULT_CONTENT_COLUMNS.length + 1}
+                      colSpan={DEFAULT_CONTENT_COLUMNS.length + GUTTER_COLS}
                       style={{ height: `${paddingTop}px`, padding: 0, border: 0 }}
                     />
                   </tr>
@@ -897,12 +964,25 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                       ref={rowVirtualizer.measureElement}
                       data-index={virtualRow.index}
                       style={customH ? ({ '--cc-row-height': `${customH}px` } as React.CSSProperties) : undefined}
-                      className="h-[var(--cc-row-height)] hover:bg-subtle/50 transition-colors group relative cursor-pointer"
+                      className={`h-[var(--cc-row-height)] hover:bg-subtle/50 transition-colors group relative cursor-pointer ${
+                        selectedIds.has(item.id) ? 'bg-accent-soft/40' : ''
+                      }`}
                     >
+                      <td
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ width: `${CHECK_COL_W}px`, minWidth: `${CHECK_COL_W}px`, maxWidth: `${CHECK_COL_W}px` }}
+                        className="h-[var(--cc-row-height)] p-1 text-center border-b border-r border-border bg-subtle/30 select-none group-hover:bg-subtle/60 overflow-hidden py-0 align-middle"
+                      >
+                        <Checkbox
+                          checked={selectedIds.has(item.id)}
+                          onCheckedChange={(c) => toggleRowSelected(item.id, c === true)}
+                          aria-label={`Select ${item.serial}`}
+                        />
+                      </td>
                       {/* Row Serial Number (Click opens item drawer) */}
                       <td
                         onClick={() => onSelectItem(item)}
-                        style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                        style={{ width: `${INDEX_COL_W}px`, minWidth: `${INDEX_COL_W}px`, maxWidth: `${INDEX_COL_W}px` }}
                         title="Click to view details in inspector"
                         className="h-[var(--cc-row-height)] p-2 text-center font-numeric text-xs font-medium text-fg-muted border-b border-r border-border bg-subtle/30 select-none group-hover:bg-subtle/60 overflow-hidden py-0 align-middle relative cursor-pointer"
                       >
@@ -1275,7 +1355,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                 {paddingBottom > 0 && (
                   <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
                     <td
-                      colSpan={DEFAULT_CONTENT_COLUMNS.length + 1}
+                      colSpan={DEFAULT_CONTENT_COLUMNS.length + GUTTER_COLS}
                       style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }}
                     />
                   </tr>
@@ -1294,6 +1374,12 @@ export const ContentCalendarTableView: React.FC<Props> = ({
             <div className="flex items-center gap-2.5 text-fg-muted">
               <span>
                 Showing <strong className="text-fg font-medium">{filteredItems.length}</strong> of {items.length} items
+                {selectedIds.size > 0 && (
+                  <>
+                    {' · '}
+                    <strong className="text-fg font-medium">{selectedIds.size}</strong> selected
+                  </>
+                )}
               </span>
               {Object.keys(columnFilters).length > 0 && (
                 <button

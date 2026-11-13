@@ -15,8 +15,11 @@ import type {
   ContentCalendarFilter,
   BatchUpdateItem,
   BatchUpdateResponse,
+  BulkDeleteResponse,
   BulkImportRequest,
   BulkImportResponse,
+  ImportPreviewRequest,
+  ImportJob,
   DrivePickedFile,
   DrivePickerConfig,
 } from '../types/contentCalendar';
@@ -111,6 +114,34 @@ export const contentCalendarService = {
     return res;
   },
 
+  async previewImport(payload: ImportPreviewRequest): Promise<ImportJob> {
+    return apiClient.post<ImportJob>('/content-calendar/import/preview', payload);
+  },
+
+  async applyImport(jobId: string): Promise<ImportJob> {
+    const res = await apiClient.post<ImportJob>('/content-calendar/import/apply', { job_id: jobId });
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
+  },
+
+  async listImportJobs(): Promise<ImportJob[]> {
+    return apiClient.get<ImportJob[]>('/content-calendar/import/jobs');
+  },
+
+  async restoreImport(jobId: string): Promise<ImportJob> {
+    const res = await apiClient.post<ImportJob>(`/content-calendar/import/jobs/${jobId}/restore`, {});
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
+  },
+
   async transition(
     id: string,
     payload: { action: string; note?: string; assignee_id?: string; assignee_name?: string; target_stage?: string },
@@ -134,6 +165,13 @@ export const contentCalendarService = {
 
   async deleteItem(id: string): Promise<{ message: string; id: string }> {
     const res = await apiClient.delete<{ message: string; id: string }>(`/content-calendar/${id}`);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
+    return res;
+  },
+
+  async bulkDelete(ids: string[]): Promise<BulkDeleteResponse> {
+    const res = await apiClient.post<BulkDeleteResponse>('/content-calendar/bulk-delete', { ids });
     ccItemsCache.clear();
     emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     return res;

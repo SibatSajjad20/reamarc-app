@@ -89,6 +89,9 @@ test-results/
 backend/tests/*
 !backend/tests/test_dashboard_bootstrap_perf.py
 !backend/tests/test_checkout_push_nonblocking.py
+!backend/tests/test_content_calendar_import_serials.py
+!backend/tests/test_content_calendar_import_merge.py
+!backend/tests/test_content_calendar_bulk_delete.py
 
 # Audit dumps & PDFs (do not commit)
 SECURITY_AUDIT.pdf

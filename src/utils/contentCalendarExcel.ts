@@ -9,6 +9,7 @@ import { excelSafeCell } from './safeHttpUrl';
 
 export const EXCEL_COLUMNS = [
   { key: 'serial', header: 'Serial', group: 'DEFINITION', width: 12 },
+  { key: 'id', header: 'Record ID', group: 'DEFINITION', width: 18 },
   { key: 'client_name', header: 'Client', group: 'DEFINITION', width: 22 },
   { key: 'campaign_type', header: 'Campaign Type', group: 'DEFINITION', width: 32 },
   { key: 'creative_type', header: 'Creative Type', group: 'DEFINITION', width: 16 },
@@ -98,6 +99,7 @@ export function downloadContentCalendarTemplate(constants?: ContentCalendarConst
   const row2 = EXCEL_COLUMNS.map((col) => col.header);
   const sampleRow = [
     'AC-SAMPLE-01',
+    '',
     'Apex Transfers LLC',
     'Acquire – Cold Audience Awareness',
     'Video',

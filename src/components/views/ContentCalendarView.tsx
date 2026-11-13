@@ -13,6 +13,7 @@ import {
   FileSpreadsheet,
   Briefcase,
   User,
+  Trash2,
 } from 'lucide-react';
 import type {
   ContentCalendarItem,
@@ -45,6 +46,7 @@ import {
   DropdownMenuItem,
 } from '../ui/dropdown-menu';
 import { useAuth } from '../../context/AuthContext';
+import { useConfirm } from '../ui/ConfirmProvider';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import {
   canCreateCampaign,
@@ -63,6 +65,7 @@ const DEFAULT_ZOOM = 100;
 
 export const ContentCalendarView: React.FC = () => {
   const { addToast } = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const { workspaces } = useWorkspaces();
   const resolveClient = useClientLookup();
@@ -297,6 +300,9 @@ export const ContentCalendarView: React.FC = () => {
   // Export / Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [filteredItemsForExport, setFilteredItemsForExport] = useState<ContentCalendarItem[]>([]);
+  const [sheetSelectedIds, setSheetSelectedIds] = useState<string[]>([]);
+  const [sheetVisibleIds, setSheetVisibleIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
 
   // Rate limiting / Module load gate
   useModuleLoadGate(isLoading);
@@ -423,6 +429,54 @@ export const ContentCalendarView: React.FC = () => {
       void loadData({ silent: true });
     } catch (err: any) {
       addToast('Delete failed', err?.message || 'Could not delete item', 'error');
+    }
+  };
+
+  const handleSelectionMetaChange = useCallback((meta: { selectedIds: string[]; visibleIds: string[] }) => {
+    setSheetSelectedIds(meta.selectedIds);
+    setSheetVisibleIds(meta.visibleIds);
+  }, []);
+
+  const handleBulkDelete = async () => {
+    const ids =
+      viewMode === 'table'
+        ? (sheetSelectedIds.length > 0 ? sheetSelectedIds : sheetVisibleIds)
+        : displayItems.map((item) => item.id);
+    if (ids.length === 0) {
+      addToast('Nothing to delete', 'There are no campaigns in the current view.', 'info');
+      return;
+    }
+    const usingVisible = viewMode !== 'table' || sheetSelectedIds.length === 0;
+    const ok = await confirm({
+      title: usingVisible
+        ? `Delete all ${ids.length} visible campaign${ids.length === 1 ? '' : 's'}?`
+        : `Delete ${ids.length} selected campaign${ids.length === 1 ? '' : 's'}?`,
+      description: 'This cannot be undone. Campaigns you are not allowed to delete will be skipped.',
+      confirmLabel: usingVisible ? 'Delete all visible' : 'Delete selected',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setIsBulkDeleting(true);
+    try {
+      const res = await contentCalendarService.bulkDelete(ids);
+      const deletedSet = new Set(res.deleted_ids);
+      setItems((prev) => prev.filter((it) => !deletedSet.has(it.id) && !deletedSet.has(it.serial)));
+      if (selectedItem && (deletedSet.has(selectedItem.id) || deletedSet.has(selectedItem.serial))) {
+        setSelectedItem(null);
+        setIsDrawerOpen(false);
+      }
+      setSheetSelectedIds([]);
+      const skipped = res.skipped?.length ?? 0;
+      addToast(
+        skipped ? 'Delete finished with skips' : 'Deleted',
+        `${res.deleted_count} deleted${skipped ? `, ${skipped} skipped` : ''}.`,
+        skipped ? 'warning' : 'info',
+      );
+      void loadData({ silent: true });
+    } catch (err: any) {
+      addToast('Delete failed', err?.message || 'Could not delete campaigns', 'error');
+    } finally {
+      setIsBulkDeleting(false);
     }
   };
 
@@ -647,6 +701,30 @@ export const ContentCalendarView: React.FC = () => {
                 <span>Import</span>
               </Button>
 
+              {viewMode !== 'overview' && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleBulkDelete()}
+                  disabled={isBulkDeleting}
+                  title={
+                    viewMode === 'table'
+                      ? 'Delete checked rows, or all visible rows if none are checked'
+                      : 'Delete all campaigns currently shown in this view'
+                  }
+                  className="text-danger-fg hover:text-danger-fg"
+                >
+                  <Trash2 className="w-3.5 h-3.5 mr-1" />
+                  <span>
+                    Delete
+                    {viewMode === 'table' && sheetSelectedIds.length > 0
+                      ? ` (${sheetSelectedIds.length})`
+                      : ''}
+                  </span>
+                </Button>
+              )}
+
               {/* Display Options (Sheet view only) */}
               {viewMode === 'table' && (
                 <ContentCalendarDisplayPopover
@@ -705,6 +783,7 @@ export const ContentCalendarView: React.FC = () => {
             rowHeightsResetKey={rowHeightsResetKey}
             onUpdateItemLocal={handleUpdateItemLocal}
             onFilteredItemsChange={setFilteredItemsForExport}
+            onSelectionMetaChange={handleSelectionMetaChange}
             constants={constants}
             activeClients={activeClients}
           />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { prepareItems } from '../ContentCalendarImportModal';
+import { prepareItems } from '../../../utils/contentCalendarImport';
 
 describe('prepareItems (Excel serials are not reused)', () => {
   const clients = [{ id: 'ws-zem', name: 'ZEM Builders' }];

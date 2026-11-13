@@ -500,6 +500,21 @@ class BatchUpdateRequest(BaseModel):
     updates: List[BatchUpdateItem] = Field(..., max_length=500, description="List of items and their field updates")
 
 
+class BulkDeleteRequest(BaseModel):
+    ids: List[str] = Field(..., min_length=1, max_length=500, description="Campaign ids or serials to delete")
+
+
+class BulkDeleteSkipped(BaseModel):
+    id: str
+    reason: str
+
+
+class BulkDeleteResponse(BaseModel):
+    deleted_count: int
+    deleted_ids: List[str] = []
+    skipped: List[BulkDeleteSkipped] = []
+
+
 class BulkImportRequest(BaseModel):
     items: List[ContentCalendarItemCreate] = Field(..., max_length=1000, description="List of content calendar items to import")
     upsert_by_serial: bool = Field(default=True, description="Update existing records matching serial if True")
@@ -510,7 +525,69 @@ class BulkImportResponse(BaseModel):
     total_processed: int
     inserted_count: int
     updated_count: int
+    inserted_ids: List[str] = []
     errors: List[str] = []
+
+
+class ImportMappedRow(BaseModel):
+    row: int
+    values: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ImportPreviewRequest(BaseModel):
+    mode: str = Field(default="update", description="create, update, or mixed")
+    unmatched: str = Field(default="skip", description="skip or insert unmatched rows in mixed mode")
+    merge_policy: str = Field(default="overwrite", description="overwrite or fill_blanks")
+    default_client_name: Optional[str] = None
+    override_client: bool = False
+    selected_fields: List[str] = Field(default_factory=list)
+    mapping: Dict[str, Any] = Field(default_factory=dict)
+    filename: Optional[str] = None
+    rows: List[ImportMappedRow] = Field(..., max_length=1000)
+
+
+class ImportFieldChange(BaseModel):
+    field: str
+    before: Any = None
+    after: Any = None
+
+
+class ImportPreviewRow(BaseModel):
+    row: int
+    fate: str
+    serial: Optional[str] = None
+    item_id: Optional[str] = None
+    content_concept: Optional[str] = None
+    stage: Optional[str] = None
+    errors: List[str] = []
+    changes: List[ImportFieldChange] = []
+
+
+class ImportJobResponse(BaseModel):
+    id: str
+    filename: Optional[str] = None
+    mode: Optional[str] = None
+    unmatched: Optional[str] = None
+    merge_policy: Optional[str] = None
+    mapping: Dict[str, Any] = Field(default_factory=dict)
+    selected_fields: List[str] = Field(default_factory=list)
+    summary: Dict[str, Any] = Field(default_factory=dict)
+    status: Optional[str] = None
+    counts: Dict[str, Any] = Field(default_factory=dict)
+    created_by_name: Optional[str] = None
+    created_at: Optional[str] = None
+    applied_at: Optional[str] = None
+    restored_at: Optional[str] = None
+    can_restore: bool = False
+    preview_rows: Optional[List[ImportPreviewRow]] = None
+    default_client_name: Optional[str] = None
+    override_client: Optional[bool] = None
+    apply_errors: Optional[List[str]] = None
+    restore_counts: Optional[Dict[str, Any]] = None
+
+
+class ImportApplyRequest(BaseModel):
+    job_id: str
 
 
 class DrivePickedFile(BaseModel):

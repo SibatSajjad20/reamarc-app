@@ -23,6 +23,7 @@ vi.mock('../../../services/contentCalendarService', () => ({
 vi.mock('../../../context/ModuleLoadGate', () => ({ useModuleLoadGate: () => undefined }));
 vi.mock('../../../context/ToastContext', () => ({ useToast: () => ({ addToast: () => undefined }) }));
 vi.mock('../../../context/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u', role: 'admin', permissions: {} } }) }));
+vi.mock('../../ui/ConfirmProvider', () => ({ useConfirm: () => async () => false }));
 vi.mock('../../../hooks/useWorkspaces', () => ({ useWorkspaces: () => ({ workspaces: [] }) }));
 vi.mock('../../../utils/cacheBus', async (orig) => ({
   ...(await orig<object>()),

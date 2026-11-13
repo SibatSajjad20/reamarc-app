@@ -1071,6 +1071,36 @@ async def delete_item(db, item_id: str, viewer: Optional[Dict[str, Any]] = None)
     return res.deleted_count > 0
 
 
+async def bulk_delete_items(
+    db,
+    ids: List[str],
+    viewer: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Deletes many campaigns. Each row still goes through can_delete_item."""
+    deleted_ids: List[str] = []
+    skipped: List[Dict[str, str]] = []
+    seen: set[str] = set()
+    for raw in ids:
+        item_id = str(raw or "").strip()
+        if not item_id or item_id in seen:
+            continue
+        seen.add(item_id)
+        try:
+            ok = await delete_item(db, item_id, viewer=viewer)
+        except WorkflowError as exc:
+            skipped.append({"id": item_id, "reason": str(exc)})
+            continue
+        if ok:
+            deleted_ids.append(item_id)
+        else:
+            skipped.append({"id": item_id, "reason": "Campaign not found or not visible."})
+    return {
+        "deleted_count": len(deleted_ids),
+        "deleted_ids": deleted_ids,
+        "skipped": skipped,
+    }
+
+
 ALLOWED_ASSET_EXTENSIONS = {
     # Images
     ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg",
@@ -2442,6 +2472,7 @@ async def bulk_import_items(
 
     inserted_count = 0
     updated_count = 0
+    inserted_ids: List[str] = []
     errors: List[str] = []
     next_by_prefix: Dict[str, int] = {}
     docs = []
@@ -2510,6 +2541,7 @@ async def bulk_import_items(
             except Exception:
                 pass
 
+        failed_indexes = set()
         try:
             res = await coll.insert_many(docs, ordered=False)
             inserted_count = len(res.inserted_ids)
@@ -2518,19 +2550,23 @@ async def bulk_import_items(
             inserted_count = int(details.get("nInserted") or 0)
             for we in details.get("writeErrors") or []:
                 we_idx = int(we.get("index") or 0)
+                failed_indexes.add(we_idx)
                 row_no = doc_rows[we_idx] if 0 <= we_idx < len(doc_rows) else we_idx + 1
                 serial = docs[we_idx].get("serial") if 0 <= we_idx < len(docs) else ""
                 reason = we.get("errmsg") or we.get("err") or "write failed"
                 label = f" ({serial})" if serial else ""
                 errors.append(f"Row {row_no}{label}: {reason}")
         except Exception as e:
+            failed_indexes = set(range(len(docs)))
             for row_no, doc in zip(doc_rows, docs):
                 errors.append(f"Row {row_no} ({doc.get('serial')}): {str(e)}")
+        inserted_ids = [docs[i].get("id") for i in range(len(docs)) if i not in failed_indexes and docs[i].get("id")]
 
     return {
         "total_processed": len(items),
         "inserted_count": inserted_count,
         "updated_count": updated_count,
+        "inserted_ids": inserted_ids,
         "errors": errors,
     }
 

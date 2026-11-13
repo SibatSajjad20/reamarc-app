@@ -88,6 +88,9 @@ class TestContentCalendarImportSerials(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["inserted_count"], 24)
 
         docs = await self.db[COLLECTION_NAME].find({}).to_list(100)
+        existing = await self.db[COLLECTION_NAME].find_one({"id": "cc_existing"})
+        self.assertEqual(existing["serial"], "CZB-005")
+        self.assertEqual(existing["content_concept"], "Existing")
         serials = sorted(d["serial"] for d in docs if d["serial"] != "CZB-005")
         self.assertEqual(serials, [f"CZB-{n:03d}" for n in range(6, 30)])
         self.assertEqual(len({d["serial"] for d in docs}), 25)

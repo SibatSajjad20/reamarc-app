@@ -20,14 +20,20 @@ from app.schemas.content_calendar import (
     ContentCalendarConstantsUpdate,
     StageMoveRequest,
     BatchUpdateRequest,
+    BulkDeleteRequest,
+    BulkDeleteResponse,
     BulkImportRequest,
     BulkImportResponse,
+    ImportPreviewRequest,
+    ImportJobResponse,
+    ImportApplyRequest,
     AssetReorderRequest,
     LinkAssetCreate,
     DriveAssetAttachRequest,
     DrivePickerConfigResponse,
 )
 from app.services import content_calendar_service
+from app.services import content_calendar_import as content_import
 from app.services.content_calendar_workflow import (
     WorkflowError,
     can_create,
@@ -219,6 +225,21 @@ async def batch_update_content_items(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
+@router.post("/bulk-delete", response_model=BulkDeleteResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("20/minute")
+async def bulk_delete_content_items(
+    request: Request,
+    payload: BulkDeleteRequest,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Deletes many campaigns. Permission is checked per row."""
+    db = get_database()
+    try:
+        return await content_calendar_service.bulk_delete_items(db, payload.ids, viewer=current_user)
+    except WorkflowError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("/bulk-import", response_model=BulkImportResponse, status_code=status.HTTP_200_OK)
 @limiter.limit("30/minute")
 async def bulk_import_content_items(
@@ -241,6 +262,73 @@ async def bulk_import_content_items(
         user_name=user_name,
         viewer=current_user,
     )
+
+
+@router.post("/import/preview", response_model=ImportJobResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
+async def preview_content_import(
+    request: Request,
+    payload: ImportPreviewRequest,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    if not can_create(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the content team can import campaigns.")
+    db = get_database()
+    user_id = current_user.get("id") or str(current_user.get("_id", ""))
+    user_name = current_user.get("full_name") or current_user.get("name") or current_user.get("email") or "Content Creator"
+    return await content_import.preview_import(
+        db,
+        payload=payload.model_dump(),
+        user_id=user_id,
+        user_name=user_name,
+        viewer=current_user,
+    )
+
+
+@router.post("/import/apply", response_model=ImportJobResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("20/minute")
+async def apply_content_import(
+    request: Request,
+    payload: ImportApplyRequest,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    if not can_create(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the content team can import campaigns.")
+    db = get_database()
+    user_id = current_user.get("id") or str(current_user.get("_id", ""))
+    user_name = current_user.get("full_name") or current_user.get("name") or current_user.get("email") or "Content Creator"
+    return await content_import.apply_import(
+        db,
+        job_id=payload.job_id,
+        user_id=user_id,
+        user_name=user_name,
+        viewer=current_user,
+    )
+
+
+@router.get("/import/jobs", response_model=List[ImportJobResponse], status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
+async def list_content_import_jobs(
+    request: Request,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    if not can_create(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the content team can view import history.")
+    db = get_database()
+    return await content_import.list_import_jobs(db)
+
+
+@router.post("/import/jobs/{job_id}/restore", response_model=ImportJobResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("20/minute")
+async def restore_content_import(
+    request: Request,
+    job_id: str,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    if not can_create(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the content team can restore an import.")
+    db = get_database()
+    return await content_import.restore_import(db, job_id=job_id, viewer=current_user)
 
 
 @router.get("/{item_id}", response_model=ContentCalendarItemResponse)

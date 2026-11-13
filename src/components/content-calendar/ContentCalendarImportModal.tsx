@@ -1,5 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
-import * as XLSX from 'xlsx';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -7,16 +6,34 @@ import {
   CheckCircle2,
   RefreshCw,
   FileText,
+  History,
+  Undo2,
 } from 'lucide-react';
-import type { ContentCalendarItem } from '../../types/contentCalendar';
-import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
+import type { ImportJob, ImportPreviewRow } from '../../types/contentCalendar';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { findMatchingClient } from './ContentCalendarModal';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { RadioGroup, RadioCard } from '../ui/radio-group';
+import {
+  IMPORT_FIELDS,
+  SKIP_FIELD,
+  applyColumnMapping,
+  defaultSelectedFields,
+  parseSpreadsheetBuffer,
+  prepareItems,
+  transferableFieldsForMode,
+  type ImportMode,
+  type MappedImportRow,
+  type MergePolicy,
+  type ParsedSheet,
+  type UnmatchedPolicy,
+} from '../../utils/contentCalendarImport';
+
+export { prepareItems };
 
 interface Props {
   isOpen: boolean;
@@ -25,107 +42,25 @@ interface Props {
   activeClients: { id: string; name: string }[];
 }
 
-export const deriveClientAbbr = (clientName?: string): string => {
-  if (!clientName) return 'AT';
-  const clean = clientName.replace(/[^a-zA-Z0-9\s]/g, '').trim();
-  const words = clean.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return 'AT';
-  const legal = new Set([
-    'llc', 'inc', 'corp', 'corporation', 'ltd', 'limited', 'co', 'company',
-    'pvt', 'private', 'plc',
-  ]);
-  const stopWords = new Set(['and', 'the', 'of', 'for', 'in', 'to', 'a', 'an']);
-  const filtered = words.filter((w: string) => !legal.has(w.toLowerCase()));
-  const target = (filtered.length > 0 ? filtered : words).filter((w: string) => !stopWords.has(w.toLowerCase()));
-  const finalWords = target.length > 0 ? target : filtered.length > 0 ? filtered : words;
-  return finalWords.length >= 2
-    ? finalWords.slice(0, 3).map((w: string) => w[0].toUpperCase()).join('')
-    : finalWords[0] ? finalWords[0].slice(0, 3).toUpperCase() : 'AT';
+type WizardStep = 'upload' | 'map' | 'preview';
+
+const FATE_LABEL: Record<string, string> = {
+  create: 'Create',
+  update: 'Update',
+  skip: 'Skip',
+  error: 'Error',
 };
 
-interface RawImportItem {
-  sheetRef?: string;
-  detectedClient?: string;
-  item: Partial<ContentCalendarItem>;
+function fieldLabel(key: string): string {
+  return IMPORT_FIELDS.find((f) => f.key === key)?.label || key;
 }
 
-export const prepareItems = (
-  rawList: RawImportItem[],
-  selectedClient: string,
-  forceSelectedClient: boolean,
-  activeClients: Array<{ id: string; name: string }> = []
-): Partial<ContentCalendarItem>[] => {
-  const limits: Partial<Record<keyof ContentCalendarItem, number>> = {
-    content_concept: 300,
-    primary_text: 8000,
-    headlines_hooks: 4000,
-    content_on_creative: 4000,
-    production_direction: 4000,
-    captions_hashtags: 2000,
-    notes: 8000,
-    client_name: 160,
-  };
-  const knownStages = new Set<string>(PIPELINE_STAGES);
-
-  return rawList.map((raw, idx) => {
-    const next = { ...raw.item };
-    const effectiveClient = (forceSelectedClient || !raw.detectedClient)
-      ? selectedClient
-      : raw.detectedClient;
-
-    const matchedWs = findMatchingClient(effectiveClient, activeClients) || findMatchingClient(selectedClient, activeClients);
-    if (matchedWs) {
-      next.client_name = matchedWs.name;
-      next.workspace_id = matchedWs.id;
-    } else {
-      next.client_name = effectiveClient;
-    }
-
-    delete next.serial;
-
-    if (!next.content_concept) {
-      next.content_concept =
-        next.content_on_creative?.slice(0, 100) ||
-        next.production_direction?.slice(0, 100) ||
-        next.primary_text?.split('\n')[0]?.slice(0, 100) ||
-        `Asset ${idx + 1}`;
-    }
-
-    (Object.keys(limits) as (keyof ContentCalendarItem)[]).forEach((field) => {
-      const rawVal = next[field];
-      const limit = limits[field];
-      if (typeof rawVal === 'string' && limit && rawVal.length > limit) {
-        (next as Record<string, string>)[field] = rawVal.slice(0, limit);
-      }
-    });
-
-    for (const field of ['draft_preview_link', 'final_asset_link'] as const) {
-      const link = String(next[field] || '').trim();
-      if (!link) continue;
-      try {
-        const url = new URL(link);
-        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username) {
-          delete next[field];
-        }
-      } catch {
-        delete next[field];
-      }
-    }
-
-    if (next.stage && !knownStages.has(next.stage)) {
-      next.stage = 'Content';
-    }
-
-    if (!next.content_type) {
-      next.content_type = 'Scheduled';
-    }
-    if (!next.creative_category) {
-      next.creative_category = 'Organic Creative';
-    }
-
-    return next;
-  });
-};
+function formatWhen(iso?: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString();
+}
 
 export const ContentCalendarImportModal: React.FC<Props> = ({
   isOpen,
@@ -136,18 +71,30 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
   const { addToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [tab, setTab] = useState<'import' | 'history'>('import');
+  const [step, setStep] = useState<WizardStep>('upload');
+  const [mode, setMode] = useState<ImportMode>('update');
+  const [unmatched, setUnmatched] = useState<UnmatchedPolicy>('skip');
+  const [mergePolicy, setMergePolicy] = useState<MergePolicy>('overwrite');
+
   const [file, setFile] = useState<File | null>(null);
+  const [parsed, setParsed] = useState<ParsedSheet | null>(null);
+  const [mapping, setMapping] = useState<Record<number, string | null>>({});
+  const [selectedFields, setSelectedFields] = useState<string[]>([]);
+  const [mappedRows, setMappedRows] = useState<MappedImportRow[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [rawItems, setRawItems] = useState<RawImportItem[]>([]);
-  const [parsedItems, setParsedItems] = useState<Partial<ContentCalendarItem>[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Import settings
   const [overrideClient, setOverrideClient] = useState(true);
   const [defaultClient, setDefaultClient] = useState(
-    activeClients.length > 0 ? activeClients[0].name : ''
+    activeClients.length > 0 ? activeClients[0].name : '',
   );
+
+  const [job, setJob] = useState<ImportJob | null>(null);
+  const [history, setHistory] = useState<ImportJob[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!defaultClient && activeClients.length > 0) {
@@ -155,24 +102,54 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
     }
   }, [activeClients, defaultClient]);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    if (tab !== 'history') return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    contentCalendarService
+      .listImportJobs()
+      .then((jobs) => {
+        if (!cancelled) setHistory(jobs);
+      })
+      .catch((err) => {
+        if (!cancelled) addToast('Could not load import history', err?.message || 'Try again', 'error');
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, tab, addToast]);
 
-  const normalizeHeader = (h: string): string => {
-    return h.toLowerCase().replace(/[^a-z0-9]/g, '');
-  };
+  const fieldOptions = useMemo(
+    () => [
+      { value: SKIP_FIELD, label: 'Do not import' },
+      ...IMPORT_FIELDS.map((f) => ({
+        value: f.key,
+        label: `${f.label}${f.role === 'locked' ? ' (won’t transfer)' : f.role === 'match' ? ' (match key)' : ''}`,
+      })),
+    ],
+    [],
+  );
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selected = e.target.files?.[0];
-    if (!selected) return;
-    await processFile(selected);
-  };
+  const transferable = useMemo(() => transferableFieldsForMode(mode), [mode]);
+  const mappedFieldSet = useMemo(
+    () => new Set(Object.values(mapping).filter(Boolean) as string[]),
+    [mapping],
+  );
 
-  const handleDrop = async (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const dropped = e.dataTransfer.files?.[0];
-    if (!dropped) return;
-    await processFile(dropped);
+  const resetWizard = () => {
+    setStep('upload');
+    setFile(null);
+    setParsed(null);
+    setMapping({});
+    setSelectedFields([]);
+    setMappedRows([]);
+    setJob(null);
+    setErrorMsg(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   const processFile = async (selected: File) => {
@@ -185,354 +162,136 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
       setErrorMsg('File size exceeds the 10MB limit.');
       return;
     }
-
     setFile(selected);
     setIsParsing(true);
-
     try {
       const buffer = await selected.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: 'array' });
-
-      // Target 'Production & Approval' sheet or first sheet
-      const sheetName = wb.SheetNames.includes('Production & Approval')
-        ? 'Production & Approval'
-        : wb.SheetNames[0];
-
-      const ws = wb.Sheets[sheetName];
-      if (!ws) {
-        throw new Error('Worksheet is empty or could not be found.');
+      const sheet = parseSpreadsheetBuffer(buffer);
+      if (sheet.rows.length > 1000) {
+        throw new Error('This file has more than 1,000 data rows. Split it before importing.');
       }
-
-      const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
-      if (rows.length < 2) {
-        throw new Error('File does not contain enough data rows.');
-      }
-
-      // Flexible header and multi-section parser
-      const parseDateValue = (val: any): string | null => {
-        if (!val) return null;
-        const str = String(val).trim();
-        if (!str) return null;
-        const num = Number(str);
-        if (!isNaN(num) && num > 30000 && num < 60000) {
-          const d = new Date(Math.round((num - 25569) * 86400 * 1000));
-          return d.toISOString().split('T')[0];
-        }
-        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-        const parsed = Date.parse(str);
-        if (!isNaN(parsed)) {
-          const d = new Date(parsed);
-          return d.toISOString().split('T')[0];
-        }
-        return str;
-      };
-
-      const CHANNEL_NAMES = ['facebook', 'instagram', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'website', 'twitter', 'x'];
-
-      let activeHeaderMap: Record<number, keyof ContentCalendarItem> | null = null;
-      let activeChannelMap: Record<number, string> = {};
-      let currentSectionClient = defaultClient;
-      const rawExtracted: RawImportItem[] = [];
-
-      for (let r = 0; r < rows.length; r++) {
-        const row = rows[r];
-        if (!row || row.length === 0) continue;
-
-        const rowJoined = row.map((c: any) => String(c || '').trim()).filter(Boolean);
-        if (rowJoined.length === 0) continue;
-
-        // Detect section client name if available
-        const rowFullText = rowJoined.join(' ').toLowerCase();
-        if (rowJoined.length <= 3 && !rowFullText.includes('serial') && !rowFullText.includes('creative type')) {
-          const candidate = rowJoined.find((c: string) => {
-            const cl = c.toLowerCase();
-            return (
-              cl !== 'essential' &&
-              cl !== 'goal/theme' &&
-              cl !== 'profile details' &&
-              cl !== 'run time tasks' &&
-              c.length > 2 &&
-              c.length < 50
-            );
-          });
-          if (candidate && (candidate.toLowerCase().includes('mall') || candidate.toLowerCase().includes('developer') || candidate.toLowerCase().includes('llc') || candidate.toLowerCase().includes('zem'))) {
-            currentSectionClient = candidate.trim();
-          }
-        }
-
-        const officialNameCol = row.findIndex((c: any) => String(c || '').toLowerCase().includes('official business name'));
-        if (officialNameCol !== -1 && row[officialNameCol + 1]) {
-          const cand = String(row[officialNameCol + 1]).trim();
-          if (cand && cand.length < 50) currentSectionClient = cand;
-        }
-
-        // Check if row is a header row
-        const rowNorms = row.map((c: any) => normalizeHeader(String(c || '')));
-        const hasSerial = rowNorms.some((n: string) => n === 'serial' || n === 'serialid' || n === 'sr' || n === 'sno');
-        const hasConceptOrCampaignOrCreative = rowNorms.some((n: string) =>
-          n.includes('creative') ||
-          n.includes('concept') ||
-          n.includes('campaign') ||
-          n.includes('topic') ||
-          n.includes('postdescription') ||
-          n.includes('date') ||
-          n.includes('status')
-        );
-
-        if (hasSerial && hasConceptOrCampaignOrCreative) {
-          activeHeaderMap = {};
-          activeChannelMap = {};
-
-          row.forEach((h: any, idx: number) => {
-            const norm = normalizeHeader(String(h || ''));
-            if (!norm) return;
-
-            if (norm === 'serial' || norm === 'serialid' || norm === 'sr' || norm === 'sno') {
-              activeHeaderMap![idx] = 'serial';
-            } else if (norm === 'client' || norm === 'clientname') {
-              activeHeaderMap![idx] = 'client_name';
-            } else if (norm === 'campaigntype' || norm === 'campaign') {
-              activeHeaderMap![idx] = 'campaign_type';
-            } else if (norm === 'creativetype' || norm === 'format') {
-              activeHeaderMap![idx] = 'creative_type';
-            } else if (norm === 'contenttype' || norm.includes('scheduledruntime') || norm === 'scheduletype') {
-              activeHeaderMap![idx] = 'content_type';
-            } else if (norm === 'creativecategory' || norm.includes('organiccreative') || norm.includes('adcreative') || norm === 'postingtype') {
-              activeHeaderMap![idx] = 'creative_category';
-            } else if (norm.includes('contentpillar') || norm.includes('pillar')) {
-              activeHeaderMap![idx] = 'content_pillar';
-            } else if (
-              norm.includes('contentconcept') ||
-              norm.includes('concept') ||
-              norm.includes('topictheme') ||
-              norm === 'topic' ||
-              norm === 'context' ||
-              norm === 'title'
-            ) {
-              activeHeaderMap![idx] = 'content_concept';
-            } else if (norm === 'offer') {
-              activeHeaderMap![idx] = 'offer';
-            } else if (norm === 'idea' || norm.includes('productiondirection') || norm === 'direction') {
-              activeHeaderMap![idx] = 'production_direction';
-            } else if (
-              norm.includes('designdue') ||
-              norm.includes('designcompletion') ||
-              (norm.includes('design') && norm.includes('date')) ||
-              norm === 'due'
-            ) {
-              activeHeaderMap![idx] = 'design_due';
-            } else if (
-              norm.includes('primarytext') ||
-              norm.includes('adcopy') ||
-              norm === 'copy' ||
-              norm.includes('postdescription') ||
-              norm.includes('description')
-            ) {
-              activeHeaderMap![idx] = 'primary_text';
-            } else if (norm.includes('headlines') || norm.includes('hooks')) {
-              activeHeaderMap![idx] = 'headlines_hooks';
-            } else if (norm.includes('contentoncreative') || norm.includes('copyoncreative')) {
-              activeHeaderMap![idx] = 'content_on_creative';
-            } else if (norm === 'cta' || norm.includes('postcta') || norm.includes('calltoaction')) {
-              activeHeaderMap![idx] = 'cta';
-            } else if (norm.includes('captions') || norm.includes('hashtags') || norm.includes('keywords')) {
-              if (!activeHeaderMap![idx]) activeHeaderMap![idx] = 'captions_hashtags';
-            } else if (norm.includes('designowner') || norm === 'owner') {
-              activeHeaderMap![idx] = 'design_owner';
-            } else if (
-              norm.includes('postingdate') ||
-              norm.includes('publishdate') ||
-              norm.includes('postdate') ||
-              norm.includes('scheduledate') ||
-              norm === 'date'
-            ) {
-              activeHeaderMap![idx] = 'publish_date';
-            } else if (norm.includes('draft') || norm.includes('previewlink')) {
-              activeHeaderMap![idx] = 'draft_preview_link';
-            } else if (norm.includes('final') || norm.includes('assetlink')) {
-              activeHeaderMap![idx] = 'final_asset_link';
-            } else if (norm.includes('approvalstatus') || norm === 'approval' || norm === 'status') {
-              activeHeaderMap![idx] = 'approval_status';
-            } else if (norm.includes('setupstatus') || norm === 'setup' || norm.includes('postingstatus')) {
-              activeHeaderMap![idx] = 'setup_status';
-            } else if (norm === 'stage' || norm.includes('pipelinestage')) {
-              activeHeaderMap![idx] = 'stage';
-            } else if (norm === 'notes' || norm === 'note' || norm.includes('performance')) {
-              activeHeaderMap![idx] = 'notes';
-            }
-
-            const matchedChannel = CHANNEL_NAMES.find((ch) => norm === ch || norm.startsWith(ch));
-            if (matchedChannel) {
-              activeChannelMap[idx] = matchedChannel.charAt(0).toUpperCase() + matchedChannel.slice(1);
-            }
-          });
-          continue;
-        }
-
-        if (!activeHeaderMap) continue;
-
-        // Parse row
-        const item: any = {};
-        const channels: string[] = [];
-        let hasAnyValue = false;
-
-        Object.entries(activeHeaderMap).forEach(([colIdxStr, fieldKey]) => {
-          const colIdx = Number(colIdxStr);
-          const rawVal = row[colIdx];
-          if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
-            hasAnyValue = true;
-            let strVal = String(rawVal).trim();
-            // Handle double pipe formatting typos like 'Pending Approval||2026-05-25'
-            if (strVal.includes('||')) {
-              const parts = strVal.split('||').map((p) => p.trim());
-              strVal = parts[0];
-              if (parts[1] && !item['publish_date']) {
-                item['publish_date'] = parseDateValue(parts[1]);
-              }
-            }
-            if (strVal.startsWith('=') || strVal.startsWith('+') || strVal.startsWith('-') || strVal.startsWith('@')) {
-              strVal = "'" + strVal;
-            }
-            item[fieldKey] = strVal;
-          }
-        });
-
-        // Extract active channels
-        Object.entries(activeChannelMap).forEach(([colIdxStr, channelName]) => {
-          const colIdx = Number(colIdxStr);
-          const val = row[colIdx];
-          if (val !== undefined && val !== null && String(val).trim()) {
-            const valStr = String(val).trim().toLowerCase();
-            if (valStr === 'yes' || valStr === 'y' || valStr === '1' || valStr.includes('video') || valStr.startsWith('http')) {
-              channels.push(channelName);
-            }
-          }
-        });
-
-        if (channels.length > 0) {
-          item.channels = channels;
-        }
-
-        // Filter out repeating headers or non-record rows
-        if (
-          item.serial &&
-          isNaN(Number(item.serial)) &&
-          !item.serial.match(/^C[A-Z0-9-]+$/i) &&
-          !item.content_on_creative &&
-          !item.primary_text &&
-          !item.content_concept
-        ) {
-          continue;
-        }
-
-        // Must have at least a serial, creative type, creative copy, or concept to be a valid campaign record
-        if (hasAnyValue && (item.content_concept || item.serial || item.content_on_creative || item.primary_text)) {
-          const sheetRef = item.serial ? String(item.serial).trim() : undefined;
-          delete item.serial;
-
-          if (item.publish_date) {
-            item.publish_date = parseDateValue(item.publish_date);
-          }
-          if (item.design_due) {
-            item.design_due = parseDateValue(item.design_due);
-          }
-
-          // If primary_text has hashtags and captions_hashtags is empty
-          if (item.primary_text && !item.captions_hashtags) {
-            const hashMatch = item.primary_text.match(/#\w+/g);
-            if (hashMatch) {
-              item.captions_hashtags = hashMatch.join(' ');
-            }
-          }
-
-          rawExtracted.push({
-            sheetRef,
-            detectedClient: item.client_name || currentSectionClient || undefined,
-            item,
-          });
-        }
-      }
-
-      if (rawExtracted.length === 0) {
-        throw new Error('No valid campaign records found in file. Please verify column headers.');
-      }
-      if (rawExtracted.length > 10000) {
-        throw new Error('This file has more than 10,000 campaigns. Split it into smaller workbooks and import those.');
-      }
-
-      setRawItems(rawExtracted);
-      const prepared = prepareItems(rawExtracted, defaultClient, overrideClient, activeClients);
-      setParsedItems(prepared);
+      setParsed(sheet);
+      setMapping(sheet.mapping);
+      setSelectedFields(defaultSelectedFields(mode, sheet.mapping));
+      setMappedRows(applyColumnMapping(sheet, sheet.mapping));
+      setJob(null);
+      setStep('map');
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to parse Excel workbook.');
+      setParsed(null);
     } finally {
       setIsParsing(false);
     }
   };
 
-  const handleClientChange = (val: string) => {
-    setDefaultClient(val);
-    if (rawItems.length > 0) {
-      setParsedItems(prepareItems(rawItems, val, overrideClient, activeClients));
+  const handleMappingChange = (colIdx: number, field: string) => {
+    const next = { ...mapping, [colIdx]: field === SKIP_FIELD ? null : field };
+    const used = new Map<string, number>();
+    Object.entries(next).forEach(([idx, f]) => {
+      if (!f) return;
+      if (used.has(f) && used.get(f) !== Number(idx)) {
+        next[used.get(f)!] = null;
+      }
+      used.set(f, Number(idx));
+    });
+    setMapping(next);
+    if (parsed) {
+      setMappedRows(applyColumnMapping(parsed, next));
+      setSelectedFields(defaultSelectedFields(mode, next));
     }
   };
 
-  const handleOverrideClientChange = (val: boolean) => {
-    setOverrideClient(val);
-    if (rawItems.length > 0) {
-      setParsedItems(prepareItems(rawItems, defaultClient, val, activeClients));
-    }
+  const handleModeChange = (nextMode: ImportMode) => {
+    setMode(nextMode);
+    setSelectedFields(defaultSelectedFields(nextMode, mapping));
   };
 
-  const handleConfirmImport = async () => {
-    if (parsedItems.length === 0) return;
+  const toggleField = (key: string, on: boolean) => {
+    setSelectedFields((prev) => (on ? Array.from(new Set([...prev, key])) : prev.filter((k) => k !== key)));
+  };
+
+  const handlePreview = async () => {
+    if (!mappedRows.length) return;
+    if (mode !== 'create') {
+      const hasMatch = Object.values(mapping).some((f) => f === 'serial' || f === 'id');
+      if (!hasMatch) {
+        setErrorMsg('Map Serial or Record ID so existing campaigns can be matched.');
+        return;
+      }
+    }
     setIsSubmitting(true);
+    setErrorMsg(null);
     try {
-      let processed = 0;
-      let inserted = 0;
-      let updated = 0;
-      const chunkErrors: string[] = [];
-      const chunkSize = 500;
-      for (let offset = 0; offset < parsedItems.length; offset += chunkSize) {
-        const res = await contentCalendarService.bulkImport({
-          items: parsedItems.slice(offset, offset + chunkSize),
-          upsert_by_serial: false,
-          default_client_name: defaultClient,
-        });
-        processed += res.total_processed;
-        inserted += res.inserted_count;
-        updated += res.updated_count;
-        if (Array.isArray(res.errors) && res.errors.length > 0) {
-          chunkErrors.push(...res.errors);
-        }
-      }
-
-      const summary = [`${inserted} added`];
-      if (updated > 0) summary.push(`${updated} updated`);
-      if (processed > 0 && processed !== inserted + updated) {
-        summary.push(`${processed} processed`);
-      }
-      const errorSuffix = chunkErrors.length
-        ? ` ${chunkErrors.length} rejected: ${chunkErrors.join('; ')}`
-        : '';
-      addToast(
-        chunkErrors.length ? 'Import completed with rejections' : 'Import Completed',
-        `${summary.join(', ')}.${errorSuffix}`,
-        chunkErrors.length ? 'warning' : 'success'
-      );
-      onSuccess();
-      onClose();
+      const mappingByHeader: Record<string, string | null> = {};
+      parsed?.headers.forEach((h, idx) => {
+        mappingByHeader[h] = mapping[idx] ?? null;
+      });
+      const preview = await contentCalendarService.previewImport({
+        mode,
+        unmatched,
+        merge_policy: mergePolicy,
+        default_client_name: defaultClient,
+        override_client: overrideClient,
+        selected_fields: selectedFields,
+        mapping: mappingByHeader,
+        filename: file?.name,
+        rows: mappedRows,
+      });
+      setJob(preview);
+      setStep('preview');
     } catch (err: any) {
-      addToast('Import Failed', err?.message || 'Could not import items', 'error');
+      setErrorMsg(err?.message || 'Could not build preview.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const handleApply = async () => {
+    if (!job?.id) return;
+    setIsSubmitting(true);
+    try {
+      const applied = await contentCalendarService.applyImport(job.id);
+      setJob(applied);
+      const inserted = applied.counts?.inserted ?? 0;
+      const updated = applied.counts?.updated ?? 0;
+      const errCount = applied.apply_errors?.length ?? 0;
+      addToast(
+        errCount ? 'Import completed with issues' : 'Import applied',
+        `${inserted} added, ${updated} updated.${errCount ? ` ${errCount} apply errors.` : ''} Restore is available in History.`,
+        errCount ? 'warning' : 'success',
+      );
+      onSuccess();
+    } catch (err: any) {
+      addToast('Import failed', err?.message || 'Could not apply import', 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRestore = async (id: string) => {
+    setRestoringId(id);
+    try {
+      await contentCalendarService.restoreImport(id);
+      addToast('Import restored', 'Mapped fields were rolled back. Rows this import created were deleted.', 'success');
+      const jobs = await contentCalendarService.listImportJobs();
+      setHistory(jobs);
+      onSuccess();
+    } catch (err: any) {
+      addToast('Restore failed', err?.message || 'Could not restore this import', 'error');
+    } finally {
+      setRestoringId(null);
+    }
+  };
+
+  if (!isOpen) return null;
+
+  const previewRows: ImportPreviewRow[] = job?.preview_rows || [];
+  const summary = job?.summary || {};
+  const applied = job?.status === 'applied';
+
   return (
     <Dialog open={isOpen} onOpenChange={(open: boolean) => { if (!open && !isSubmitting) onClose(); }}>
-      <DialogContent maxWidth="lg" className="p-0 overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Modal Header */}
+      <DialogContent maxWidth="2xl" className="p-0 overflow-hidden max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-md bg-accent-soft text-accent flex items-center justify-center shrink-0">
@@ -540,238 +299,391 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
             </div>
             <div>
               <DialogTitle className="text-h3 font-semibold text-fg">
-                Import content calendar from Excel
+                Import content calendar
               </DialogTitle>
               <DialogDescription className="text-small text-fg-muted mt-0.5">
-                Upload campaign plan spreadsheets to populate your content schedule
+                Map columns, preview field transfers, then apply. Restore is available from History.
               </DialogDescription>
             </div>
           </div>
         </div>
 
-        {/* Modal Body */}
-        <div className="p-6 flex-1 overflow-y-auto space-y-4">
-          {/* Target Client & Import Settings */}
-          {activeClients.length === 0 ? (
-            <div className="p-4 rounded-md bg-subtle border border-border flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 text-warning-fg shrink-0 mt-0.5" />
-              <div>
-                <p className="text-label font-medium text-fg">No active clients found</p>
-                <p className="text-small text-fg-muted mt-0.5">
-                  An active client is required to import content calendar records. Please create or activate a client before importing.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4 rounded-md bg-subtle border border-border space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
-                <div>
-                  <label className="text-label font-medium text-fg block mb-1">
-                    Target client
-                  </label>
-                  <CustomSelect
-                    size="sm"
-                    value={defaultClient}
-                    onChange={handleClientChange}
-                    options={activeClients.map((c) => ({ value: c.name, label: c.name }))}
-                  />
-                </div>
-
-                <div className="space-y-3 pt-1 sm:pt-2">
-                  <Checkbox
-                    checked={overrideClient}
-                    onCheckedChange={(c) => handleOverrideClientChange(Boolean(c))}
-                    label="Apply to all imported records"
-                    description="Standardize all campaigns and serial IDs to selected client"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* File Upload Zone */}
-          {!file ? (
-            <div
-              onDragOver={(e) => {
-                if (activeClients.length === 0) return;
-                e.preventDefault();
-                e.stopPropagation();
-              }}
-              onDrop={(e) => {
-                if (activeClients.length === 0) return;
-                handleDrop(e);
-              }}
-              onClick={() => {
-                if (activeClients.length === 0) return;
-                fileInputRef.current?.click();
-              }}
-              className={`border border-dashed border-border rounded-md p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
-                activeClients.length === 0
-                  ? 'opacity-50 cursor-not-allowed bg-subtle'
-                  : 'hover:border-accent cursor-pointer bg-subtle group'
-              }`}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                disabled={activeClients.length === 0}
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <div className="w-10 h-10 rounded-md bg-accent-soft text-accent flex items-center justify-center group-hover:scale-105 transition-transform">
-                <Upload className="w-5 h-5" />
-              </div>
-              <div className="text-center">
-                <p className="text-small font-medium text-fg">
-                  {activeClients.length === 0
-                    ? 'Import disabled: no active clients available'
-                    : isParsing
-                    ? 'Reading file…'
-                    : 'Click to select file or drag and drop here'}
-                </p>
-                <p className="text-caption text-fg-muted mt-0.5">
-                  {activeClients.length === 0
-                    ? 'Active clients are required to assign imported campaigns'
-                    : isParsing
-                    ? 'Parsing spreadsheet data…'
-                    : 'Supports .xlsx, .xls, .csv (Max 10MB)'}
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between p-3.5 rounded-md bg-subtle border border-border">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-md bg-success-bg text-success-fg border border-success-bd flex items-center justify-center">
-                  <FileText className="w-4.5 h-4.5" />
-                </div>
-                <div>
-                  <div className="text-small font-semibold text-fg">{file.name}</div>
-                  <div className="text-caption text-fg-muted font-numeric">
-                    {isParsing
-                      ? 'Reading file…'
-                      : `${(file.size / 1024).toFixed(1)} KB \u2022 ${parsedItems.length} records detected`}
-                  </div>
-                </div>
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setFile(null);
-                  setRawItems([]);
-                  setParsedItems([]);
-                  setErrorMsg(null);
-                }}
-                className="text-caption text-fg-muted hover:text-danger-fg"
-              >
-                Change file
-              </Button>
-            </div>
-          )}
-
-          {/* Error Message */}
-          {errorMsg && (
-            <div className="p-3 rounded-md bg-danger-bg border border-danger-bd flex items-center gap-2.5 text-small text-danger-fg">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>{errorMsg}</span>
-            </div>
-          )}
-
-          {/* Parsing Spinner */}
-          {isParsing && (
-            <div className="py-6 flex items-center justify-center gap-2 text-small text-fg-muted">
-              <RefreshCw className="w-4 h-4 animate-spin text-accent" />
-              <span>Analyzing spreadsheet columns and rows...</span>
-            </div>
-          )}
-
-          {/* Parsed Preview */}
-          {parsedItems.length > 0 && !isParsing && (
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
-                  Data preview (Showing {Math.min(10, parsedItems.length)} of {parsedItems.length} records)
-                </span>
-                <span className="text-caption text-success-fg font-medium flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Ready to import
-                </span>
-              </div>
-
-              <div className="border border-border rounded-md overflow-hidden text-small">
-                <table className="w-full divide-y divide-border text-left">
-                  <thead className="bg-subtle font-medium text-fg-muted text-label">
-                    <tr>
-                      <th className="p-2">Serial</th>
-                      <th className="p-2">Sheet ref</th>
-                      <th className="p-2">Client</th>
-                      <th className="p-2">Creative</th>
-                      <th className="p-2">Concept / title</th>
-                      <th className="p-2">Stage</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {parsedItems.slice(0, 10).map((it, idx) => (
-                      <tr key={idx} className="hover:bg-subtle/50 transition-colors">
-                        <td className="p-2 font-numeric font-medium text-accent">
-                          {it.serial || 'Auto'}
-                        </td>
-                        <td className="p-2 font-numeric text-fg-muted truncate max-w-[140px]" title={rawItems[idx]?.sheetRef || ''}>
-                          {rawItems[idx]?.sheetRef || '—'}
-                        </td>
-                        <td className="p-2 truncate max-w-[140px]" title={it.client_name || defaultClient}>
-                          {it.client_name || defaultClient}
-                        </td>
-                        <td className="p-2">{it.creative_type || 'Video'}</td>
-                        <td className="p-2 truncate max-w-[180px] font-medium" title={it.content_concept}>
-                          {it.content_concept}
-                        </td>
-                        <td className="p-2">{it.stage || 'Content'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+        <div className="px-6 pt-4">
+          <Tabs value={tab} onValueChange={(v) => setTab(v as 'import' | 'history')}>
+            <TabsList>
+              <TabsTrigger value="import">Import</TabsTrigger>
+              <TabsTrigger value="history">History</TabsTrigger>
+            </TabsList>
+          </Tabs>
         </div>
 
-        {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-border bg-surface flex items-center justify-between gap-2.5">
-          {isParsing && (
-            <span className="text-small text-fg-muted" aria-live="polite">
-              Reading file…
-            </span>
-          )}
-          <div className="flex items-center gap-2.5 ml-auto">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
+        {tab === 'import' ? (
+          <div className="px-6 pb-4 flex-1 overflow-y-auto space-y-4">
+            <RadioGroup value={mode} onValueChange={(v) => handleModeChange(v as ImportMode)} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <RadioCard
+                value="update"
+                title="Update existing"
+                description="Export → edit dates in Excel → import. Matches Serial / Record ID."
+              />
+              <RadioCard
+                value="create"
+                title="Create new"
+                description="First load of a plan. System assigns serials. Excel serials are ignored."
+              />
+              <RadioCard
+                value="mixed"
+                title="Mixed"
+                description="Update matched rows. Unmatched rows skip or insert."
+              />
+            </RadioGroup>
 
-            <Button
-              type="button"
-              variant="primary"
-              disabled={activeClients.length === 0 || parsedItems.length === 0 || isSubmitting || isParsing}
-              onClick={handleConfirmImport}
-            >
-              {isSubmitting ? (
-                <>
-                  <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  <span>Importing...</span>
-                </>
-              ) : (
-                <span>
-                  Import <span className="font-numeric">{parsedItems.length}</span> records
-                </span>
-              )}
-            </Button>
+            {activeClients.length === 0 ? (
+              <div className="p-4 rounded-md bg-subtle border border-border flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-warning-fg shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-label font-medium text-fg">No active clients found</p>
+                  <p className="text-small text-fg-muted mt-0.5">
+                    An active client is required to import content calendar records.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="p-4 rounded-md bg-subtle border border-border space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                  <div>
+                    <label className="text-label font-medium text-fg block mb-1">Target client</label>
+                    <CustomSelect
+                      size="sm"
+                      value={defaultClient}
+                      onChange={setDefaultClient}
+                      options={activeClients.map((c) => ({ value: c.name, label: c.name }))}
+                    />
+                  </div>
+                  <div className="space-y-3 pt-1 sm:pt-2">
+                    <Checkbox
+                      checked={overrideClient}
+                      onCheckedChange={(c) => setOverrideClient(Boolean(c))}
+                      label="Apply client to new rows"
+                      description="Used when creating campaigns, not when updating by serial"
+                    />
+                  </div>
+                </div>
+                {mode !== 'create' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-label font-medium text-fg block mb-1">If a mapped cell has a value</label>
+                      <CustomSelect
+                        size="sm"
+                        value={mergePolicy}
+                        onChange={(v) => setMergePolicy(v as MergePolicy)}
+                        options={[
+                          { value: 'overwrite', label: 'Overwrite the current field' },
+                          { value: 'fill_blanks', label: 'Fill blank fields only' },
+                        ]}
+                      />
+                    </div>
+                    {mode === 'mixed' && (
+                      <div>
+                        <label className="text-label font-medium text-fg block mb-1">Unmatched rows</label>
+                        <CustomSelect
+                          size="sm"
+                          value={unmatched}
+                          onChange={(v) => setUnmatched(v as UnmatchedPolicy)}
+                          options={[
+                            { value: 'skip', label: 'Skip' },
+                            { value: 'insert', label: 'Insert as new' },
+                          ]}
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {step === 'upload' || !file ? (
+              <div
+                onDragOver={(e) => {
+                  if (activeClients.length === 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onDrop={(e) => {
+                  if (activeClients.length === 0) return;
+                  e.preventDefault();
+                  const dropped = e.dataTransfer.files?.[0];
+                  if (dropped) void processFile(dropped);
+                }}
+                onClick={() => {
+                  if (activeClients.length === 0) return;
+                  fileInputRef.current?.click();
+                }}
+                className={`border border-dashed border-border rounded-md p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
+                  activeClients.length === 0
+                    ? 'opacity-50 cursor-not-allowed bg-subtle'
+                    : 'hover:border-accent cursor-pointer bg-subtle group'
+                }`}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  disabled={activeClients.length === 0}
+                  onChange={(e) => {
+                    const selected = e.target.files?.[0];
+                    if (selected) void processFile(selected);
+                  }}
+                  className="hidden"
+                />
+                <div className="w-10 h-10 rounded-md bg-accent-soft text-accent flex items-center justify-center group-hover:scale-105 transition-transform">
+                  <Upload className="w-5 h-5" />
+                </div>
+                <div className="text-center">
+                  <p className="text-small font-medium text-fg">
+                    {isParsing ? 'Reading file…' : 'Click to select file or drag and drop here'}
+                  </p>
+                  <p className="text-caption text-fg-muted mt-0.5">
+                    Supports .xlsx, .xls, .csv (Max 10MB). For updates, export this calendar first so Serial and Record ID are present.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-between p-3.5 rounded-md bg-subtle border border-border">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-md bg-success-bg text-success-fg border border-success-bd flex items-center justify-center">
+                    <FileText className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <div className="text-small font-semibold text-fg">{file.name}</div>
+                    <div className="text-caption text-fg-muted font-numeric">
+                      {parsed ? `${parsed.rows.length} rows • ${parsed.headers.length} columns` : 'Reading…'}
+                    </div>
+                  </div>
+                </div>
+                <Button type="button" variant="ghost" size="sm" onClick={resetWizard} className="text-caption text-fg-muted">
+                  Change file
+                </Button>
+              </div>
+            )}
+
+            {errorMsg && (
+              <div className="p-3 rounded-md bg-danger-bg border border-danger-bd flex items-center gap-2.5 text-small text-danger-fg">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{errorMsg}</span>
+              </div>
+            )}
+
+            {parsed && step !== 'upload' && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-caption font-semibold text-fg-muted uppercase tracking-wider">Column mapping</p>
+                  <span className="text-caption text-fg-muted">{mappedRows.length} mapped rows</span>
+                </div>
+                <div className="border border-border rounded-md overflow-auto max-h-56 text-small">
+                  <table className="w-full text-left">
+                    <thead className="bg-subtle text-fg-muted text-label">
+                      <tr>
+                        <th className="p-2">Excel header</th>
+                        <th className="p-2">Sample</th>
+                        <th className="p-2">Maps to</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {parsed.headers.map((header, idx) => {
+                        const sample = parsed.rows[0] ? String(parsed.rows[0][idx] ?? '') : '';
+                        const field = mapping[idx];
+                        const def = IMPORT_FIELDS.find((f) => f.key === field);
+                        return (
+                          <tr key={`${header}-${idx}`}>
+                            <td className="p-2 font-medium">{header}</td>
+                            <td className="p-2 text-fg-muted truncate max-w-[180px]" title={sample}>{sample || '—'}</td>
+                            <td className="p-2 min-w-[220px]">
+                              <CustomSelect
+                                size="sm"
+                                value={field || SKIP_FIELD}
+                                onChange={(v) => handleMappingChange(idx, v)}
+                                options={fieldOptions}
+                              />
+                              {def?.role === 'locked' && (
+                                <p className="text-caption text-warning-fg mt-1">Shown in the sheet only. Will not overwrite pipeline fields.</p>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {parsed && step !== 'upload' && (
+              <div className="space-y-2">
+                <p className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                  Fields that will transfer
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {transferable.filter((f) => mappedFieldSet.has(f.key)).map((f) => (
+                    <Checkbox
+                      key={f.key}
+                      checked={selectedFields.includes(f.key)}
+                      onCheckedChange={(c) => toggleField(f.key, Boolean(c))}
+                      label={f.label}
+                      description={f.defaultUpdate ? 'Default for date bulk-edit' : undefined}
+                    />
+                  ))}
+                </div>
+                {mode !== 'create' && (
+                  <p className="text-caption text-fg-muted">
+                    Stage, approval, assets, and review links never transfer. Serial / Record ID are match keys only.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {step === 'preview' && job && (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                    Preview — {summary.update || 0} update, {summary.create || 0} create, {summary.skip || 0} skip, {summary.error || 0} error
+                  </p>
+                  {applied && (
+                    <span className="text-caption text-success-fg font-medium flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Applied
+                    </span>
+                  )}
+                </div>
+                <div className="border border-border rounded-md overflow-auto max-h-72 text-small">
+                  <table className="w-full text-left">
+                    <thead className="bg-subtle text-fg-muted text-label">
+                      <tr>
+                        <th className="p-2">Row</th>
+                        <th className="p-2">Serial</th>
+                        <th className="p-2">Fate</th>
+                        <th className="p-2">Field transfers</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {previewRows.slice(0, 50).map((row) => (
+                        <tr key={row.row} className={row.fate === 'error' ? 'bg-danger-bg/40' : undefined}>
+                          <td className="p-2 font-numeric">{row.row}</td>
+                          <td className="p-2 font-numeric">{row.serial || '—'}</td>
+                          <td className="p-2">{FATE_LABEL[row.fate] || row.fate}</td>
+                          <td className="p-2">
+                            {row.errors?.length ? (
+                              <span className="text-danger-fg">{row.errors.join('; ')}</span>
+                            ) : row.changes?.length ? (
+                              <ul className="space-y-0.5">
+                                {row.changes.map((ch) => (
+                                  <li key={ch.field}>
+                                    <span className="text-fg-muted">{fieldLabel(ch.field)}:</span>{' '}
+                                    <span className="text-fg-muted">{String(ch.before ?? '—')}</span>
+                                    {' → '}
+                                    <span className="font-medium">{String(ch.after ?? '—')}</span>
+                                  </li>
+                                ))}
+                                {row.stage && mode !== 'create' && (
+                                  <li className="text-fg-muted">Stage stays {row.stage}</li>
+                                )}
+                              </ul>
+                            ) : (
+                              <span className="text-fg-muted">No field changes</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {previewRows.length > 50 && (
+                  <p className="text-caption text-fg-muted">Showing first 50 of {previewRows.length} rows.</p>
+                )}
+              </div>
+            )}
           </div>
+        ) : (
+          <div className="px-6 pb-4 flex-1 overflow-y-auto space-y-3">
+            <p className="text-small text-fg-muted">
+              Restore undoes this import only. Later in-app edits on those fields will be overwritten. Snapshots last 30 days.
+            </p>
+            {historyLoading ? (
+              <div className="py-6 flex items-center justify-center gap-2 text-small text-fg-muted">
+                <RefreshCw className="w-4 h-4 animate-spin text-accent" />
+                Loading history…
+              </div>
+            ) : history.length === 0 ? (
+              <div className="p-6 text-center text-small text-fg-muted border border-dashed border-border rounded-md">
+                <History className="w-5 h-5 mx-auto mb-2" />
+                No Excel imports yet.
+              </div>
+            ) : (
+              <div className="border border-border rounded-md divide-y divide-border">
+                {history.map((h) => (
+                  <div key={h.id} className="p-3 flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-small font-medium text-fg">{h.filename || 'Workbook'}</p>
+                      <p className="text-caption text-fg-muted">
+                        {h.mode} • {h.status} • {h.created_by_name || 'Unknown'} • {formatWhen(h.created_at)}
+                      </p>
+                      <p className="text-caption text-fg-muted font-numeric mt-0.5">
+                        {(h.counts?.inserted ?? h.summary?.create) || 0} added, {(h.counts?.updated ?? h.summary?.update) || 0} updated
+                        {(h.selected_fields || []).length ? ` • fields: ${(h.selected_fields || []).map(fieldLabel).join(', ')}` : ''}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      disabled={!h.can_restore || restoringId === h.id}
+                      onClick={() => void handleRestore(h.id)}
+                    >
+                      {restoringId === h.id ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1" />
+                      ) : (
+                        <Undo2 className="w-3.5 h-3.5 mr-1" />
+                      )}
+                      Restore
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div className="px-6 py-4 border-t border-border bg-surface flex items-center justify-between gap-2.5">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={isSubmitting}>
+            Close
+          </Button>
+          {tab === 'import' && (
+            <div className="flex items-center gap-2.5">
+              {step === 'preview' && !applied && (
+                <Button type="button" variant="secondary" onClick={() => setStep('map')} disabled={isSubmitting}>
+                  Back to mapping
+                </Button>
+              )}
+              {step !== 'preview' && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={activeClients.length === 0 || mappedRows.length === 0 || isSubmitting || isParsing}
+                  onClick={() => void handlePreview()}
+                >
+                  {isSubmitting ? 'Building preview…' : 'Preview transfers'}
+                </Button>
+              )}
+              {step === 'preview' && !applied && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  disabled={isSubmitting || !job?.id || (summary.error && !summary.update && !summary.create)}
+                  onClick={() => void handleApply()}
+                >
+                  {isSubmitting ? 'Applying…' : `Apply ${summary.update || 0} updates, ${summary.create || 0} new`}
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       </DialogContent>
     </Dialog>

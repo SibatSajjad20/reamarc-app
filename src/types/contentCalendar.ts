@@ -143,6 +143,12 @@ export interface BatchUpdateResponse {
   matched: number;
 }
 
+export interface BulkDeleteResponse {
+  deleted_count: number;
+  deleted_ids: string[];
+  skipped: { id: string; reason: string }[];
+}
+
 export interface BulkImportRequest {
   items: Partial<ContentCalendarItem>[];
   upsert_by_serial?: boolean;
@@ -153,7 +159,65 @@ export interface BulkImportResponse {
   total_processed: number;
   inserted_count: number;
   updated_count: number;
+  inserted_ids?: string[];
   errors: string[];
+}
+
+export type ContentImportMode = 'create' | 'update' | 'mixed';
+
+export interface ImportMappedRow {
+  row: number;
+  values: Record<string, string | null>;
+}
+
+export interface ImportFieldChange {
+  field: string;
+  before?: unknown;
+  after?: unknown;
+}
+
+export interface ImportPreviewRow {
+  row: number;
+  fate: 'create' | 'update' | 'skip' | 'error' | string;
+  serial?: string | null;
+  item_id?: string | null;
+  content_concept?: string | null;
+  stage?: string | null;
+  errors: string[];
+  changes: ImportFieldChange[];
+}
+
+export interface ImportJob {
+  id: string;
+  filename?: string | null;
+  mode?: ContentImportMode | string | null;
+  unmatched?: string | null;
+  merge_policy?: string | null;
+  mapping?: Record<string, unknown>;
+  selected_fields?: string[];
+  summary?: Record<string, number>;
+  status?: string | null;
+  counts?: Record<string, number>;
+  created_by_name?: string | null;
+  created_at?: string | null;
+  applied_at?: string | null;
+  restored_at?: string | null;
+  can_restore?: boolean;
+  preview_rows?: ImportPreviewRow[];
+  apply_errors?: string[];
+  restore_counts?: Record<string, number>;
+}
+
+export interface ImportPreviewRequest {
+  mode: ContentImportMode;
+  unmatched?: 'skip' | 'insert';
+  merge_policy?: 'overwrite' | 'fill_blanks';
+  default_client_name?: string;
+  override_client?: boolean;
+  selected_fields: string[];
+  mapping: Record<string, string | null>;
+  filename?: string;
+  rows: ImportMappedRow[];
 }
 
 export interface DrivePickedFile {
