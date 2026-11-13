@@ -701,29 +701,27 @@ export const ContentCalendarView: React.FC = () => {
                 <span>Import</span>
               </Button>
 
-              {viewMode !== 'overview' && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void handleBulkDelete()}
-                  disabled={isBulkDeleting}
-                  title={
-                    viewMode === 'table'
-                      ? 'Delete checked rows, or all visible rows if none are checked'
-                      : 'Delete all campaigns currently shown in this view'
-                  }
-                  className="text-danger-fg hover:text-danger-fg"
-                >
-                  <Trash2 className="w-3.5 h-3.5 mr-1" />
-                  <span>
-                    Delete
-                    {viewMode === 'table' && sheetSelectedIds.length > 0
-                      ? ` (${sheetSelectedIds.length})`
-                      : ''}
-                  </span>
-                </Button>
-              )}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleBulkDelete()}
+                disabled={isBulkDeleting}
+                title={
+                  viewMode === 'table'
+                    ? 'Delete checked rows, or all visible rows if none are checked'
+                    : 'Delete all campaigns currently shown in this view'
+                }
+                className="text-danger-fg hover:text-danger-fg"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-1" />
+                <span>
+                  Delete
+                  {viewMode === 'table' && sheetSelectedIds.length > 0
+                    ? ` (${sheetSelectedIds.length})`
+                    : ''}
+                </span>
+              </Button>
 
               {/* Display Options (Sheet view only) */}
               {viewMode === 'table' && (

@@ -16,7 +16,7 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import { RadioGroup, RadioCard } from '../ui/radio-group';
 import {
   IMPORT_FIELDS,
@@ -676,7 +676,11 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 <Button
                   type="button"
                   variant="primary"
-                  disabled={isSubmitting || !job?.id || (summary.error && !summary.update && !summary.create)}
+                  disabled={
+                    isSubmitting
+                    || !job?.id
+                    || ((summary.error ?? 0) > 0 && !(summary.update ?? 0) && !(summary.create ?? 0))
+                  }
                   onClick={() => void handleApply()}
                 >
                   {isSubmitting ? 'Applying…' : `Apply ${summary.update || 0} updates, ${summary.create || 0} new`}
