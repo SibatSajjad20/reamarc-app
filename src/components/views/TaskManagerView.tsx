@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   Calendar,
@@ -123,6 +123,10 @@ function readSection(): { view?: TaskViewMode; stage?: TaskStatus | 'all' } {
   return {};
 }
 
+/** Quiet board refresh while Tasks stays open (two people watching the same list). */
+export const TASKS_LIVE_POLL_MS = 10_000;
+const TASKS_LIVE_POLL_BACKOFF_MS = 30_000;
+
 export const TaskManagerView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
@@ -171,23 +175,41 @@ export const TaskManagerView: React.FC = () => {
   const [focusAssignee, setFocusAssignee] = useState(false);
   const [stageCounts, setStageCounts] = useState<Partial<Record<TaskStatus, number>>>({});
   const [truncated, setTruncated] = useState(false);
+  const loadGen = useRef(0);
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setFilters((prev) => (prev.q === searchInput ? prev : { ...prev, q: searchInput || undefined }));
+      const q = searchInput.trim() ? searchInput : undefined;
+      setFilters((prev) => (prev.q === q ? prev : { ...prev, q }));
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  const load = useCallback(async () => {
-    setError(null);
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = Boolean(opts?.silent);
+    const gen = ++loadGen.current;
+    if (!silent) setError(null);
     try {
+      if (silent) {
+        const list = await taskService.getAllTasks(filters);
+        setTasks(list.items || []);
+        setStageCounts(list.stage_counts || {});
+        setTruncated(Boolean(list.truncated));
+        if (viewMode === 'overview') {
+          setOverview(await taskService.getOverview());
+        }
+        if (viewMode === 'follow-up') {
+          setFollowUp(await taskService.getFollowUp());
+        }
+        return;
+      }
       const [list, c, a, views] = await Promise.all([
         taskService.getAllTasks(filters),
         taskService.getCounts(),
         taskService.getAssignable(),
         taskService.getSavedViews().catch(() => ({ items: [] as TaskSavedView[] })),
       ]);
+      if (gen !== loadGen.current) return;
       setTasks(list.items || []);
       setCounts(c);
       setStageCounts(list.stage_counts || {});
@@ -201,14 +223,65 @@ export const TaskManagerView: React.FC = () => {
         setFollowUp(await taskService.getFollowUp());
       }
     } catch (err: any) {
-      setError(err?.message || 'Failed to load tasks');
+      if (!silent) {
+        setError(err?.message || 'Failed to load tasks');
+        return;
+      }
+      throw err;
     } finally {
-      setLoading(false);
+      if (!silent && gen === loadGen.current) setLoading(false);
     }
   }, [filters, viewMode]);
 
   useEffect(() => {
-    void load();
+    void load().catch(() => undefined);
+  }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let timer: number | null = null;
+    let delay = TASKS_LIVE_POLL_MS;
+
+    const clearTimer = () => {
+      if (timer != null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    const schedule = () => {
+      clearTimer();
+      timer = window.setTimeout(() => {
+        void refresh(true);
+      }, delay);
+    };
+
+    const refresh = async (fromTimer: boolean) => {
+      if (cancelled) return;
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        if (fromTimer) schedule();
+        return;
+      }
+      try {
+        await load({ silent: true });
+        delay = TASKS_LIVE_POLL_MS;
+      } catch (err: any) {
+        delay = err?.status === 429 ? TASKS_LIVE_POLL_BACKOFF_MS : TASKS_LIVE_POLL_MS;
+      }
+      if (!cancelled) schedule();
+    };
+
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh(false);
+    };
+
+    schedule();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      clearTimer();
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   useEffect(() => {
