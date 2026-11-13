@@ -123,6 +123,36 @@ describe('taskAccess', () => {
     expect(allowedTransitions(leadC, assigned)).toContain('completed');
   });
 
+  it('team lead who assigned the task to themselves can approve; a member still cannot', () => {
+    const leadSelf = task({
+      status: 'in_review',
+      creator_id: 'lead.content',
+      assigner_id: 'lead.content',
+      assigner_role: 'team_lead',
+      assignee_id: 'lead.content',
+      assignee_role: 'team_lead',
+      department: 'Content',
+      involved_ids: ['lead.content'],
+    });
+    expect(isApprover(leadC, leadSelf)).toBe(true);
+    expect(canTransitionTo(leadC, leadSelf, 'completed')).toBe(true);
+    expect(listRowAdvanceTo(leadC, leadSelf)).toBe('completed');
+    expect(isApprover(memberC1, leadSelf)).toBe(false);
+
+    const memberSelf = task({
+      status: 'in_review',
+      creator_id: 'member.content1',
+      assigner_id: 'member.content1',
+      assigner_role: 'team_member',
+      assignee_id: 'member.content1',
+      assignee_role: 'team_member',
+      involved_ids: ['member.content1'],
+    });
+    expect(isApprover(memberC1, memberSelf)).toBe(false);
+    expect(canTransitionTo(memberC1, memberSelf, 'completed')).toBe(false);
+    expect(isApprover(leadC, memberSelf)).toBe(true);
+  });
+
   it('admin assigned to a team lead: that lead can self-approve', () => {
     const adminToLead = task({
       status: 'in_review',

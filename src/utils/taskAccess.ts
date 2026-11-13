@@ -80,7 +80,9 @@ export function isApprover(user: TaskActor | null | undefined, task: Task): bool
   if (!user || !task) return false;
   const id = uid(user);
   if (!id) return false;
-  if (assignerIsAdmin(task) && roleOf(user) === 'team_lead' && id === task.assignee_id) return true;
+  if (roleOf(user) === 'team_lead' && id === task.assignee_id && (isSelfAssigned(task) || assignerIsAdmin(task))) {
+    return true;
+  }
   if (id === task.assignee_id) return false;
   if (assignerIsAdmin(task) && assigneeIsMember(task)) {
     return roleOf(user) === 'team_lead' && Boolean(task.department && deptSet(user).has(task.department));

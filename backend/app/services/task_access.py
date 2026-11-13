@@ -258,14 +258,14 @@ def assignee_is_member(task: Optional[Dict[str, Any]]) -> bool:
 
 def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
     """Admin, chain assigners, or the assignee's department lead. Never the assignee,
-    except when an admin assigned the task directly to a team lead (that lead may self-approve).
+    except a team lead who was assigned by admin or who assigned the task to themselves.
     When an admin assigned it to a team member, only that department's team lead may approve.
     """
     if not user or not task or user.get("is_active") is False:
         return False
     if is_client(user) or is_task_excluded(user, settings):
         return False
-    if assigner_is_admin(task) and is_lead(user) and is_assignee(user, task):
+    if is_lead(user) and is_assignee(user, task) and (is_self_assigned(task) or assigner_is_admin(task)):
         return True
     if is_assignee(user, task):
         return False

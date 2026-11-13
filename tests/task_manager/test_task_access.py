@@ -15,6 +15,7 @@ from app.services.task_access import (
     can_transition,
     can_view,
     default_task_settings,
+    is_approver,
     is_task_excluded,
     is_view_only,
     visibility_query,
@@ -176,6 +177,36 @@ class TaskAccessMatrixTests(unittest.TestCase):
         )
         ok, _ = can_transition(MEMBER_C1, self_assigned, "completed")
         self.assertTrue(ok)
+
+    def test_lead_self_assigned_can_approve(self):
+        lead_self = task_doc(
+            status="in_review",
+            creator_id=LEAD_CONTENT["id"],
+            assigner_id=LEAD_CONTENT["id"],
+            assigner_role="team_lead",
+            assignee_id=LEAD_CONTENT["id"],
+            assignee_role="team_lead",
+            involved_ids=[LEAD_CONTENT["id"]],
+            assignment_chain=[],
+            department="Content",
+        )
+        self.assertTrue(is_approver(LEAD_CONTENT, lead_self))
+        ok, _ = can_transition(LEAD_CONTENT, lead_self, "completed")
+        self.assertTrue(ok)
+        self.assertFalse(is_approver(MEMBER_C1, lead_self))
+        member_self_review = task_doc(
+            status="in_review",
+            creator_id=MEMBER_C1["id"],
+            assigner_id=MEMBER_C1["id"],
+            assigner_role="team_member",
+            assignee_id=MEMBER_C1["id"],
+            assignee_role="team_member",
+            involved_ids=[MEMBER_C1["id"]],
+            assignment_chain=[],
+        )
+        self.assertFalse(is_approver(MEMBER_C1, member_self_review))
+        ok, _ = can_transition(MEMBER_C1, member_self_review, "completed")
+        self.assertFalse(ok)
 
     def test_reopen_and_cancel(self):
         t = task_doc(status="completed")
