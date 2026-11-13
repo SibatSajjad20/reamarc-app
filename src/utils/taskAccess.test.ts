@@ -84,7 +84,7 @@ describe('taskAccess', () => {
       status: 'in_review',
     });
     expect(isApprover(leadC, delegated)).toBe(true);
-    expect(isApprover(leadW, delegated)).toBe(true);
+    expect(isApprover(leadW, delegated)).toBe(false);
     expect(isApprover(admin, delegated)).toBe(true);
     expect(isApprover(memberC1, delegated)).toBe(false);
     expect(isApprover(memberC2, delegated)).toBe(false);
@@ -153,6 +153,26 @@ describe('taskAccess', () => {
     expect(isApprover(leadC, memberSelf)).toBe(true);
   });
 
+  it('lead assigned to another lead: only the assigner (or admin) can approve', () => {
+    const leadToLead = task({
+      status: 'in_review',
+      creator_id: 'lead.web',
+      assigner_id: 'lead.web',
+      assigner_role: 'team_lead',
+      assignee_id: 'lead.content',
+      assignee_role: 'team_lead',
+      department: 'Content',
+      involved_ids: ['lead.web', 'lead.content'],
+      assignment_chain: [{ from_id: 'lead.web', to_id: 'lead.content' }],
+    });
+    expect(isApprover(leadW, leadToLead)).toBe(true);
+    expect(canTransitionTo(leadW, leadToLead, 'completed')).toBe(true);
+    expect(isApprover(leadC, leadToLead)).toBe(false);
+    expect(canTransitionTo(leadC, leadToLead, 'completed')).toBe(false);
+    expect(isApprover(leadSeo, leadToLead)).toBe(false);
+    expect(isApprover(admin, leadToLead)).toBe(true);
+  });
+
   it('admin assigned to a team lead: that lead can self-approve', () => {
     const adminToLead = task({
       status: 'in_review',
@@ -171,7 +191,7 @@ describe('taskAccess', () => {
     expect(isApprover(memberC1, adminToLead)).toBe(false);
   });
 
-  it('admin assigned to a team member: only that department lead can approve', () => {
+  it('admin assigned to a team member: that department lead or admin can approve', () => {
     const adminToMember = task({
       status: 'in_review',
       creator_id: 'admin',
@@ -185,8 +205,8 @@ describe('taskAccess', () => {
     });
     expect(isApprover(leadC, adminToMember)).toBe(true);
     expect(canTransitionTo(leadC, adminToMember, 'completed')).toBe(true);
-    expect(isApprover(admin, adminToMember)).toBe(false);
-    expect(canTransitionTo(admin, adminToMember, 'completed')).toBe(false);
+    expect(isApprover(admin, adminToMember)).toBe(true);
+    expect(canTransitionTo(admin, adminToMember, 'completed')).toBe(true);
     expect(isApprover(memberC1, adminToMember)).toBe(false);
     expect(canTransitionTo(memberC1, adminToMember, 'completed')).toBe(false);
     expect(isApprover(leadW, adminToMember)).toBe(false);

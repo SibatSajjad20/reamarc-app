@@ -257,9 +257,9 @@ def assignee_is_member(task: Optional[Dict[str, Any]]) -> bool:
 
 
 def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
-    """Admin, chain assigners, or the assignee's department lead. Never the assignee,
-    except a team lead who was assigned by admin or who assigned the task to themselves.
-    When an admin assigned it to a team member, only that department's team lead may approve.
+    """Team lead: own work, or work admin assigned to them.
+    Member work: that department's team lead or admin.
+    Lead assigned to another lead: only the assigner (admin may override).
     """
     if not user or not task or user.get("is_active") is False:
         return False
@@ -269,11 +269,9 @@ def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], 
         return True
     if is_assignee(user, task):
         return False
-    if assigner_is_admin(task) and assignee_is_member(task):
-        return is_department_lead_of_task(user, task)
+    if assignee_is_lead(task) and not is_self_assigned(task) and not assigner_is_admin(task):
+        return is_assigner(user, task) or is_admin(user)
     if is_admin(user):
-        return True
-    if is_chain_assigner(user, task):
         return True
     if is_department_lead_of_task(user, task):
         return True

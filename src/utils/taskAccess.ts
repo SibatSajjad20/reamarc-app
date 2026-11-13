@@ -64,32 +64,32 @@ export function isSelfAssigned(task: Task): boolean {
   return Boolean(task.assignee_id) && task.assignee_id === task.assigner_id;
 }
 
-function chainFromIds(task: Task): string[] {
-  return (task.assignment_chain || []).map((h) => String(h.from_id || '')).filter(Boolean);
-}
-
 function assignerIsAdmin(task: Task): boolean {
   return roleOf({ role: task.assigner_role ?? undefined }) === 'admin';
 }
 
-function assigneeIsMember(task: Task): boolean {
-  return roleOf({ role: task.assignee_role ?? undefined }) === 'team_member';
+function assigneeIsLead(task: Task): boolean {
+  return roleOf({ role: task.assignee_role ?? undefined }) === 'team_lead';
 }
 
 export function isApprover(user: TaskActor | null | undefined, task: Task): boolean {
   if (!user || !task) return false;
   const id = uid(user);
   if (!id) return false;
-  if (roleOf(user) === 'team_lead' && id === task.assignee_id && (isSelfAssigned(task) || assignerIsAdmin(task))) {
+  const role = roleOf(user);
+  // Team lead: own task, or a task admin assigned to them.
+  if (role === 'team_lead' && id === task.assignee_id && (isSelfAssigned(task) || assignerIsAdmin(task))) {
     return true;
   }
+  // Members (and a lead assigned by another lead) cannot approve their own work.
   if (id === task.assignee_id) return false;
-  if (assignerIsAdmin(task) && assigneeIsMember(task)) {
-    return roleOf(user) === 'team_lead' && Boolean(task.department && deptSet(user).has(task.department));
+  // Lead → another lead: only the assigner (admin may still override).
+  if (assigneeIsLead(task) && !isSelfAssigned(task) && !assignerIsAdmin(task)) {
+    return id === task.assigner_id || isAdmin(user);
   }
+  // Member work: that department's team lead or admin.
   if (isAdmin(user)) return true;
-  if (chainFromIds(task).includes(id)) return true;
-  if (roleOf(user) === 'team_lead' && task.department && deptSet(user).has(task.department)) return true;
+  if (role === 'team_lead' && Boolean(task.department && deptSet(user).has(task.department))) return true;
   return false;
 }
 

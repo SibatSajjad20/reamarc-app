@@ -24,6 +24,7 @@ from tests.task_manager.conftest import (
     ADMIN,
     HR,
     LEAD_CONTENT,
+    LEAD_SEO,
     LEAD_WEB,
     MEMBER_C1,
     MEMBER_C2,
@@ -176,7 +177,7 @@ class TaskAccessMatrixTests(unittest.TestCase):
             involved_ids=[MEMBER_C1["id"]],
         )
         ok, _ = can_transition(MEMBER_C1, self_assigned, "completed")
-        self.assertTrue(ok)
+        self.assertFalse(ok)
 
     def test_lead_self_assigned_can_approve(self):
         lead_self = task_doc(
@@ -207,6 +208,81 @@ class TaskAccessMatrixTests(unittest.TestCase):
         self.assertFalse(is_approver(MEMBER_C1, member_self_review))
         ok, _ = can_transition(MEMBER_C1, member_self_review, "completed")
         self.assertFalse(ok)
+
+    def test_approval_lead_admin_and_lead_to_lead(self):
+        admin_to_lead = task_doc(
+            status="in_review",
+            creator_id=ADMIN["id"],
+            assigner_id=ADMIN["id"],
+            assigner_role="admin",
+            assignee_id=LEAD_CONTENT["id"],
+            assignee_role="team_lead",
+            involved_ids=[ADMIN["id"], LEAD_CONTENT["id"]],
+            assignment_chain=[],
+            department="Content",
+        )
+        self.assertTrue(is_approver(LEAD_CONTENT, admin_to_lead))
+        self.assertTrue(is_approver(ADMIN, admin_to_lead))
+        self.assertFalse(is_approver(MEMBER_C1, admin_to_lead))
+
+        admin_to_member = task_doc(
+            status="in_review",
+            creator_id=ADMIN["id"],
+            assigner_id=ADMIN["id"],
+            assigner_role="admin",
+            assignee_id=MEMBER_C1["id"],
+            assignee_role="team_member",
+            involved_ids=[ADMIN["id"], MEMBER_C1["id"]],
+            assignment_chain=[],
+            department="Content",
+        )
+        self.assertTrue(is_approver(LEAD_CONTENT, admin_to_member))
+        self.assertTrue(is_approver(ADMIN, admin_to_member))
+        self.assertFalse(is_approver(MEMBER_C1, admin_to_member))
+        self.assertFalse(is_approver(LEAD_WEB, admin_to_member))
+
+        lead_to_member = task_doc(
+            status="in_review",
+            creator_id=LEAD_CONTENT["id"],
+            assigner_id=LEAD_CONTENT["id"],
+            assigner_role="team_lead",
+            assignee_id=MEMBER_C1["id"],
+            assignee_role="team_member",
+            involved_ids=[LEAD_CONTENT["id"], MEMBER_C1["id"]],
+            department="Content",
+        )
+        self.assertTrue(is_approver(LEAD_CONTENT, lead_to_member))
+        self.assertTrue(is_approver(ADMIN, lead_to_member))
+        self.assertFalse(is_approver(MEMBER_C1, lead_to_member))
+        self.assertFalse(is_approver(LEAD_WEB, lead_to_member))
+
+        lead_to_lead = task_doc(
+            status="in_review",
+            creator_id=LEAD_WEB["id"],
+            assigner_id=LEAD_WEB["id"],
+            assigner_role="team_lead",
+            assignee_id=LEAD_CONTENT["id"],
+            assignee_role="team_lead",
+            involved_ids=[LEAD_WEB["id"], LEAD_CONTENT["id"]],
+            assignment_chain=[
+                {
+                    "from_id": LEAD_WEB["id"],
+                    "from_name": "Lead Web",
+                    "to_id": LEAD_CONTENT["id"],
+                    "to_name": "Lead Content",
+                    "department": "Content",
+                }
+            ],
+            department="Content",
+        )
+        self.assertTrue(is_approver(LEAD_WEB, lead_to_lead))
+        ok, _ = can_transition(LEAD_WEB, lead_to_lead, "completed")
+        self.assertTrue(ok)
+        self.assertFalse(is_approver(LEAD_CONTENT, lead_to_lead))
+        ok, _ = can_transition(LEAD_CONTENT, lead_to_lead, "completed")
+        self.assertFalse(ok)
+        self.assertFalse(is_approver(LEAD_SEO, lead_to_lead))
+        self.assertTrue(is_approver(ADMIN, lead_to_lead))
 
     def test_reopen_and_cancel(self):
         t = task_doc(status="completed")
