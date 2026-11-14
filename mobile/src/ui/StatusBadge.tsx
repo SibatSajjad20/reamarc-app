@@ -32,6 +32,6 @@ export function StatusBadge({
 }
 
 const styles = StyleSheet.create({
-  badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 4 },
-  text: { fontSize: 11, fontWeight: '800' },
+  badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+  text: { fontSize: 11, fontWeight: '600' },
 });

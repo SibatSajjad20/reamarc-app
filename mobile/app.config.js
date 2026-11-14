@@ -9,6 +9,10 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
+    updates: {
+      ...(config.updates || {}),
+      enabled: Boolean(process.env.EAS_BUILD),
+    },
     ios: {
       ...(config.ios || {}),
       infoPlist: {

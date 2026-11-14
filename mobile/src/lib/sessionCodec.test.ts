@@ -94,6 +94,12 @@ describe('cached profile', () => {
     assert.equal(parseCachedUser(JSON.stringify(cached))?.id, 'user-1');
     assert.equal(parseCachedUser('{'), null);
     assert.equal(parseCachedUser(JSON.stringify({ email: 'a@reamarc.com' })), null);
+    assert.equal(
+      parseCachedUser(
+        JSON.stringify({ ...cached, avatar_url: 'https://res.cloudinary.com/x/image/upload/a.webp' }),
+      )?.avatar_url,
+      'https://res.cloudinary.com/x/image/upload/a.webp',
+    );
   });
 
   it('ignores a token that is not an access token', () => {

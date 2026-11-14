@@ -1,21 +1,24 @@
 import React, { useEffect } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
-import { isAdmin } from '../../src/lib/roles';
-import { colors } from '../../src/theme';
+import { canAccessDailyLog, isDailyLogTracked } from '../../src/lib/roles';
+import { resolveTabs } from '../../src/lib/tabResolver';
+import { colors, useTheme } from '../../src/theme';
+import { APP_FONT } from '../../src/theme/typography';
 
 export default function DailyLogLayout() {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
 
   useEffect(() => {
     if (loading) return;
-    if (!isAdmin(user?.role)) {
-      router.replace('/(tabs)');
+    if (!canAccessDailyLog(user) && !isDailyLogTracked(user)) {
+      router.replace(resolveTabs(user).landingHref as any);
     }
-  }, [loading, user?.role, router]);
+  }, [loading, user, router]);
 
-  if (loading || !isAdmin(user?.role)) {
+  if (loading || (!canAccessDailyLog(user) && !isDailyLogTracked(user))) {
     return null;
   }
 
@@ -24,13 +27,13 @@ export default function DailyLogLayout() {
       screenOptions={{
         headerShown: true,
         headerTintColor: colors.indigo,
-        headerTitleStyle: { fontWeight: '800', color: colors.text },
-        headerStyle: { backgroundColor: colors.bg },
+        headerTitleStyle: { fontFamily: APP_FONT.semibold, color: theme.text },
+        headerStyle: { backgroundColor: theme.bg },
         headerShadowVisible: false,
-        contentStyle: { backgroundColor: colors.bg },
+        contentStyle: { backgroundColor: theme.bg },
       }}
     >
-      <Stack.Screen name="index" options={{ title: 'Daily Logs' }} />
+      <Stack.Screen name="index" options={{ headerShown: false, title: 'Daily Logs' }} />
       <Stack.Screen name="[id]" options={{ title: 'Task Detail' }} />
     </Stack>
   );

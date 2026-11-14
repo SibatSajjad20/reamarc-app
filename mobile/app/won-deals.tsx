@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { crmApi } from '../src/lib/crmApi';
 import { colors } from '../src/theme';
+import { MenuButton } from '../src/components/MenuButton';
 
 type Item = {
   id: string;
@@ -94,6 +95,7 @@ export default function WonDealApprovalsScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <View style={styles.head}>
+        <MenuButton />
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="chevron-back" size={22} color={colors.text} />
         </Pressable>

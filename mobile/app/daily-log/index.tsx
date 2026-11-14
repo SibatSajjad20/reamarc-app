@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Alert,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +14,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '../../src/context/AuthContext';
+import { ModuleHeader } from '../../src/ui/ModuleHeader';
+import { useTabBarOffset } from '../../src/ui/layout';
+import { FadeIn } from '../../src/ui/motion';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { api } from '../../src/lib/api';
@@ -20,7 +26,6 @@ import {
   DateLogGroup,
   PersonLogGroup,
   buildEntriesQuery,
-  enumerateDatesInclusive,
   formatHoursShort,
   getMondayIso,
   getMonSatWeekBounds,
@@ -28,25 +33,41 @@ import {
   groupEntriesByDate,
   groupEntriesByPerson,
   parseHours,
-  parseWorkHoursValue,
   shiftWeekMonday,
   taskStatusTone,
 } from '../../src/lib/dailyLog';
 import {
   getCachedEmployees,
   getCachedEntries,
-  getCachedWorked,
-  isCacheStale,
+  getCachedLogVariance,
+  invalidateEntriesCache,
+  invalidateLogVarianceCache,
+  invalidateSnapshotCache,
   makeEntriesCacheKey,
   setCachedEmployees,
   setCachedEntries,
-  setCachedWorked,
+  setCachedLogVariance,
 } from '../../src/lib/dailyLogCache';
+import {
+  CoverageTone,
+  UnifiedVarianceData,
+  VarianceTone,
+  fetchLogVariance,
+  formatMinutes,
+  formatPercentage,
+  formatSignedMinutes,
+  getCoverageTone,
+  getVarianceTone,
+} from '../../src/lib/logVariance';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
 import { DateField } from '../../src/ui/DateTimeField';
-import { DailyLogListSkeleton } from '../../src/ui/Skeleton';
-import { TruckLoader } from '../../src/ui/TruckLoader';
+import { DailyLogListSkeleton, DailyLogOverviewSkeleton } from '../../src/ui/Skeleton';
+import { Plus, Share2 } from 'lucide-react-native';
+import { AdminLogOverview } from '../../src/components/daily-log/AdminLogOverview';
+import { LogWorkModal } from '../../src/components/daily-log/LogWorkModal';
+import { PressScale } from '../../src/ui/motion';
+import { TaskHtmlText } from '../../src/ui/TaskHtmlText';
 import { formatDisplayDate, prettyRole } from '../../src/ui/format';
 
 const SETTLE_MS = 400;
@@ -88,15 +109,20 @@ type EmployeeOption = {
   is_active?: boolean;
 };
 
-type MatrixRow = {
-  user_id: string;
-  employee_name?: string;
-  work_hours?: string | number | null;
-};
-
-type MatrixResponse = {
-  rows?: MatrixRow[];
-};
+function getToneColor(tone: VarianceTone | CoverageTone): string {
+  switch (tone) {
+    case 'success':
+      return colors.emerald;
+    case 'warning':
+      return colors.amber;
+    case 'danger':
+      return colors.rose;
+    case 'info':
+      return colors.indigo;
+    default:
+      return colors.text;
+  }
+}
 
 const LOGGER_ROLES = new Set(['team_member', 'team_lead', 'hr', 'member']);
 
@@ -128,15 +154,18 @@ function TaskRows({
       {entries.map((entry) => {
         const tone = taskStatusTone(entry.task_status);
         return (
-          <Pressable
+          <PressScale
             key={entry.id}
             style={styles.taskRow}
+            contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 }}
             onPress={() => onOpen(entry)}
           >
             <View style={{ flex: 1 }}>
-              <Text style={styles.taskTitle} numberOfLines={2}>
-                {entry.task_description || 'Untitled task'}
-              </Text>
+              <TaskHtmlText
+                html={entry.task_description || 'Untitled task'}
+                style={styles.taskTitle}
+                numberOfLines={2}
+              />
               <Text style={styles.taskProject} numberOfLines={1}>
                 {entry.client_project || 'No project'}
                 {entry.task_type ? ` · ${entry.task_type}` : ''}
@@ -150,24 +179,35 @@ function TaskRows({
               <Text style={styles.taskHours}>{formatHoursShort(entry.hours_utilized)}</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.muted} />
             </View>
-          </Pressable>
+          </PressScale>
         );
       })}
     </>
   );
 }
 
+const TEAM_VIEW_ROLES = new Set(['team_lead', 'hr', 'admin', 'super_admin', 'operations']);
+const OVERVIEW_ROLES = new Set(['admin', 'super_admin', 'operations']);
+
 export default function DailyLogListScreen() {
   const router = useRouter();
+  const { user } = useAuth();
+  const tabOffset = useTabBarOffset();
   const params = useLocalSearchParams<{ date?: string; userId?: string; name?: string }>();
+  const myId = String(user?.id || '');
+  const myName = String(user?.name || '');
+  const role = String(user?.role || '').toLowerCase();
+  const canViewTeam = TEAM_VIEW_ROLES.has(role);
+  const isOverviewUser = OVERVIEW_ROLES.has(role);
 
   const initialDate =
     typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date)
       ? params.date
       : todayIso();
-  const initialUserId =
-    typeof params.userId === 'string' && params.userId ? params.userId : '';
-  const initialName = typeof params.name === 'string' && params.name ? params.name : '';
+  const paramUserId = typeof params.userId === 'string' && params.userId ? params.userId : '';
+  const initialUserId = paramUserId || (isOverviewUser ? '' : myId);
+  const initialName =
+    typeof params.name === 'string' && params.name ? params.name : isOverviewUser && !paramUserId ? '' : myName;
   const initialCached = getCachedEntries(initialDate, initialDate, initialUserId, initialName);
   const initialEmployees = getCachedEmployees();
 
@@ -189,9 +229,13 @@ export default function DailyLogListScreen() {
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});
   const [employees, setEmployees] = useState<EmployeeOption[]>(() => initialEmployees?.data ?? []);
   const [showEmployeePicker, setShowEmployeePicker] = useState(false);
-  const [workedHours, setWorkedHours] = useState(0);
-  const [workedByDate, setWorkedByDate] = useState<Record<string, number>>({});
-  const [workedLoading, setWorkedLoading] = useState(false);
+  const [varianceData, setVarianceData] = useState<UnifiedVarianceData | null>(null);
+  const [varianceLoading, setVarianceLoading] = useState(false);
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [overviewNonce, setOverviewNonce] = useState(0);
+  const [logScope, setLogScope] = useState<'mine' | 'team' | 'overview'>(
+    paramUserId && paramUserId !== myId ? 'team' : isOverviewUser ? 'overview' : 'mine',
+  );
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const workedDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -212,11 +256,10 @@ export default function DailyLogListScreen() {
   );
 
   const rangeBounds = useMemo(() => {
-    if (!isPersonView) return { start: selectedDate, end: selectedDate };
     if (rangeMode === 'week') return getMonSatWeekBounds(selectedDate, todayIso());
     if (rangeMode === 'custom') return normalizeCustomRange(customStart, customEnd);
     return { start: selectedDate, end: selectedDate };
-  }, [isPersonView, rangeMode, selectedDate, customStart, customEnd]);
+  }, [rangeMode, selectedDate, customStart, customEnd]);
 
   const rangeBoundsRef = useRef(rangeBounds);
   const personFilterRef = useRef({ userIdFilter, personName });
@@ -237,22 +280,19 @@ export default function DailyLogListScreen() {
       const { force = false, soft = false } = opts;
       const key = makeEntriesCacheKey(startDate, endDate, userId, resourceName);
       const cached = getCachedEntries(startDate, endDate, userId, resourceName);
-      const today = todayIso();
-      const stale = isCacheStale(cached, startDate, endDate, today);
 
       if (cached && !force) {
+        reqIdRef.current += 1;
+        fetchKeyRef.current = key;
         setEntries(cached.data);
         setShowListSkeleton(false);
         setColdStart(false);
         setError('');
-        if (!stale) {
-          if (!soft) {
-            setRefreshing(false);
-          }
-          return;
-        }
-        // Stale (includes today): keep list visible and revalidate in background.
-      } else if (!cached && !soft) {
+        if (!soft) setRefreshing(false);
+        return;
+      }
+
+      if (!cached && !soft) {
         setShowListSkeleton(true);
         setEntries([]);
       }
@@ -296,78 +336,65 @@ export default function DailyLogListScreen() {
     [],
   );
 
-  const loadWorkedHours = useCallback(
+  const loadVariance = useCallback(
     async (startDate: string, endDate: string, userId: string, force = false) => {
-      const cached = getCachedWorked(startDate, endDate, userId);
-      const today = todayIso();
+      const cached = getCachedLogVariance(userId, startDate, endDate);
       if (cached && !force) {
-        setWorkedHours(cached.data.total);
-        setWorkedByDate(cached.data.byDate);
-        setWorkedLoading(false);
-        if (!isCacheStale(cached, startDate, endDate, today)) return;
-      }
-
-      const dates = enumerateDatesInclusive(startDate, endDate, 31);
-      if (dates.length === 0) {
-        setWorkedHours(0);
-        setWorkedByDate({});
-        setWorkedLoading(false);
+        workedReqIdRef.current += 1;
+        setVarianceData(cached.data);
+        setVarianceLoading(false);
         return;
       }
 
+      if (!cached) {
+        setVarianceData(null);
+        setVarianceLoading(true);
+      } else {
+        setVarianceLoading(true);
+      }
+
       const reqId = ++workedReqIdRef.current;
-      if (!cached || force) setWorkedLoading(true);
 
       try {
-        const matrices = await Promise.all(
-          dates.map((dateStr) => {
-            const query = dateStr === todayIso() ? '' : `?date=${dateStr}`;
-            return api<MatrixResponse>(`/attendance/matrix${query}`).catch(() => null);
-          }),
-        );
+        const data = await fetchLogVariance(startDate, endDate, userId || null, api);
         if (reqId !== workedReqIdRef.current) return;
-        let total = 0;
-        const byDate: Record<string, number> = {};
-        dates.forEach((dateStr, index) => {
-          let dayTotal = 0;
-          for (const row of matrices[index]?.rows || []) {
-            if (userId && row.user_id !== userId) continue;
-            dayTotal += parseWorkHoursValue(row.work_hours);
-          }
-          byDate[dateStr] = dayTotal;
-          total += dayTotal;
-        });
-        setCachedWorked(startDate, endDate, userId, { total, byDate });
-        setWorkedByDate(byDate);
-        setWorkedHours(total);
+        setCachedLogVariance(userId, startDate, endDate, data);
+        setVarianceData(data);
       } catch {
         if (reqId !== workedReqIdRef.current) return;
         if (!cached) {
-          setWorkedHours(0);
-          setWorkedByDate({});
+          setVarianceData(null);
         }
       } finally {
-        if (reqId === workedReqIdRef.current) setWorkedLoading(false);
+        if (reqId === workedReqIdRef.current) setVarianceLoading(false);
       }
     },
     [],
   );
 
-  // Cache-first paint + settle debounce for entries (UI updates immediately; network waits).
+  // Cache-first paint. Skip network if this range/person was already loaded.
   useEffect(() => {
+    if (logScope === 'overview') {
+      setColdStart(false);
+      return;
+    }
     const { start, end } = rangeBounds;
     const cached = getCachedEntries(start, end, userIdFilter, personName);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+
     if (cached) {
+      reqIdRef.current += 1;
+      fetchKeyRef.current = makeEntriesCacheKey(start, end, userIdFilter, personName);
       setEntries(cached.data);
       setShowListSkeleton(false);
       setColdStart(false);
       setError('');
-    } else {
-      setShowListSkeleton(true);
-      setEntries([]);
+      hasSettledOnce.current = true;
+      return;
     }
 
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    setShowListSkeleton(true);
+    setEntries([]);
     const delay = hasSettledOnce.current ? SETTLE_MS : 0;
     hasSettledOnce.current = true;
     debounceTimer.current = setTimeout(() => {
@@ -377,31 +404,35 @@ export default function DailyLogListScreen() {
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
-  }, [rangeBounds.start, rangeBounds.end, userIdFilter, personName, executeFetch]);
+  }, [rangeBounds.start, rangeBounds.end, userIdFilter, personName, executeFetch, logScope]);
 
-  // Worked hours: same settle window + session cache.
+  // Log variance: skeleton on cache miss, instant paint + no refetch on cache hit.
   useEffect(() => {
+    if (logScope === 'overview') return;
     const { start, end } = rangeBounds;
-    const cached = getCachedWorked(start, end, userIdFilter);
+    const cached = getCachedLogVariance(userIdFilter, start, end);
+    if (workedDebounceTimer.current) clearTimeout(workedDebounceTimer.current);
+
     if (cached) {
-      setWorkedHours(cached.data.total);
-      setWorkedByDate(cached.data.byDate);
-      setWorkedLoading(false);
-    } else {
-      setWorkedLoading(true);
+      workedReqIdRef.current += 1;
+      setVarianceData(cached.data);
+      setVarianceLoading(false);
+      hasWorkedSettledOnce.current = true;
+      return;
     }
 
-    if (workedDebounceTimer.current) clearTimeout(workedDebounceTimer.current);
+    setVarianceData(null);
+    setVarianceLoading(true);
     const delay = hasWorkedSettledOnce.current ? SETTLE_MS : 0;
     hasWorkedSettledOnce.current = true;
     workedDebounceTimer.current = setTimeout(() => {
-      void loadWorkedHours(start, end, userIdFilter, false);
+      void loadVariance(start, end, userIdFilter, false);
     }, delay);
 
     return () => {
       if (workedDebounceTimer.current) clearTimeout(workedDebounceTimer.current);
     };
-  }, [rangeBounds.start, rangeBounds.end, userIdFilter, loadWorkedHours]);
+  }, [rangeBounds.start, rangeBounds.end, userIdFilter, loadVariance, logScope]);
 
   useEffect(() => {
     return () => {
@@ -445,10 +476,11 @@ export default function DailyLogListScreen() {
       const { start, end } = rangeBoundsRef.current;
       const { userIdFilter: uid, personName: name } = personFilterRef.current;
       void executeFetch(start, end, uid, name, { soft: true });
+      void loadVariance(start, end, uid, true);
       return () => {
         didBlurRef.current = true;
       };
-    }, [executeFetch]),
+    }, [executeFetch, loadVariance]),
   );
 
   useEffect(() => {
@@ -463,24 +495,52 @@ export default function DailyLogListScreen() {
       setSelectedDate(nextDate);
       setDraftDate(parseDate(nextDate));
     }
-    if (nextUserId !== userIdFilter) {
+    if (nextUserId) {
       setUserIdFilter(nextUserId);
+      if (myId && nextUserId !== myId) setLogScope('team');
     }
-    if (nextName !== personName) {
+    if (nextName) {
       setPersonName(nextName);
     }
-    if (!nextUserId && !nextName) {
-      setRangeMode('day');
+  }, [params.date, params.userId, params.name, myId]);
+
+  const switchLogScope = (next: 'mine' | 'team' | 'overview') => {
+    setLogScope(next);
+    if (next === 'mine') {
+      setUserIdFilter(myId);
+      setPersonName(myName);
+    } else if (next === 'team') {
+      setUserIdFilter('');
+      setPersonName('');
     }
-  }, [params.date, params.userId, params.name]);
+  };
+
+  const openOverviewPerson = useCallback((userId: string, name: string, date: string) => {
+    setLogScope('team');
+    setUserIdFilter(userId);
+    setPersonName(name);
+    setRangeMode('day');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setSelectedDate(date);
+      setDraftDate(parseDate(date));
+    }
+    router.setParams({ userId, name, date });
+  }, [router]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    if (logScope === 'overview') {
+      invalidateSnapshotCache();
+      setOverviewNonce((value) => value + 1);
+      return;
+    }
+    invalidateLogVarianceCache();
+    invalidateEntriesCache();
     void executeFetch(rangeBounds.start, rangeBounds.end, userIdFilter, personName, {
       force: true,
     });
-    void loadWorkedHours(rangeBounds.start, rangeBounds.end, userIdFilter, true);
-  }, [executeFetch, loadWorkedHours, rangeBounds.start, rangeBounds.end, userIdFilter, personName]);
+    void loadVariance(rangeBounds.start, rangeBounds.end, userIdFilter, true);
+  }, [executeFetch, loadVariance, rangeBounds.start, rangeBounds.end, userIdFilter, personName, logScope]);
 
   const handleShiftDay = (delta: number) => {
     const cur = parseDate(selectedDate);
@@ -621,15 +681,116 @@ export default function DailyLogListScreen() {
     return { completed, incomplete, blocker };
   }, [filteredEntries]);
 
-  const periodDayCount = useMemo(
-    () => enumerateDatesInclusive(rangeBounds.start, rangeBounds.end, 31).length || 1,
-    [rangeBounds.start, rangeBounds.end],
-  );
+  const isSingleDayToday =
+    isToday && rangeBounds.start === rangeBounds.end && rangeBounds.start === todayIso();
 
-  const avgDailyLoggedHours = useMemo(
-    () => totalHours / periodDayCount,
-    [totalHours, periodDayCount],
-  );
+  const displaySummary = useMemo(() => {
+    const raw = varianceData?.summary;
+    const loggedFromEntries = Math.round(totalHours * 60);
+
+    if (isSingleDayToday) {
+      const todayDayRecord = varianceData?.days?.find((d) => d.date === rangeBounds.start);
+      const isLiveShift =
+        todayDayRecord?.status === 'live' ||
+        Boolean(
+          varianceData?.today_live &&
+            (varianceData.today_live.worked > 0 || varianceData.today_live.logged > 0),
+        );
+
+      if ((raw?.worked ?? 0) > 0 && !isLiveShift) {
+        return {
+          worked: raw?.worked ?? 0,
+          logged: Math.max(raw?.logged ?? 0, loggedFromEntries),
+          variance: raw?.variance ?? 0,
+          coverage_pct: raw?.coverage_pct ?? null,
+          avg_logged_per_present_day:
+            raw?.avg_logged_per_present_day ?? (raw as any)?.avg_logged_per_day ?? null,
+          days_present: raw?.days_present ?? 1,
+          days_absent: raw?.days_absent ?? 0,
+          is_live: false,
+        };
+      }
+
+      const liveWorked = varianceData?.today_live?.worked ?? todayDayRecord?.worked ?? 0;
+      const liveLogged = Math.max(
+        varianceData?.today_live?.logged ?? todayDayRecord?.logged ?? 0,
+        loggedFromEntries,
+      );
+      const liveVariance = liveWorked - liveLogged;
+      const liveCoveragePct =
+        liveWorked > 0
+          ? Math.round((liveLogged / liveWorked) * 100)
+          : liveLogged > 0
+            ? 100
+            : null;
+      const hasPresent =
+        liveWorked > 0 || Boolean(todayDayRecord?.check_in) || (raw?.days_present ?? 0) > 0;
+
+      return {
+        worked: liveWorked,
+        logged: liveLogged,
+        variance: liveVariance,
+        coverage_pct: liveCoveragePct,
+        avg_logged_per_present_day: liveLogged > 0 ? liveLogged : null,
+        days_present: hasPresent ? 1 : 0,
+        days_absent: 0,
+        is_live: isLiveShift || liveWorked > 0,
+      };
+    }
+
+    const worked = raw?.worked ?? 0;
+    const logged = Math.max(
+      raw?.logged ?? 0,
+      rangeBounds.start === rangeBounds.end ? loggedFromEntries : 0,
+    );
+    return {
+      worked,
+      logged,
+      variance: raw?.variance ?? (worked - logged),
+      coverage_pct:
+        raw?.coverage_pct ??
+        (worked > 0 ? Math.round((logged / worked) * 100) : logged > 0 ? 100 : null),
+      avg_logged_per_present_day:
+        raw?.avg_logged_per_present_day ?? (raw as any)?.avg_logged_per_day ?? null,
+      days_present: raw?.days_present ?? 0,
+      days_absent: raw?.days_absent ?? 0,
+      is_live: false,
+    };
+  }, [varianceData, isSingleDayToday, rangeBounds.start, rangeBounds.end, totalHours]);
+
+  const varianceTone = useMemo(() => {
+    return getVarianceTone(displaySummary.variance, displaySummary.days_present);
+  }, [displaySummary]);
+
+  const coverageTone = useMemo(() => {
+    return getCoverageTone(displaySummary.coverage_pct);
+  }, [displaySummary]);
+
+  const handleShareSummary = async () => {
+    if (filteredEntries.length === 0) {
+      Alert.alert('No Logs', 'There are no log entries to share for the current view.');
+      return;
+    }
+    const lines = [
+      `OneWorkLane Daily Log Summary (${rangeBounds.start === rangeBounds.end ? rangeBounds.start : `${rangeBounds.start} to ${rangeBounds.end}`})`,
+      `Total Hours: ${formatHoursShort(totalHours)} | Tasks: ${filteredEntries.length}`,
+      '',
+    ];
+    for (const e of filteredEntries) {
+      const status = e.task_status ? `[${e.task_status}] ` : '';
+      const proj = e.client_project ? `${e.client_project}: ` : '';
+      const h = e.hours_utilized ? ` (${formatHoursShort(e.hours_utilized)})` : '';
+      lines.push(`• ${status}${proj}${e.task_description}${h}`);
+    }
+    try {
+      await Share.share({
+        message: lines.join('\n'),
+        title: `OneWorkLane Daily Log - ${selectedDate}`,
+      });
+    } catch {
+      // dismissed
+    }
+  };
 
   const openTask = (entry: DailyLogEntry) => {
     router.push({
@@ -642,8 +803,7 @@ export default function DailyLogListScreen() {
     });
   };
 
-  const logProgressPct =
-    workedHours > 0 ? Math.min(100, Math.round((totalHours / workedHours) * 100)) : totalHours > 0 ? 100 : 0;
+  const logProgressPct = Math.min(100, Math.max(0, Math.round(varianceData?.summary.coverage_pct ?? 0)));
   const selectedEmployee =
     employees.find((emp) => emp.id === userIdFilter) ||
     (isPersonView
@@ -655,10 +815,10 @@ export default function DailyLogListScreen() {
         }
       : null);
 
-  if (coldStart && entries.length === 0) {
+  if (logScope !== 'overview' && coldStart && entries.length === 0) {
     return (
-      <SafeAreaView style={[styles.safe, styles.center]} edges={['bottom']}>
-        <TruckLoader label="Loading daily logs..." />
+      <SafeAreaView style={[styles.safe, { backgroundColor: colors.bg }]} edges={['bottom']}>
+        <DailyLogListSkeleton rows={8} />
       </SafeAreaView>
     );
   }
@@ -767,14 +927,53 @@ export default function DailyLogListScreen() {
     });
 
   return (
-    <SafeAreaView style={styles.safe} edges={['bottom']}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+      <ModuleHeader
+        title={logScope === 'overview' ? 'Overview' : logScope === 'team' ? 'Team logs' : 'My log'}
+      />
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: tabOffset }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.indigo} />
         }
       >
+        {canViewTeam ? (
+          <View style={styles.scopeRow}>
+            {(isOverviewUser
+              ? ([
+                  ['overview', 'Overview'],
+                  ['team', 'Team'],
+                ] as const)
+              : ([
+                  ['mine', 'My log'],
+                  ['team', 'Team'],
+                ] as const)
+            ).map(([key, label]) => {
+              const active = logScope === key;
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => switchLogScope(key)}
+                  style={[styles.scopeChip, active && styles.scopeChipOn]}
+                >
+                  <Text style={[styles.scopeChipText, active && styles.scopeChipTextOn]}>{label}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {logScope === 'overview' ? (
+          <AdminLogOverview
+            reloadToken={overviewNonce}
+            onSettled={() => setRefreshing(false)}
+            onOpenPerson={openOverviewPerson}
+          />
+        ) : null}
+        {logScope !== 'overview' ? (
+        <>
+        <FadeIn>
         <View style={styles.personBanner}>
+          {logScope === 'team' ? (
           <Pressable style={styles.employeeSelectBtn} onPress={() => setShowEmployeePicker(true)}>
             <Avatar name={selectedEmployee?.full_name || 'Team'} size={34} />
             <View style={{ flex: 1, marginLeft: 10 }}>
@@ -786,114 +985,164 @@ export default function DailyLogListScreen() {
                   ? `${selectedEmployee.department || 'General'}${
                       selectedEmployee.role ? ` · ${prettyRole(selectedEmployee.role)}` : ''
                     }`
-                  : 'Select an employee to filter'}
+                  : 'Select a teammate to filter'}
               </Text>
             </View>
             <Ionicons name="chevron-down" size={18} color={colors.indigo} />
           </Pressable>
+          ) : (
+            <View style={styles.employeeSelectBtn}>
+              <Avatar name={myName || 'Me'} size={34} />
+              <View style={{ flex: 1, marginLeft: 10 }}>
+                <Text style={styles.employeeSelectName} numberOfLines={1}>
+                  {myName || 'My logs'}
+                </Text>
+                <Text style={styles.employeeSelectMeta}>Your hours and tasks for this period</Text>
+              </View>
+            </View>
+          )}
 
-          <View style={styles.statsGrid}>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Tasks</Text>
-              <Text style={styles.statValue}>{filteredEntries.length}</Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Logged</Text>
-              <Text style={[styles.statValue, { color: colors.indigo }]}>
-                {formatHoursShort(totalHours)}
-              </Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Worked</Text>
-              <Text style={[styles.statValue, { color: colors.emerald }]}>
-                {workedLoading ? '…' : formatHoursShort(workedHours)}
-              </Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Avg log per day</Text>
-              <Text style={[styles.statValue, { color: colors.indigo }]}>
-                {formatHoursShort(avgDailyLoggedHours)}
-              </Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Completed</Text>
-              <Text style={[styles.statValue, { color: colors.emerald }]}>
-                {statusCounts.completed}
-              </Text>
-            </View>
-            <View style={styles.statCell}>
-              <Text style={styles.statLabel}>Incomplete / Blocker</Text>
-              <Text style={styles.statValue}>
-                <Text style={{ color: colors.amber }}>{statusCounts.incomplete}</Text>
-                <Text style={{ color: colors.muted }}> / </Text>
-                <Text style={{ color: colors.rose }}>{statusCounts.blocker}</Text>
-              </Text>
-            </View>
-          </View>
+          {varianceLoading && !varianceData && entries.length === 0 ? (
+            <DailyLogOverviewSkeleton />
+          ) : (
+            <>
+              <View style={styles.statsGrid}>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Worked</Text>
+                  <Text style={[styles.statValue, { color: colors.emerald }]}>
+                    {formatMinutes(displaySummary.worked)}
+                  </Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Logged</Text>
+                  <Text style={[styles.statValue, { color: colors.indigo }]}>
+                    {formatMinutes(displaySummary.logged)}
+                  </Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Unlogged</Text>
+                  <Text style={[styles.statValue, { color: getToneColor(varianceTone) }]}>
+                    {formatSignedMinutes(displaySummary.variance)}
+                  </Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Coverage %</Text>
+                  <Text style={[styles.statValue, { color: getToneColor(coverageTone) }]}>
+                    {formatPercentage(displaySummary.coverage_pct, 0)}
+                  </Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Avg logged / present day</Text>
+                  <Text style={[styles.statValue, { color: colors.indigo }]}>
+                    {formatMinutes(displaySummary.avg_logged_per_present_day)}
+                  </Text>
+                </View>
+                <View style={styles.statCell}>
+                  <Text style={styles.statLabel}>Days present / missing</Text>
+                  <Text style={styles.statValue}>
+                    {`${displaySummary.days_present} / ${displaySummary.days_absent}`}
+                  </Text>
+                </View>
+              </View>
 
-          <View style={styles.progressBlock}>
-            <View style={styles.progressLabels}>
-              <Text style={styles.progressLabel}>
-                Logged {formatHoursShort(totalHours)}
-              </Text>
-              <Text style={styles.progressLabel}>
-                Worked {workedLoading ? '…' : formatHoursShort(workedHours)}
-              </Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  {
-                    width: `${workedLoading ? 0 : logProgressPct}%`,
-                    backgroundColor:
-                      logProgressPct >= 100
-                        ? colors.emerald
-                        : logProgressPct >= 80
-                          ? colors.amber
-                          : colors.indigo,
-                  },
-                ]}
-              />
-            </View>
-            <Text style={styles.progressHint}>
-              {workedLoading
-                ? 'Comparing log vs worked hours…'
-                : workedHours <= 0 && totalHours <= 0
-                  ? 'No hours recorded for this period'
-                  : workedHours <= 0
-                    ? 'Logged hours with no worked hours yet'
-                    : `${logProgressPct}% of worked hours logged`}
-            </Text>
-          </View>
+              {isSingleDayToday && (displaySummary.is_live || varianceData?.today_live) && (displaySummary.worked > 0 || displaySummary.logged > 0) ? (
+                <View style={styles.liveHoursBanner}>
+                  <Ionicons name="time-outline" size={14} color={colors.indigo} />
+                  <Text style={styles.liveHoursText}>
+                    Shift in progress · {formatMinutes(displaySummary.logged)} logged / {formatMinutes(displaySummary.worked)} at work so far
+                  </Text>
+                </View>
+              ) : varianceData?.range?.today_included && varianceData?.today_live && !isSingleDayToday ? (
+                <View style={styles.liveHoursBanner}>
+                  <Ionicons name="time-outline" size={14} color={colors.indigo} />
+                  <Text style={styles.liveHoursText}>
+                    Today so far (live): {formatMinutes(varianceData.today_live.logged)} logged /{' '}
+                    {formatMinutes(varianceData.today_live.worked)} worked (not in totals yet)
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.progressBlock}>
+                <View style={styles.progressLabels}>
+                  <Text style={styles.progressLabel}>
+                    Logged {formatMinutes(displaySummary.logged)}
+                  </Text>
+                  <Text style={styles.progressLabel}>
+                    Worked {formatMinutes(displaySummary.worked)}
+                  </Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      {
+                        width: `${Math.min(100, Math.max(0, displaySummary.coverage_pct ?? 0))}%`,
+                        backgroundColor:
+                          (displaySummary.coverage_pct ?? 0) >= 95
+                            ? colors.emerald
+                            : (displaySummary.coverage_pct ?? 0) >= 80
+                              ? colors.amber
+                              : colors.rose,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.progressHint}>
+                  {displaySummary.worked <= 0 && displaySummary.logged <= 0
+                    ? 'No hours recorded for this period'
+                    : displaySummary.worked <= 0
+                      ? 'Logged hours with no worked hours yet'
+                      : `${formatPercentage(displaySummary.coverage_pct, 1)} of worked hours logged`}
+                </Text>
+              </View>
+            </>
+          )}
+        </View>
+        </FadeIn>
+
+        <View style={styles.actionRow}>
+          {logScope === 'mine' ? (
+            <Pressable
+              style={styles.logWorkBtn}
+              onPress={() => setShowLogModal(true)}
+            >
+              <Plus size={16} color="#FFFFFF" />
+              <Text style={styles.logWorkBtnText}>Log Work</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            style={[styles.shareBtn, logScope === 'team' && { flex: 1 }]}
+            onPress={handleShareSummary}
+          >
+            <Share2 size={16} color={colors.indigo} />
+            <Text style={styles.shareBtnText}>Share</Text>
+          </Pressable>
         </View>
 
-        {isPersonView ? (
-          <View style={styles.rangeToggleRow}>
-            {(
-              [
-                { key: 'day', label: 'Day' },
-                { key: 'week', label: 'Week' },
-                { key: 'custom', label: 'Range' },
-              ] as const
-            ).map((option) => {
-              const active = rangeMode === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={[styles.rangeToggleBtn, active && styles.rangeToggleBtnActive]}
-                  onPress={() => setRange(option.key)}
-                >
-                  <Text style={[styles.rangeToggleText, active && styles.rangeToggleTextActive]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        ) : null}
+        <View style={styles.rangeToggleRow}>
+          {(
+            [
+              { key: 'day', label: 'Day' },
+              { key: 'week', label: 'Week' },
+              { key: 'custom', label: 'Range' },
+            ] as const
+          ).map((option) => {
+            const active = rangeMode === option.key;
+            return (
+              <Pressable
+                key={option.key}
+                style={[styles.rangeToggleBtn, active && styles.rangeToggleBtnActive]}
+                onPress={() => setRange(option.key)}
+              >
+                <Text style={[styles.rangeToggleText, active && styles.rangeToggleTextActive]}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
 
-        {isPersonView && rangeMode === 'custom' ? (
+        {rangeMode === 'custom' ? (
           <View style={styles.customRangeCard}>
             <View style={styles.customRangeFields}>
               <View style={styles.customRangeField}>
@@ -912,7 +1161,7 @@ export default function DailyLogListScreen() {
           <View style={styles.dateSelectorCard}>
             <Pressable
               style={styles.dateNavArrow}
-              onPress={() => (isPersonView && rangeMode === 'week' ? handleShiftWeek(-1) : handleShiftDay(-1))}
+              onPress={() => (rangeMode === 'week' ? handleShiftWeek(-1) : handleShiftDay(-1))}
               hitSlop={8}
             >
               <Ionicons name="chevron-back" size={18} color={colors.text} />
@@ -920,36 +1169,36 @@ export default function DailyLogListScreen() {
 
             <Pressable
               style={styles.dateCenterBtn}
-              disabled={isPersonView && rangeMode === 'week'}
+              disabled={rangeMode === 'week'}
               onPress={() => {
-                if (isPersonView && rangeMode === 'week') return;
+                if (rangeMode === 'week') return;
                 setDraftDate(parseDate(selectedDate));
                 setShowDatePicker(true);
               }}
             >
               <Ionicons name="calendar-outline" size={16} color={colors.indigo} />
               <Text style={styles.dateCenterText}>
-                {isPersonView && rangeMode === 'week'
+                {rangeMode === 'week'
                   ? `${formatDisplayDate(weekDisplay.start)} – ${formatDisplayDate(weekDisplay.end)}`
-                  : formatDisplayDate(selectedDate)}
+                  : isToday
+                    ? `Today, ${formatDisplayDate(selectedDate)}`
+                    : formatDisplayDate(selectedDate)}
               </Text>
             </Pressable>
 
             <Pressable
               style={[
                 styles.dateNavArrow,
-                ((isPersonView && rangeMode === 'week' && !canGoNextWeek) ||
-                  (!isPersonView && isToday) ||
-                  (isPersonView && rangeMode === 'day' && isToday)) &&
+                ((rangeMode === 'week' && !canGoNextWeek) ||
+                  (rangeMode === 'day' && isToday)) &&
                   styles.dateNavArrowDisabled,
               ]}
               onPress={() =>
-                isPersonView && rangeMode === 'week' ? handleShiftWeek(1) : handleShiftDay(1)
+                rangeMode === 'week' ? handleShiftWeek(1) : handleShiftDay(1)
               }
               disabled={
-                (isPersonView && rangeMode === 'week' && !canGoNextWeek) ||
-                (!isPersonView && isToday) ||
-                (isPersonView && rangeMode === 'day' && isToday)
+                (rangeMode === 'week' && !canGoNextWeek) ||
+                (rangeMode === 'day' && isToday)
               }
               hitSlop={8}
             >
@@ -957,16 +1206,15 @@ export default function DailyLogListScreen() {
                 name="chevron-forward"
                 size={18}
                 color={
-                  (isPersonView && rangeMode === 'week' && !canGoNextWeek) ||
-                  (!isPersonView && isToday) ||
-                  (isPersonView && rangeMode === 'day' && isToday)
+                  (rangeMode === 'week' && !canGoNextWeek) ||
+                  (rangeMode === 'day' && isToday)
                     ? colors.muted
                     : colors.text
                 }
               />
             </Pressable>
 
-            {!(isPersonView && rangeMode === 'week') && !isToday ? (
+            {rangeMode !== 'week' && !isToday ? (
               <Pressable style={styles.todayJumpBadge} onPress={() => handleSelectDate(todayIso())}>
                 <Text style={styles.todayJumpText}>Today</Text>
               </Pressable>
@@ -1024,7 +1272,7 @@ export default function DailyLogListScreen() {
           </Modal>
         )}
 
-        {!isPersonView ? (
+        {logScope === 'team' && !isPersonView ? (
           <View style={styles.searchBar}>
             <Ionicons name="search-outline" size={16} color={colors.muted} />
             <TextInput
@@ -1053,7 +1301,10 @@ export default function DailyLogListScreen() {
               <Pressable
                 key={chip.key}
                 style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setStatusFilter(chip.key)}
+                onPress={() => {
+                  if (statusFilter === chip.key) return;
+                  setStatusFilter(chip.key);
+                }}
               >
                 <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
                   {chip.label}
@@ -1093,6 +1344,8 @@ export default function DailyLogListScreen() {
         ) : (
           renderPersonGroups(personGroups, true)
         )}
+        </>
+        ) : null}
       </ScrollView>
 
       <Modal visible={showEmployeePicker} transparent animationType="slide">
@@ -1155,6 +1408,15 @@ export default function DailyLogListScreen() {
           </ScrollView>
         </View>
       </Modal>
+
+      <LogWorkModal
+        visible={showLogModal}
+        initialDate={selectedDate}
+        onClose={() => setShowLogModal(false)}
+        onCreated={() => {
+          onRefresh();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -1163,6 +1425,19 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   center: { alignItems: 'center', justifyContent: 'center' },
   scroll: { padding: 16, paddingBottom: 40 },
+  scopeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  scopeChip: {
+    flex: 1,
+    borderRadius: 999,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  scopeChipOn: { backgroundColor: colors.indigo, borderColor: colors.indigo },
+  scopeChipText: { fontSize: 13, fontWeight: '600', color: colors.slate },
+  scopeChipTextOn: { color: '#fff' },
   rangeToggleRow: {
     flexDirection: 'row',
     backgroundColor: colors.card,
@@ -1284,6 +1559,23 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: colors.text,
+  },
+  liveHoursBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    marginTop: 8,
+    gap: 6,
+  },
+  liveHoursText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: colors.indigo,
   },
   progressBlock: {
     marginTop: 10,
@@ -1448,7 +1740,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#F4F4F5',
   },
-  taskTitle: { fontSize: 13, fontWeight: '700', color: colors.text },
+  taskTitle: { fontSize: 14, fontWeight: '400', color: colors.text, lineHeight: 20 },
   taskProject: { marginTop: 3, fontSize: 11.5, color: colors.muted },
   taskRightMeta: { alignItems: 'flex-end', gap: 4 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
@@ -1474,4 +1766,42 @@ const styles = StyleSheet.create({
   modalDoneText: { fontSize: 14, fontWeight: '700', color: colors.indigo },
   datePickerBox: { alignItems: 'center', paddingHorizontal: 8 },
   inlineDatePicker: { width: '100%' },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 12,
+    marginBottom: 12,
+  },
+  logWorkBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.indigo,
+    borderRadius: 12,
+    paddingVertical: 12,
+  },
+  logWorkBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  shareBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+  },
+  shareBtnText: {
+    color: colors.indigo,
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

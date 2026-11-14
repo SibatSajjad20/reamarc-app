@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { ReamarcLogo3D } from './ReamarcLogo3D';
+import { OneWorkLaneLogo } from './OneWorkLaneLogo';
 import { colors } from '../theme';
 
 interface TruckLoaderProps {
@@ -11,9 +11,8 @@ interface TruckLoaderProps {
 
 /**
  * Mobile App Loading Component:
- * - Renders the signature 3D animated Reamarc logo
+ * - Renders the OneWorkLane app mark
  * - Zero native binary dependencies (safe for OTA updates and Expo Go)
- * - 60 FPS hardware accelerated playback
  */
 export const TruckLoader: React.FC<TruckLoaderProps> = ({
   label = 'Loading...',
@@ -23,7 +22,7 @@ export const TruckLoader: React.FC<TruckLoaderProps> = ({
 
   return (
     <View style={styles.container}>
-      <ReamarcLogo3D size={logoSize} />
+      <OneWorkLaneLogo size={logoSize} />
       {!!label && (
         <Text style={styles.label}>{label}</Text>
       )}

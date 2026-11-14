@@ -1,9 +1,13 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
+import { useAuth } from '../../src/context/AuthContext';
+import { LogWorkModal } from '../../src/components/daily-log/LogWorkModal';
+import { loadCalendarOffDays } from '../../src/lib/companyCalendar';
+import { canMutateDailyLogEntry } from '../../src/lib/logWindow';
 import {
   DailyLogEntry,
   buildEntriesQuery,
@@ -23,6 +27,7 @@ import { toSafeHttpsUrl } from '../../src/lib/safeUrl';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
 import { DailyLogDetailSkeleton } from '../../src/ui/Skeleton';
+import { TaskHtmlText } from '../../src/ui/TaskHtmlText';
 import { formatDisplayDate, prettyRole } from '../../src/ui/format';
 
 function Field({ label, value }: { label: string; value?: string | null }) {
@@ -38,6 +43,9 @@ function Field({ label, value }: { label: string; value?: string | null }) {
 
 export default function DailyLogDetailScreen() {
   const params = useLocalSearchParams<{ id?: string; date?: string; userId?: string }>();
+  const navigation = useNavigation();
+  const router = useRouter();
+  const { user } = useAuth();
   const entryId = typeof params.id === 'string' ? params.id : '';
   const date =
     typeof params.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.date) ? params.date : '';
@@ -47,9 +55,13 @@ export default function DailyLogDetailScreen() {
   const [entry, setEntry] = useState<DailyLogEntry | null>(initialCached);
   const [loading, setLoading] = useState(!initialCached);
   const [error, setError] = useState('');
+  const [editOpen, setEditOpen] = useState(false);
+  const [holidays, setHolidays] = useState<Set<string>>(new Set());
+  const [workingSaturdays, setWorkingSaturdays] = useState<Set<string>>(new Set());
   const didBlurRef = useRef(false);
   const reqIdRef = useRef(0);
   const hadCacheOnMount = useRef(Boolean(initialCached));
+  const canMutate = canMutateDailyLogEntry(entry, user, holidays, workingSaturdays);
 
   const load = useCallback(
     async (opts: { soft?: boolean; force?: boolean } = {}) => {
@@ -109,6 +121,11 @@ export default function DailyLogDetailScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      const year = new Date().getFullYear();
+      void loadCalendarOffDays(year).then((days) => {
+        setHolidays(days.holidays);
+        setWorkingSaturdays(days.workingSaturdays);
+      });
       if (!didBlurRef.current) {
         void load({ soft: hadCacheOnMount.current });
         return () => {
@@ -121,6 +138,18 @@ export default function DailyLogDetailScreen() {
       };
     }, [load]),
   );
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: canMutate
+        ? () => (
+            <Pressable onPress={() => setEditOpen(true)} hitSlop={8} style={{ paddingHorizontal: 4 }}>
+              <Text style={{ color: colors.indigo, fontWeight: '600' }}>Edit</Text>
+            </Pressable>
+          )
+        : undefined,
+    });
+  }, [navigation, canMutate]);
 
   if (loading && !entry) {
     return (
@@ -168,7 +197,7 @@ export default function DailyLogDetailScreen() {
             </View>
           </View>
 
-          <Text style={styles.taskTitle}>{entry.task_description || 'Untitled task'}</Text>
+          <TaskHtmlText html={entry.task_description || 'Untitled task'} style={styles.taskTitle} />
           <View style={styles.metaRow}>
             <View style={styles.metaChip}>
               <Ionicons name="calendar-outline" size={13} color={colors.indigo} />
@@ -247,6 +276,20 @@ export default function DailyLogDetailScreen() {
           )}
         </View>
       </ScrollView>
+      <LogWorkModal
+        visible={editOpen}
+        entry={entry}
+        initialDate={entry.date}
+        onClose={() => setEditOpen(false)}
+        onSaved={(saved) => {
+          setEntry(saved);
+          setEditOpen(false);
+        }}
+        onDeleted={() => {
+          setEditOpen(false);
+          router.back();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -274,7 +317,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 8,
   },
-  retryText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  retryText: { color: '#fff', fontWeight: '600', fontSize: 12 },
   heroCard: {
     backgroundColor: colors.card,
     borderRadius: 14,
@@ -284,11 +327,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   heroTop: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  heroName: { fontSize: 15, fontWeight: '800', color: colors.text },
+  heroName: { fontSize: 15, fontWeight: '600', color: colors.text },
   heroMeta: { marginTop: 2, fontSize: 12, color: colors.muted },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
-  statusText: { fontSize: 10.5, fontWeight: '800' },
-  taskTitle: { fontSize: 17, fontWeight: '800', color: colors.text, lineHeight: 24 },
+  statusText: { fontSize: 10.5, fontWeight: '600' },
+  taskTitle: { fontSize: 16, fontWeight: '400', color: colors.text, lineHeight: 24 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   metaChip: {
     flexDirection: 'row',
@@ -299,7 +342,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-  metaChipText: { fontSize: 12, fontWeight: '700', color: colors.indigo },
+  metaChipText: { fontSize: 12, fontWeight: '500', color: colors.indigo },
   sectionCard: {
     backgroundColor: colors.card,
     borderRadius: 14,
@@ -308,17 +351,17 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 12,
   },
-  sectionTitle: { fontSize: 14, fontWeight: '800', color: colors.text, marginBottom: 10 },
+  sectionTitle: { fontSize: 14, fontWeight: '600', color: colors.text, marginBottom: 10 },
   field: { marginBottom: 12 },
   fieldLabel: {
     fontSize: 11,
-    fontWeight: '800',
+    fontWeight: '600',
     color: colors.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.3,
     marginBottom: 4,
   },
-  fieldValue: { fontSize: 14, fontWeight: '600', color: colors.text, lineHeight: 20 },
+  fieldValue: { fontSize: 14, fontWeight: '400', color: colors.text, lineHeight: 20 },
   emptyInline: { fontSize: 13, color: colors.muted },
   deliverableRow: {
     flexDirection: 'row',

@@ -1,11 +1,18 @@
 import type { DailyLogEntry } from './dailyLog';
+import type { UnifiedVarianceData } from './logVariance';
 
 export interface CacheEntry<T> {
   data: T;
   fetchedAt: number;
 }
 
-/** Stale window for ranges that include today (ms). Historical ranges stay fresh until force refresh. */
+/** TTL for log-variance ranges that include today (5 minutes). */
+export const LOG_VARIANCE_TODAY_TTL_MS = 5 * 60 * 1000;
+
+/** TTL for log-variance ranges entirely in the past (30 minutes). */
+export const LOG_VARIANCE_PAST_TTL_MS = 30 * 60 * 1000;
+
+/** Stale window for ranges that include today (ms). Kept for backwards compatibility. */
 export const DAILY_LOG_STALE_MS = 120_000;
 
 class BoundedCache<T> {
@@ -60,6 +67,8 @@ export type EmployeeCacheOption = {
 };
 
 const entriesCache = new BoundedCache<DailyLogEntry[]>(40);
+const logVarianceCache = new BoundedCache<UnifiedVarianceData>(40);
+const snapshotCache = new BoundedCache<unknown>(24);
 const workedCache = new BoundedCache<WorkedHoursCacheData>(40);
 const employeesCache = new BoundedCache<EmployeeCacheOption[]>(1);
 
@@ -74,12 +83,57 @@ export function makeEntriesCacheKey(
   return `entries|${startDate}|${endDate}|${userId || ''}|${resourceName || ''}`;
 }
 
-export function makeWorkedCacheKey(startDate: string, endDate: string, userId: string): string {
-  return `worked|${startDate}|${endDate}|${userId || ''}`;
+export function makeLogVarianceCacheKey(userId: string, startDate: string, endDate: string): string {
+  return `${userId || ''}|${startDate}|${endDate}`;
 }
 
 export function rangeIncludesToday(startDate: string, endDate: string, today: string): boolean {
   return startDate <= today && today <= endDate;
+}
+
+export function isLogVarianceCacheStale(
+  entry: CacheEntry<UnifiedVarianceData> | undefined,
+  startDate: string,
+  endDate: string,
+  today: string,
+): boolean {
+  if (!entry) return true;
+  const todayIncluded = entry.data.range?.today_included ?? rangeIncludesToday(startDate, endDate, today);
+  const ttl = todayIncluded ? LOG_VARIANCE_TODAY_TTL_MS : LOG_VARIANCE_PAST_TTL_MS;
+  return Date.now() - entry.fetchedAt > ttl;
+}
+
+export function getCachedLogVariance(
+  userId: string,
+  startDate: string,
+  endDate: string,
+): CacheEntry<UnifiedVarianceData> | undefined {
+  return logVarianceCache.get(makeLogVarianceCacheKey(userId, startDate, endDate));
+}
+
+export function setCachedLogVariance(
+  userId: string,
+  startDate: string,
+  endDate: string,
+  data: UnifiedVarianceData,
+): void {
+  logVarianceCache.set(makeLogVarianceCacheKey(userId, startDate, endDate), data);
+}
+
+export function invalidateLogVarianceCache(): void {
+  logVarianceCache.clear();
+}
+
+export function getCachedSnapshot<T>(key: string): CacheEntry<T> | undefined {
+  return snapshotCache.get(key) as CacheEntry<T> | undefined;
+}
+
+export function setCachedSnapshot<T>(key: string, data: T): void {
+  snapshotCache.set(key, data);
+}
+
+export function invalidateSnapshotCache(): void {
+  snapshotCache.clear();
 }
 
 export function isCacheStale(
@@ -113,6 +167,15 @@ export function setCachedEntries(
   entriesCache.set(makeEntriesCacheKey(startDate, endDate, userId, resourceName), data);
 }
 
+export function invalidateEntriesCache(): void {
+  entriesCache.clear();
+}
+
+// Backwards-compatibility for existing tests
+export function makeWorkedCacheKey(startDate: string, endDate: string, userId: string): string {
+  return `worked|${startDate}|${endDate}|${userId || ''}`;
+}
+
 export function getCachedWorked(
   startDate: string,
   endDate: string,
@@ -138,7 +201,6 @@ export function setCachedEmployees(data: EmployeeCacheOption[]): void {
   employeesCache.set(EMPLOYEES_KEY, data);
 }
 
-/** Find a single entry across the session entries cache (for detail hydrate). */
 export function findCachedEntryById(entryId: string): DailyLogEntry | null {
   if (!entryId) return null;
   for (const bucket of entriesCache.values()) {
@@ -150,6 +212,8 @@ export function findCachedEntryById(entryId: string): DailyLogEntry | null {
 
 export function clearDailyLogCaches(): void {
   entriesCache.clear();
+  logVarianceCache.clear();
+  snapshotCache.clear();
   workedCache.clear();
   employeesCache.clear();
 }

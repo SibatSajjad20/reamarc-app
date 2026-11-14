@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL, colors } from '../../src/theme';
+import { TaskListSkeleton } from '../../src/ui/Skeleton';
 
 interface Attachment {
   id: string;
@@ -181,9 +182,8 @@ export default function MobileClientReviewScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={colors.indigo} />
-        <Text style={styles.loadingText}>Loading campaign for review...</Text>
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
+        <TaskListSkeleton rows={5} />
       </SafeAreaView>
     );
   }

@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../src/theme';
 import { useAuth } from '../../src/context/AuthContext';
+import { MenuButton } from '../../src/components/MenuButton';
 import { canAccessCrm, canAssignCrmLeads } from '../../src/lib/roles';
 import { followUpBucket } from '../../src/lib/followUpBuckets';
 import { crmApi } from '../../src/lib/crmApi';
@@ -444,13 +445,16 @@ export default function PipelineScreen() {
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
       {/* Top Bar */}
       <View style={styles.topBar}>
-        <View>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+          <MenuButton />
+          <View style={{ flex: 1 }}>
           <Text style={styles.screenTitle}>Sales Pipeline</Text>
           <Text style={styles.screenSubtitle}>
             {counts
               ? `${counts.incoming} incoming • ${counts.uncontacted} uncontacted`
               : 'Live Opportunities'}
           </Text>
+          </View>
         </View>
 
         <View style={styles.topActions}>
@@ -978,7 +982,7 @@ const styles = StyleSheet.create({
   feedContent: {
     paddingHorizontal: 16,
     paddingTop: 10,
-    paddingBottom: 130,
+    paddingBottom: 140,
   },
   centerContainer: {
     flex: 1,

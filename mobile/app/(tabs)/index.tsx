@@ -17,7 +17,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
@@ -32,13 +32,17 @@ import {
   setCachedPunchToday,
 } from '../../src/lib/attendanceCache';
 import { classifyGpsFix, gpsFieldsForPunch, haversineMeters, shouldAcceptLiveSample } from '../../src/lib/geo';
-import { isAdmin, isAttendanceTracked, canAccessDailyLog } from '../../src/lib/roles';
+import { isAdmin, isAttendanceTracked, canAccessDailyLog, canAccessTasks } from '../../src/lib/roles';
+import { resolveTabs } from '../../src/lib/tabResolver';
+import { ModuleShortcutGrid, ScreenGreeting } from '../../src/components/HomeChrome';
 import { useAuth } from '../../src/context/AuthContext';
-import { colors } from '../../src/theme';
+import { colors, useTheme } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
-import { OverviewAttendanceSkeleton } from '../../src/ui/Skeleton';
-import { TruckLoader } from '../../src/ui/TruckLoader';
+import { HomeScreenSkeleton, OverviewAttendanceSkeleton } from '../../src/ui/Skeleton';
 import { formatDisplayDate, formatTime, prettyRole } from '../../src/ui/format';
+import { FadeIn, SuccessBurst } from '../../src/ui/motion';
+import { getModuleCache, setModuleCache } from '../../src/lib/moduleCache';
+import { countHomeTasks, listAllTasks, type HomeTaskCounts } from '../../src/lib/tasks';
 import {
   computeCheckoutGateType,
   CheckoutGateType,
@@ -127,6 +131,7 @@ type DayTargetPayload = {
   break_start_time?: string | null;
   break_end_time?: string | null;
   is_night_shift?: boolean;
+  count_from_actual_check_in?: boolean;
 };
 
 function formatHoursAndMinutes(hours: number): string {
@@ -173,6 +178,8 @@ type Fix = {
 
 function PunchScreen() {
   const { user, deviceUuid } = useAuth();
+  const theme = useTheme();
+  const layout = useMemo(() => resolveTabs(user), [user]);
   const punchCached = getCachedPunchToday();
   const [today, setToday] = useState<TodayPayload | null>(
     () => (punchCached?.data.today as TodayPayload | null) ?? null,
@@ -184,6 +191,7 @@ function PunchScreen() {
   const [online, setOnline] = useState(true);
   const [onWifi, setOnWifi] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [punchSuccess, setPunchSuccess] = useState(false);
   const [error, setError] = useState('');
   const [nowTick, setNowTick] = useState(Date.now());
   const [reasonOpen, setReasonOpen] = useState(false);
@@ -629,6 +637,8 @@ function PunchScreen() {
         }
       }
       await punch(kind);
+      setPunchSuccess(true);
+      setTimeout(() => setPunchSuccess(false), 800);
     } catch (err: any) {
       const errMsg = err?.message || String(err || '');
       const lower = errMsg.toLowerCase();
@@ -664,6 +674,8 @@ function PunchScreen() {
     setBusy(true);
     try {
       await punch('out', reason.trim());
+      setPunchSuccess(true);
+      setTimeout(() => setPunchSuccess(false), 800);
       setReasonOpen(false);
       setReason('');
       setReasonGateType(null);
@@ -703,6 +715,23 @@ function PunchScreen() {
     btnIcon = 'lock-closed';
   }
 
+  const [taskCounts, setTaskCounts] = useState<HomeTaskCounts | null>(
+    () => getModuleCache('home-tasks'),
+  );
+
+  useEffect(() => {
+    if (!canAccessTasks(user)) return;
+    const cached = getModuleCache<HomeTaskCounts>('home-tasks');
+    if (cached) setTaskCounts(cached);
+    void listAllTasks({ scope: 'mine', assignee_id: user?.id })
+      .then((res) => {
+        const next = countHomeTasks(res.items || []);
+        setModuleCache('home-tasks', next);
+        setTaskCounts(next);
+      })
+      .catch(() => {});
+  }, [user]);
+
   const identityBits = [user?.department, prettyRole(user?.role)].filter(Boolean);
   const identityLine = identityBits.join(' ');
   const shiftWindow =
@@ -716,29 +745,33 @@ function PunchScreen() {
 
   if (initialLoading && !today) {
     return (
-      <SafeAreaView style={[styles.safe, styles.centerScreen]}>
-        <View style={styles.loadingBox}>
-          <TruckLoader label="Syncing shift schedule & status..." />
-        </View>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
+        <ScreenGreeting name={user?.name} />
+        <HomeScreenSkeleton />
       </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.header}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.hi}>Hi {user?.name?.split(' ')[0] || 'there'} 👋</Text>
-            {!!contextLine && (
-              <Text style={styles.contextLine} numberOfLines={2}>
-                {contextLine}
-              </Text>
-            )}
-          </View>
-          <Avatar name={user?.name} size={48} />
-        </View>
+  const expectedShiftHours = Number(today?.shift?.expected_hours) || 8;
+  const focusProgress = cin && !cout && timeAtWorkHours > 0
+    ? Math.min(100, Math.round((timeAtWorkHours / Math.max(timeAtWorkHours + 0.01, expectedShiftHours)) * 100))
+    : cin && cout
+      ? 100
+      : 0;
 
+  return (
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
+      <ScreenGreeting
+        name={user?.name}
+        subtitle={
+          contextLine ? (
+            <Text style={styles.contextLine} numberOfLines={2}>
+              {contextLine}
+            </Text>
+          ) : null
+        }
+      />
+      <ScrollView contentContainerStyle={styles.scroll}>
         {!isAttendanceTracked(user) ? (
           <View style={styles.restCard}>
             <Ionicons name="shield-checkmark-outline" size={36} color={colors.indigo} />
@@ -757,154 +790,99 @@ function PunchScreen() {
             </Text>
           </View>
         ) : (
-          <>
-            <Text style={styles.verifyLabel}>Punch verification</Text>
-            <View style={styles.pills}>
-              <VerifyPill ok={Boolean(gpsOk)} icon="location-outline" label={isWfh ? 'WFH' : 'Geofence'} />
-              <VerifyPill ok={Boolean(wifiOk)} icon="wifi-outline" label={isWfh ? 'Remote' : 'Office Wi-Fi'} />
-            </View>
-
-            {cout ? (
-              <View style={styles.completedCard}>
-                <View style={styles.completedHeader}>
-                  <View style={styles.completedIconBadge}>
-                    <Ionicons name="checkmark-circle" size={26} color="#059669" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.completedTitle}>Shift Complete</Text>
-                    <Text style={styles.completedSub}>
-                      Checked out at {formatTime(cout)}
-                    </Text>
-                  </View>
-                  <View style={styles.completedHoursPill}>
-                    <Ionicons name="time-outline" size={13} color="#059669" />
-                    <Text style={styles.completedHoursText}>{shiftDurationFormatted}</Text>
-                  </View>
-                </View>
+          <FadeIn>
+            <View style={styles.focusCard}>
+              <SuccessBurst show={punchSuccess} backgroundColor="rgba(255,255,255,0.95)" />
+              <Text style={styles.focusKicker}>Today&apos;s focus</Text>
+              <Text style={styles.focusTitle}>{shiftName}</Text>
+              <Text style={styles.focusMeta}>
+                {shiftWindow || 'Shift window not set'}
+                {elapsed ? ` · ${elapsed} on shift` : ''}
+              </Text>
+              <View style={styles.focusProgressTrack}>
+                <View style={[styles.focusProgressFill, { width: `${focusProgress}%` }]} />
               </View>
-            ) : (
-              <>
-                <View style={styles.heroWrap}>
-                  <Pressable
-                    disabled={busy || btnDisabled}
-                    onPress={() => {
-                      if (busy || btnDisabled) return;
-                      void onPress(canIn ? 'in' : 'out');
-                    }}
-                    hitSlop={16}
-                    style={({ pressed }) => ({
-                      opacity: busy || btnDisabled ? 0.55 : pressed ? 0.88 : 1,
-                    })}
-                  >
-                    <Animated.View
-                      pointerEvents="none"
-                      style={[
-                        styles.hero,
-                        { backgroundColor: btnColor, transform: [{ scale: canOut ? pulse : 1 }] },
-                        canIn && styles.heroGlow,
-                      ]}
-                    >
-                      {busy ? (
-                        <ActivityIndicator color="#fff" />
-                      ) : (
-                        <>
-                          <Ionicons name={btnIcon} size={36} color="#fff" />
-                          <Text style={styles.heroText}>{btnLabel}</Text>
-                          {!!elapsed && <Text style={styles.heroTimer}>{elapsed} on shift</Text>}
-                        </>
-                      )}
-                    </Animated.View>
-                  </Pressable>
+              <View style={[styles.pills, { marginBottom: 10 }]}>
+                <VerifyPill ok={Boolean(gpsOk)} icon="location-outline" label={isWfh ? 'WFH' : 'Geofence'} />
+                <VerifyPill ok={Boolean(wifiOk)} icon="wifi-outline" label={isWfh ? 'Remote' : 'Office Wi-Fi'} />
+              </View>
+              {cout ? (
+                <View style={styles.completedInline}>
+                  <Ionicons name="checkmark-circle" size={18} color="#A7F3D0" />
+                  <Text style={styles.completedInlineText}>
+                    Checked out at {formatTime(cout)} · {shiftDurationFormatted}
+                  </Text>
                 </View>
-                <View style={styles.lockRow}>
-                  <Ionicons name="lock-closed-outline" size={13} color={colors.muted} />
-                  <Text style={styles.footerLock}>Biometric & Geofence Protected</Text>
-                </View>
-              </>
-            )}
-          </>
+              ) : (
+                <Pressable
+                  disabled={busy || btnDisabled}
+                  onPress={() => {
+                    if (busy || btnDisabled) return;
+                    void onPress(canIn ? 'in' : 'out');
+                  }}
+                  style={({ pressed }) => [
+                    styles.focusCta,
+                    { backgroundColor: btnColor, opacity: busy || btnDisabled ? 0.55 : pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  {busy ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name={btnIcon} size={18} color="#fff" />
+                      <Text style={styles.focusCtaText}>{btnLabel}</Text>
+                    </>
+                  )}
+                </Pressable>
+              )}
+            </View>
+          </FadeIn>
         )}
         {!!error && <Text style={styles.error}>{error}</Text>}
 
-        {cin && !isOffDay && isAttendanceTracked(user) && String(user?.role || '').toLowerCase() !== 'operations' && (
-          <View style={styles.trackerCard}>
-            <View style={styles.trackerHead}>
-              <View style={styles.trackerHeadLeft}>
-                <Ionicons name="timer-outline" size={16} color={colors.indigo} />
-                <Text style={styles.trackerHeadTitle} numberOfLines={1}>
-                  Shift & Tasks Tracker
-                </Text>
-              </View>
-              <View style={[styles.statusBadge, styles.trackerStatusBadge, { backgroundColor: trackerStatusBg }]}>
-                <Text
-                  style={[styles.statusText, { color: trackerStatusColor }]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.85}
-                >
-                  {trackerStatusLabel}
-                </Text>
-              </View>
+        {isAttendanceTracked(user) && !isOffDay ? (
+          <View style={styles.homeOverview}>
+            <View style={styles.homeOverviewHead}>
+              <Text style={styles.homeSectionTitle}>Overview</Text>
             </View>
-
-            <View style={styles.trackerRow}>
-              <View style={styles.trackerCol}>
-                <View style={styles.trackerLabelWrap}>
-                  <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    Time at Work
-                  </Text>
-                </View>
-                <Text style={styles.trackerValue} numberOfLines={1}>
-                  {timeAtWorkFormatted}
-                </Text>
+            <View style={styles.metricsRow}>
+              <View style={[styles.homeTile, { backgroundColor: '#EEF2FF' }]}>
+                <Text style={styles.homeTileLabel}>Time at work</Text>
+                <Text style={styles.homeTileValue}>{cin ? timeAtWorkFormatted : '—'}</Text>
               </View>
-              <View style={styles.trackerSep} />
-              <View style={styles.trackerCol}>
-                <View style={styles.trackerLabelWrap}>
-                  <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    Logged
-                  </Text>
-                </View>
-                <Text style={[styles.trackerValue, { color: colors.emerald }]} numberOfLines={1}>
+              <View style={[styles.homeTile, { backgroundColor: '#ECFDF5' }]}>
+                <Text style={styles.homeTileLabel}>Logged</Text>
+                <Text style={styles.homeTileValue}>
                   {loggedHours > 0 ? formatHoursAndMinutes(loggedHours) : '0m'}
                 </Text>
               </View>
-              <View style={styles.trackerSep} />
-              <View style={styles.trackerCol}>
-                <View style={styles.trackerLabelWrap}>
-                  <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    Gap
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    styles.trackerValue,
-                    {
-                      color:
-                        isOverLogged || isUnderLogged
-                          ? absGapHours >= 0.5
-                            ? colors.rose
-                            : colors.amber
-                          : colors.muted,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {isOverLogged
-                    ? `${formatHoursAndMinutes(absGapHours)} over`
-                    : isUnderLogged
-                      ? formatHoursAndMinutes(absGapHours)
-                      : '—'}
-                </Text>
+            </View>
+            <View style={styles.metricsRow}>
+              <View style={[styles.homeTile, { backgroundColor: '#FFFBEB' }]}>
+                <Text style={styles.homeTileLabel}>To do</Text>
+                <Text style={styles.homeTileValue}>{taskCounts ? String(taskCounts.todo) : '—'}</Text>
+              </View>
+              <View style={[styles.homeTile, { backgroundColor: '#EEF2FF' }]}>
+                <Text style={styles.homeTileLabel}>In progress</Text>
+                <Text style={styles.homeTileValue}>{taskCounts ? String(taskCounts.progress) : '—'}</Text>
               </View>
             </View>
-            <Text style={styles.trackerHint}>Excludes unpaid break · match Time at Work in your daily log</Text>
+            <View style={styles.metricsRow}>
+              <View style={[styles.homeTile, { backgroundColor: '#F5F3FF' }]}>
+                <Text style={styles.homeTileLabel}>In review</Text>
+                <Text style={styles.homeTileValue}>{taskCounts ? String(taskCounts.review ?? 0) : '—'}</Text>
+              </View>
+              <View style={[styles.homeTile, { backgroundColor: '#ECFDF5' }]}>
+                <Text style={styles.homeTileLabel}>Completed</Text>
+                <Text style={styles.homeTileValue}>{taskCounts ? String(taskCounts.done) : '—'}</Text>
+              </View>
+            </View>
           </View>
-        )}
+        ) : null}
 
-        <View style={styles.card}>
+        <View style={styles.scheduleCard}>
           <View style={styles.cardHead}>
-            <Text style={styles.cardTitle}>Today</Text>
+            <Text style={styles.homeSectionTitle}>Today&apos;s schedule</Text>
             {isOffDay ? (
               <View style={[styles.statusBadge, { backgroundColor: '#EEF2FF' }]}>
                 <Text style={[styles.statusText, { color: colors.indigo }]}>Rest day</Text>
@@ -919,22 +897,23 @@ function PunchScreen() {
               </View>
             ) : (
               <View style={[styles.statusBadge, { backgroundColor: '#ECFDF5' }]}>
-                <Text style={[styles.statusText, { color: colors.emerald }]}>On Time</Text>
+                <Text style={[styles.statusText, { color: colors.emerald }]}>On time</Text>
               </View>
             )}
           </View>
-          <View style={styles.timeline}>
-            <TimelineStep label="Check In" value={formatTime(cin)} done={Boolean(cin)} />
-            <View style={styles.timelineLine} />
-            <TimelineStep
-              label={breakMins > 0 ? `Break ${breakMins}m` : 'Break'}
-              value={breakMins > 0 ? `${breakMins}m` : 'None'}
-              done={Boolean(cin) && breakMins > 0}
-            />
-            <View style={styles.timelineLine} />
-            <TimelineStep label="Check Out" value={formatTime(cout)} done={Boolean(cout)} />
-          </View>
+          {[
+            { label: 'Check in', value: formatTime(cin), done: Boolean(cin) },
+            { label: breakMins > 0 ? `Break (${breakMins}m)` : 'Break', value: breakMins > 0 ? `${breakMins}m` : '—', done: Boolean(cin) && breakMins > 0 },
+            { label: 'Check out', value: formatTime(cout), done: Boolean(cout) },
+          ].map((row) => (
+            <View key={row.label} style={styles.scheduleRow}>
+              <View style={[styles.scheduleDot, { backgroundColor: row.done ? colors.indigo : '#E5E7EB' }]} />
+              <Text style={styles.scheduleLabel}>{row.label}</Text>
+              <Text style={styles.scheduleValue}>{row.value || '—'}</Text>
+            </View>
+          ))}
         </View>
+        <ModuleShortcutGrid shortcuts={layout.shortcuts} />
       </ScrollView>
 
       <Modal
@@ -958,21 +937,19 @@ function PunchScreen() {
                 (today?.checkout_gate?.type as CheckoutGateType) ||
                 'overtime';
               const otBufferMins = today?.shift?.overtime_buffer_minutes ?? 5;
+              const isOvertime = effectiveGate === 'overtime';
+              const subtitle =
+                gateMessage ||
+                today?.checkout_gate?.message ||
+                (isOvertime
+                  ? `Overtime exceeds the ${otBufferMins}m buffer past your shift target.`
+                  : `You are leaving before ${today?.checkout_gate?.shift_end || today?.shift?.end_time || 'shift end'}. Enter the reason, then the shift will close.`);
               return (
                 <>
                   <View style={styles.modalHeaderRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.cardTitle}>
-                        {effectiveGate === 'overtime' ? 'Overtime Reason' : 'Leaving Early Reason'}
-                      </Text>
-                      <Text style={styles.modalSubtitle}>
-                        {gateMessage ||
-                          today?.checkout_gate?.message ||
-                          (effectiveGate === 'overtime'
-                            ? `Overtime exceeds the ${otBufferMins}m buffer past your shift target.`
-                            : `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`)}
-                      </Text>
-                    </View>
+                    <Text style={styles.reasonTitle} numberOfLines={1}>
+                      {isOvertime ? 'Overtime reason' : 'Leaving early reason'}
+                    </Text>
                     <Pressable
                       onPress={() => {
                         Keyboard.dismiss();
@@ -981,51 +958,49 @@ function PunchScreen() {
                       hitSlop={12}
                       style={styles.modalCloseBtn}
                     >
-                      <Ionicons name="close" size={20} color={colors.slate} />
+                      <Ionicons name="close" size={18} color={colors.slate} />
                     </Pressable>
                   </View>
+                  <Text style={styles.modalSubtitle}>{subtitle}</Text>
 
-                  {effectiveGate === 'overtime' && (
-                    <View style={{ backgroundColor: '#EEF2FF', borderRadius: 12, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#C7D2FE' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                        <Ionicons name="information-circle" size={14} color={colors.indigo} />
-                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.indigo }}>Detailed Work Summary</Text>
-                      </View>
-                      <Text style={{ fontSize: 11, color: '#3730A3', lineHeight: 15 }}>
-                        Please detail the specific tasks and deliverables completed during this overtime session. Overtime within the {otBufferMins}-minute grace buffer does not require a reason.
+                  {isOvertime ? (
+                    <View style={styles.reasonHint}>
+                      <Text style={styles.reasonHintTitle}>What did you work on?</Text>
+                      <Text style={styles.reasonHintBody}>
+                        List the tasks finished in this overtime. Time inside the {otBufferMins}-minute
+                        grace buffer does not need a reason.
                       </Text>
                     </View>
-                  )}
+                  ) : null}
 
-                  <View style={styles.inputWrap}>
-                    <TextInput
-                      style={styles.centerInput}
-                      placeholder={
-                        effectiveGate === 'overtime'
-                          ? 'Breakdown of overtime work (e.g., Fixed PR #104, tested edge cases, attended client sync)...'
-                          : 'Why are you checking out at this time?'
-                      }
-                      placeholderTextColor={colors.muted}
-                      value={reason}
-                      onChangeText={setReason}
-                      multiline
-                      blurOnSubmit={true}
-                      returnKeyType="done"
-                    />
-                  </View>
+                  <TextInput
+                    style={styles.centerInput}
+                    placeholder={
+                      isOvertime
+                        ? 'e.g. Finished PR #104, tested edge cases, joined a client call'
+                        : 'Why are you checking out at this time?'
+                    }
+                    placeholderTextColor={colors.muted}
+                    value={reason}
+                    onChangeText={setReason}
+                    multiline
+                    textAlignVertical="top"
+                    blurOnSubmit
+                    returnKeyType="done"
+                  />
                 </>
               );
             })()}
 
             <Pressable
-              style={[styles.modalSubmitBtn, { backgroundColor: colors.emerald, opacity: busy ? 0.6 : 1 }]}
+              style={[styles.modalSubmitBtn, { opacity: busy ? 0.6 : 1 }]}
               onPress={submitReason}
               disabled={busy}
             >
               {busy ? (
                 <ActivityIndicator color="#fff" />
               ) : (
-                <Text style={styles.heroText}>Submit check-out</Text>
+                <Text style={styles.modalSubmitBtnText}>Submit check-out</Text>
               )}
             </Pressable>
 
@@ -1034,9 +1009,9 @@ function PunchScreen() {
                 Keyboard.dismiss();
                 setReasonOpen(false);
               }}
-              style={{ marginTop: 10, paddingVertical: 6 }}
+              style={styles.reasonCancelBtn}
             >
-              <Text style={[styles.footerLock, { textAlign: 'center' }]}>Cancel</Text>
+              <Text style={styles.reasonCancelText}>Cancel</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>
@@ -1067,6 +1042,7 @@ function TimelineStep({ label, value, done }: { label: string; value: string; do
 type DailyMatrixRow = {
   user_id: string;
   employee_name: string;
+  avatar_url?: string | null;
   department?: string;
   role?: string;
   shift_name?: string;
@@ -1128,6 +1104,8 @@ function todayIso() {
 function AdminOverviewScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const theme = useTheme();
+  const layout = useMemo(() => resolveTabs(user), [user]);
   const initialDate = todayIso();
   const initialCached = getCachedMatrix(initialDate);
   const [matrix, setMatrix] = useState<DailyMatrixResponse | null>(
@@ -1381,67 +1359,70 @@ function AdminOverviewScreen() {
 
   if (loading && !matrix) {
     return (
-      <SafeAreaView style={[styles.safe, styles.centerScreen]}>
-        <TruckLoader label="Loading Attendance Command Center..." />
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
+        <ScreenGreeting name={user?.name} fullName fallback="Admin" />
+        <ScrollView contentContainerStyle={styles.adminScroll} scrollEnabled={false}>
+          <OverviewAttendanceSkeleton employeeRows={5} />
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <ScrollView
-        contentContainerStyle={styles.adminScroll}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.indigo} />}
-      >
-        {/* Executive Header */}
-        <View style={styles.adminHeader}>
-          <View style={styles.adminHeaderText}>
-            <Text style={styles.adminGreeting} numberOfLines={1}>
-              Hi {user?.name?.split(' ')[0] || 'Admin'} 👋
-            </Text>
-            <View style={styles.livePulseRow}>
-              {isToday ? (
-                <>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.liveText}>
-                    Live Attendance {lastUpdated ? `· ${lastUpdated}` : ''}
-                  </Text>
-                </>
-              ) : isWholeDayOff ? (
-                <>
-                  <Ionicons name="calendar" size={13} color={colors.indigo} />
-                  <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '700' }]}>
-                    {offDayTitle} · {formatDisplayDate(selectedDate)}
-                  </Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="time-outline" size={13} color={colors.indigo} />
-                  <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '700' }]}>
-                    Historical Archive · {formatDisplayDate(selectedDate)}
-                  </Text>
-                </>
-              )}
-            </View>
-          </View>
-          {canAccessDailyLog(user) && (
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
+      <ScreenGreeting
+        name={user?.name}
+        fullName
+        fallback="Admin"
+        trailing={
+          canAccessDailyLog(user) ? (
             <Pressable
               style={styles.logsHeaderBtn}
               onPress={() =>
-                router.push({
-                  pathname: '/daily-log',
+                router.navigate({
+                  pathname: '/(tabs)/daily-log',
                   params: { date: selectedDate },
-                })
+                } as any)
               }
               hitSlop={6}
             >
               <Ionicons name="document-text-outline" size={16} color={colors.indigo} />
               <Text style={styles.logsHeaderBtnText}>Logs</Text>
             </Pressable>
-          )}
-        </View>
-
+          ) : null
+        }
+        subtitle={
+          <View style={styles.livePulseRow}>
+            {isToday ? (
+              <>
+                <View style={styles.liveDot} />
+                <Text style={styles.liveText}>
+                  Live Attendance {lastUpdated ? `· ${lastUpdated}` : ''}
+                </Text>
+              </>
+            ) : isWholeDayOff ? (
+              <>
+                <Ionicons name="calendar" size={13} color={colors.indigo} />
+                <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '600' }]}>
+                  {offDayTitle} · {formatDisplayDate(selectedDate)}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Ionicons name="time-outline" size={13} color={colors.indigo} />
+                <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '600' }]}>
+                  Historical Archive · {formatDisplayDate(selectedDate)}
+                </Text>
+              </>
+            )}
+          </View>
+        }
+      />
+      <ScrollView
+        contentContainerStyle={styles.adminScroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.indigo} />}
+      >
         {/* Date Selector Navigation Bar */}
         <View style={styles.dateSelectorCard}>
           <Pressable
@@ -1570,107 +1551,76 @@ function AdminOverviewScreen() {
           <OverviewAttendanceSkeleton employeeRows={5} />
         ) : (
           <>
-            {/* 4 Executive Metric Cards in Clean 2x2 Grid (No whitespace on right!) */}
             <View style={styles.metricsContainer}>
-              {/* Row 1: Headcount & Punctuality */}
               <View style={styles.metricsRow}>
-                {/* Card 1: Headcount */}
-                <View style={styles.metricCard}>
-              <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>Present</Text>
-                <View style={[styles.miniIconBg, { backgroundColor: '#ECFDF5' }]}>
-                  <Ionicons name="people" size={13} color={colors.emerald} />
-                </View>
-              </View>
-              <Text style={styles.metricValue}>
-                {presentCount}
-                <Text style={styles.metricTotal}> / {totalEmployees}</Text>
-              </Text>
-              <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: isWholeDayOff ? '0%' : `${Math.min(100, attendancePercent)}%` }]} />
-              </View>
-              <Text style={styles.metricFooter}>
-                {isWholeDayOff ? 'Company Rest Day' : `${attendancePercent}% Attendance Rate`}
-              </Text>
-            </View>
-
-            {/* Card 2: Punctuality */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>Punctuality</Text>
-                <View style={[styles.miniIconBg, { backgroundColor: '#EEF2FF' }]}>
-                  <Ionicons name="time" size={13} color={colors.indigo} />
-                </View>
-              </View>
-              <View style={styles.dualStatRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dualStatNum, { color: colors.emerald }]}>{onTimeCount}</Text>
-                  <Text style={styles.dualStatLabel}>On Time</Text>
-                </View>
-                <View style={styles.metricSep} />
-                <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                  <Text style={[styles.dualStatNum, { color: lateCount > 0 ? colors.rose : colors.muted }]}>
-                    {lateCount}
+                <View style={[styles.metricCard, { backgroundColor: '#ECFDF5' }]}>
+                  <Text style={styles.metricLabel}>Present</Text>
+                  <Text style={styles.metricValue}>
+                    {presentCount}
+                    <Text style={styles.metricTotal}> / {totalEmployees}</Text>
                   </Text>
-                  <Text style={styles.dualStatLabel}>Late</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Row 2: Remote & Leaves & Unreported */}
-          <View style={styles.metricsRow}>
-            {/* Card 3: Remote & Leaves */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>Remote & Leaves</Text>
-                <View style={[styles.miniIconBg, { backgroundColor: '#F5F3FF' }]}>
-                  <Ionicons name="home" size={13} color="#7C3AED" />
-                </View>
-              </View>
-              <View style={styles.dualStatRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.dualStatNum, { color: '#2563EB' }]}>{wfhCount}</Text>
-                  <Text style={styles.dualStatLabel}>WFH</Text>
-                </View>
-                <View style={styles.metricSep} />
-                <View style={{ flex: 1, alignItems: 'flex-end' }}>
-                  <Text style={[styles.dualStatNum, { color: '#7C3AED' }]}>{leaveCount}</Text>
-                  <Text style={styles.dualStatLabel}>Leave</Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Card 4: Absent or Company Rest Day */}
-            <View style={styles.metricCard}>
-              <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>{isWholeDayOff ? 'Company Status' : 'Unreported'}</Text>
-                <View style={[styles.miniIconBg, { backgroundColor: isWholeDayOff ? '#F4F4F5' : '#FFF1F2' }]}>
-                  <Ionicons
-                    name={isWholeDayOff ? 'calendar' : 'alert-circle'}
-                    size={13}
-                    color={isWholeDayOff ? colors.indigo : colors.rose}
-                  />
-                </View>
-              </View>
-              {isWholeDayOff ? (
-                <>
-                  <Text style={[styles.metricValue, { color: colors.indigo, fontSize: 18, marginTop: 4 }]}>
-                    {offDayTitle}
+                  <View style={styles.progressBarBg}>
+                    <View style={[styles.progressBarFill, { width: isWholeDayOff ? '0%' : `${Math.min(100, attendancePercent)}%` }]} />
+                  </View>
+                  <Text style={styles.metricFooter}>
+                    {isWholeDayOff ? 'Company Rest Day' : `${attendancePercent}% attendance`}
                   </Text>
-                  <Text style={styles.metricFooter}>Official non-working day</Text>
-                </>
-              ) : (
-                <>
-                  <Text style={[styles.metricValue, { color: actualAbsentCount > 0 ? colors.rose : colors.text }]}>
-                    {actualAbsentCount}
-                  </Text>
-                  <Text style={styles.metricFooter}>Missing clock-in</Text>
-                </>
-              )}
+                </View>
+
+                <View style={[styles.metricCard, { backgroundColor: '#EEF2FF' }]}>
+                  <Text style={styles.metricLabel}>Punctuality</Text>
+                  <View style={styles.dualStatRow}>
+                    <View style={styles.dualStatCol}>
+                      <Text style={[styles.dualStatNum, { color: colors.emerald }]}>{onTimeCount}</Text>
+                      <Text style={styles.dualStatLabel}>On Time</Text>
+                    </View>
+                    <View style={styles.metricSep} />
+                    <View style={styles.dualStatCol}>
+                      <Text style={[styles.dualStatNum, { color: lateCount > 0 ? colors.rose : colors.muted }]}>
+                        {lateCount}
+                      </Text>
+                      <Text style={styles.dualStatLabel}>Late</Text>
+                    </View>
+                  </View>
+                </View>
+              </View>
+
+              <View style={styles.metricsRow}>
+                <View style={[styles.metricCard, { backgroundColor: '#EDE9FE' }]}>
+                  <Text style={styles.metricLabel}>Remote & Leaves</Text>
+                  <View style={styles.dualStatRow}>
+                    <View style={styles.dualStatCol}>
+                      <Text style={[styles.dualStatNum, { color: '#2563EB' }]}>{wfhCount}</Text>
+                      <Text style={styles.dualStatLabel}>WFH</Text>
+                    </View>
+                    <View style={styles.metricSep} />
+                    <View style={styles.dualStatCol}>
+                      <Text style={[styles.dualStatNum, { color: '#7C3AED' }]}>{leaveCount}</Text>
+                      <Text style={styles.dualStatLabel}>Leave</Text>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={[styles.metricCard, { backgroundColor: isWholeDayOff ? '#F4F4F5' : '#FFF1F2' }]}>
+                  <Text style={styles.metricLabel}>{isWholeDayOff ? 'Company Status' : 'Unreported'}</Text>
+                  {isWholeDayOff ? (
+                    <>
+                      <Text style={[styles.metricValue, { color: colors.indigo, fontSize: 18 }]}>
+                        {offDayTitle}
+                      </Text>
+                      <Text style={styles.metricFooter}>Official non-working day</Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.metricValue, { color: actualAbsentCount > 0 ? colors.rose : colors.text }]}>
+                        {actualAbsentCount}
+                      </Text>
+                      <Text style={styles.metricFooter}>Missing clock-in</Text>
+                    </>
+                  )}
+                </View>
+              </View>
             </View>
-          </View>
-        </View>
 
         {/* Live Employee Directory Section */}
         <View style={styles.sectionHeaderRow}>
@@ -1711,7 +1661,10 @@ function AdminOverviewScreen() {
           ].map((c) => (
             <Pressable
               key={c.id}
-              onPress={() => setFilter(c.id)}
+              onPress={() => {
+                if (filter === c.id) return;
+                setFilter(c.id);
+              }}
               style={[styles.filterChip, filter === c.id && styles.filterChipActive]}
             >
               <Text style={[styles.filterChipText, filter === c.id && styles.filterChipTextActive]}>
@@ -1799,18 +1752,18 @@ function AdminOverviewScreen() {
                   canAccessDailyLog(user)
                     ? () =>
                         router.push({
-                          pathname: '/daily-log',
+                          pathname: '/(tabs)/daily-log',
                           params: {
                             date: selectedDate,
                             userId: emp.user_id,
                             name: emp.employee_name,
                           },
-                        })
+                        } as any)
                     : undefined
                 }
               >
                 <View style={styles.empCardMain}>
-                  <Avatar name={emp.employee_name} size={38} />
+                  <Avatar name={emp.employee_name} uri={emp.avatar_url} size={38} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
                     <View style={styles.empNameRow}>
                       <Text style={styles.empName} numberOfLines={1}>
@@ -1861,6 +1814,7 @@ function AdminOverviewScreen() {
         )}
           </>
         )}
+        <ModuleShortcutGrid shortcuts={layout.shortcuts} />
       </ScrollView>
     </SafeAreaView>
   );
@@ -1868,6 +1822,11 @@ function AdminOverviewScreen() {
 
 export default function PunchOrOverviewScreen() {
   const { user } = useAuth();
+  const layout = useMemo(() => resolveTabs(user), [user]);
+
+  if (!layout.showHome && layout.landingHref) {
+    return <Redirect href={layout.landingHref as any} />;
+  }
 
   if (isAdmin(user?.role)) {
     return <AdminOverviewScreen />;
@@ -1883,13 +1842,12 @@ const styles = StyleSheet.create({
   loadingBox: { alignItems: 'center', justifyContent: 'center', padding: 32 },
   loadingTitle: { marginTop: 18, fontSize: 18, fontWeight: '800', color: colors.text },
   loadingSubtitle: { marginTop: 6, fontSize: 13, color: colors.muted, textAlign: 'center' },
-  scroll: { padding: 20, paddingBottom: 120 },
-  header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 18 },
-  hi: { fontSize: 28, fontWeight: '800', color: colors.text },
+  scroll: { padding: 16, paddingBottom: 140 },
+  header: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 18 },
+  hi: { fontSize: 24, fontWeight: '700', color: colors.text },
   contextLine: {
-    marginTop: 6,
     fontSize: 13.5,
-    fontWeight: '600',
+    fontWeight: '500',
     color: colors.slate,
     lineHeight: 19,
   },
@@ -1925,6 +1883,62 @@ const styles = StyleSheet.create({
   },
   restTitle: { marginTop: 10, fontSize: 16, fontWeight: '800', color: colors.indigo, textAlign: 'center' },
   restBody: { marginTop: 8, fontSize: 13, color: colors.slate, textAlign: 'center', lineHeight: 18 },
+  focusCard: {
+    backgroundColor: '#4F46E5',
+    borderRadius: 24,
+    padding: 18,
+    marginBottom: 16,
+  },
+  focusKicker: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '500', marginBottom: 4 },
+  focusTitle: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: -0.3 },
+  focusMeta: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: '500', marginTop: 4, marginBottom: 12 },
+  focusProgressTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  focusProgressFill: { height: '100%', backgroundColor: '#fff', borderRadius: 999 },
+  focusCta: {
+    marginTop: 4,
+    borderRadius: 14,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  focusCtaText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  completedInline: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  completedInlineText: { color: '#ECFDF5', fontSize: 13, fontWeight: '600', flex: 1 },
+  homeOverview: { marginBottom: 16 },
+  homeOverviewHead: { marginBottom: 10 },
+  homeSectionTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
+  homeTile: {
+    flex: 1,
+    borderRadius: 20,
+    padding: 14,
+  },
+  homeTileLabel: { fontSize: 12, fontWeight: '500', color: '#6B7280', marginBottom: 6 },
+  homeTileValue: { fontSize: 22, fontWeight: '700', color: colors.text },
+  scheduleCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 8,
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#EEF0F7',
+    gap: 10,
+  },
+  scheduleDot: { width: 8, height: 8, borderRadius: 4 },
+  scheduleLabel: { flex: 1, fontSize: 14, fontWeight: '500', color: colors.text },
+  scheduleValue: { fontSize: 14, fontWeight: '700', color: colors.text },
   completedCard: {
     backgroundColor: '#ECFDF5',
     borderRadius: 20,
@@ -2078,72 +2092,115 @@ const styles = StyleSheet.create({
   },
   centerModalWrapper: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
     justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'stretch',
     paddingHorizontal: 20,
   },
-  backdropPressable: { ...StyleSheet.absoluteFill },
+  backdropPressable: { ...StyleSheet.absoluteFillObject },
   centerCard: {
     width: '100%',
+    alignSelf: 'center',
     maxWidth: 400,
     backgroundColor: colors.card,
-    borderRadius: 22,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOpacity: 0.25,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 12,
+    borderRadius: 20,
+    padding: 18,
   },
   modalHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 8,
+    gap: 12,
+  },
+  reasonTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.text,
   },
   modalSubtitle: {
     color: colors.muted,
-    marginTop: 4,
+    marginTop: 8,
     fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '400',
   },
   modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#F4F4F5',
-    borderRadius: 999,
-    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  inputWrap: {
-    marginVertical: 10,
+  reasonHint: {
+    marginTop: 12,
+    backgroundColor: '#EEF2FF',
+    borderRadius: 12,
+    padding: 12,
+  },
+  reasonHintTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#4338CA',
+    marginBottom: 4,
+  },
+  reasonHintBody: {
+    fontSize: 12,
+    lineHeight: 17,
+    color: '#3730A3',
+    fontWeight: '400',
   },
   centerInput: {
-    minHeight: 85,
-    maxHeight: 130,
+    marginTop: 14,
+    height: 108,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 14,
-    padding: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     color: colors.text,
     textAlignVertical: 'top',
     fontSize: 14,
     backgroundColor: '#FAFAFA',
   },
   modalSubmitBtn: {
+    marginTop: 14,
     borderRadius: 14,
-    paddingVertical: 14,
+    minHeight: 48,
+    paddingHorizontal: 16,
     alignItems: 'center',
-    marginTop: 4,
+    justifyContent: 'center',
+    backgroundColor: colors.emerald,
+  },
+  modalSubmitBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  reasonCancelBtn: {
+    marginTop: 8,
+    minHeight: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reasonCancelText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
   adminScroll: {
     paddingHorizontal: 20,
     paddingTop: 8,
-    paddingBottom: 130,
+    paddingBottom: 140,
   },
   adminHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 12,
+    gap: 8,
     marginBottom: 18,
   },
   adminHeaderText: {
@@ -2158,20 +2215,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#EEF2FF',
     borderWidth: 1,
     borderColor: '#C7D2FE',
-    borderRadius: 999,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginTop: 2,
+    paddingVertical: 10,
     flexShrink: 0,
   },
   logsHeaderBtnText: {
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '600',
     color: colors.indigo,
   },
   adminGreeting: {
     fontSize: 24,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
     letterSpacing: -0.3,
   },
@@ -2179,7 +2235,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 6,
   },
   liveDot: {
     width: 8,
@@ -2189,15 +2244,13 @@ const styles = StyleSheet.create({
   },
   liveText: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
     color: '#059669',
   },
   pendingActionBanner: {
     backgroundColor: '#EEF2FF',
-    borderRadius: 16,
+    borderRadius: 20,
     padding: 14,
-    borderWidth: 1.5,
-    borderColor: '#C7D2FE',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -2219,7 +2272,7 @@ const styles = StyleSheet.create({
   },
   pendingActionTitle: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
   },
   pendingActionSub: {
@@ -2229,52 +2282,43 @@ const styles = StyleSheet.create({
   },
   metricsContainer: {
     marginBottom: 16,
+    gap: 10,
   },
   metricsRow: {
     flexDirection: 'row',
+    alignItems: 'stretch',
     gap: 10,
     marginBottom: 10,
   },
   metricCard: {
     flex: 1,
+    minHeight: 128,
     backgroundColor: colors.card,
-    borderRadius: 16,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  metricHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    borderRadius: 20,
+    padding: 16,
     justifyContent: 'space-between',
-    marginBottom: 8,
   },
   metricLabel: {
-    fontSize: 11.5,
-    fontWeight: '700',
+    fontSize: 12,
+    fontWeight: '500',
     color: colors.muted,
-  },
-  miniIconBg: {
-    width: 24,
-    height: 24,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
+    lineHeight: 16,
+    minHeight: 32,
   },
   metricValue: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
   },
   metricTotal: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '500',
     color: colors.muted,
   },
   progressBarBg: {
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#F1F5F9',
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.7)',
     marginTop: 8,
     marginBottom: 6,
     overflow: 'hidden',
@@ -2282,28 +2326,64 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     backgroundColor: colors.emerald,
-    borderRadius: 3,
+    borderRadius: 999,
   },
   metricFooter: {
-    fontSize: 10.5,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '500',
     color: colors.muted,
   },
   dualStatRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 4,
+    gap: 8,
+  },
+  dualStatCol: {
+    flex: 1,
+    alignItems: 'flex-start',
   },
   dualStatNum: {
     fontSize: 18,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   dualStatLabel: {
-    fontSize: 10.5,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '500',
     color: colors.muted,
     marginTop: 2,
+  },
+  mixCard: {
+    backgroundColor: colors.card,
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 2,
+  },
+  mixTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 10,
+  },
+  mixLegend: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginTop: 10,
+  },
+  mixLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  mixDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  mixLegendText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: colors.muted,
   },
   metricSep: {
     width: 1,
@@ -2318,12 +2398,12 @@ const styles = StyleSheet.create({
   },
   adminSectionTitle: {
     fontSize: 16,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
   },
   adminSectionCount: {
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '500',
     color: colors.muted,
   },
   searchBar: {
@@ -2361,12 +2441,12 @@ const styles = StyleSheet.create({
   },
   filterChipText: {
     fontSize: 11.5,
-    fontWeight: '700',
+    fontWeight: '500',
     color: colors.slate,
   },
   filterChipTextActive: {
     color: '#FFFFFF',
-    fontWeight: '800',
+    fontWeight: '600',
   },
   emptyAdminBox: {
     alignItems: 'center',
@@ -2384,10 +2464,8 @@ const styles = StyleSheet.create({
   },
   empCard: {
     backgroundColor: colors.card,
-    borderRadius: 14,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: colors.line,
+    borderRadius: 18,
+    padding: 14,
     marginBottom: 8,
   },
   empCardMain: {
@@ -2401,19 +2479,19 @@ const styles = StyleSheet.create({
   },
   empName: {
     fontSize: 14,
-    fontWeight: '800',
+    fontWeight: '700',
     color: colors.text,
     flex: 1,
     marginRight: 6,
   },
   empStatusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
   },
   empStatusText: {
     fontSize: 10.5,
-    fontWeight: '800',
+    fontWeight: '600',
   },
   empDept: {
     fontSize: 11.5,

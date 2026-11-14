@@ -5,6 +5,7 @@ export type CachedAuthUser = {
   email: string;
   name: string;
   role: string;
+  avatar_url?: string | null;
   department?: string | null;
   designation?: string | null;
   crm_enabled?: boolean | null;
@@ -88,6 +89,7 @@ export function parseCachedUser(raw: string | null | undefined): CachedAuthUser 
       email,
       name,
       role,
+      avatar_url: typeof data.avatar_url === 'string' && data.avatar_url.trim() ? data.avatar_url : null,
       department: typeof data.department === 'string' ? data.department : null,
       designation: typeof data.designation === 'string' ? data.designation : null,
       crm_enabled: typeof data.crm_enabled === 'boolean' ? data.crm_enabled : null,

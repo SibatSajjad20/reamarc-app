@@ -13,14 +13,28 @@ import { colors, API_URL } from '../src/theme';
 import { ReamarcLogo3D } from '../src/ui/ReamarcLogo3D';
 
 export default function LoginScreen() {
-  const { login } = useAuth();
+  const { login, resetDevice } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
+
+  const isDeviceConflict = /registered to another|locked to another|device/i.test(error);
+
+  const handleResetDevice = async () => {
+    try {
+      await resetDevice();
+      setResetSuccess(true);
+      setError('');
+    } catch {
+      setError('Could not reset device identifier.');
+    }
+  };
 
   const onSubmit = async () => {
     setError('');
+    setResetSuccess(false);
     setBusy(true);
     try {
       await login(email.trim(), password);
@@ -39,7 +53,7 @@ export default function LoginScreen() {
       <View style={{ marginBottom: 16 }}>
         <ReamarcLogo3D size={64} />
       </View>
-      <Text style={styles.brand}>Reamarc</Text>
+      <Text style={styles.brand}>OneWorkLane</Text>
       <Text style={styles.sub}>Check in from your phone only</Text>
       <TextInput
         autoCapitalize="none"
@@ -59,9 +73,17 @@ export default function LoginScreen() {
         onChangeText={setPassword}
       />
       {!!error && <Text style={styles.error}>{error}</Text>}
+      {resetSuccess ? (
+        <Text style={styles.success}>Phone binding cleared! Tap "Sign in" to bind this phone to your account.</Text>
+      ) : null}
       <Pressable style={[styles.btn, busy && { opacity: 0.6 }]} onPress={onSubmit} disabled={busy}>
         <Text style={styles.btnText}>{busy ? 'Signing in…' : 'Sign in'}</Text>
       </Pressable>
+      {isDeviceConflict || __DEV__ ? (
+        <Pressable style={styles.resetBtn} onPress={handleResetDevice}>
+          <Text style={styles.resetBtnText}>Clear Device Binding on this Phone</Text>
+        </Pressable>
+      ) : null}
       {__DEV__ ? <Text style={styles.hint}>API: {API_URL}</Text> : null}
     </KeyboardAvoidingView>
   );
@@ -91,5 +113,15 @@ const styles = StyleSheet.create({
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   error: { color: colors.rose, marginBottom: 8 },
+  success: { color: colors.emerald, marginBottom: 8, fontSize: 13, lineHeight: 18 },
+  resetBtn: {
+    marginTop: 14,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  resetBtnText: { color: colors.indigo, fontWeight: '600', fontSize: 14 },
   hint: { marginTop: 18, color: colors.muted, fontSize: 13, lineHeight: 18 },
 });

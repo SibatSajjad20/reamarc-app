@@ -45,6 +45,42 @@ export function SkeletonBlock({
   );
 }
 
+/** 6-cell stats + progress placeholders for Team/My log overview. */
+export function DailyLogOverviewSkeleton() {
+  return (
+    <View style={styles.logOverview}>
+      <View style={styles.logStatsGrid}>
+        {Array.from({ length: 6 }).map((_, index) => (
+          <View key={`log-stat-${index}`} style={styles.logStatCell}>
+            <SkeletonBlock width={`${42 + (index % 3) * 10}%` as DimensionValue} height={10} radius={4} />
+            <SkeletonBlock
+              width={`${58 + (index % 2) * 12}%` as DimensionValue}
+              height={16}
+              radius={5}
+              style={{ marginTop: 8 }}
+            />
+          </View>
+        ))}
+      </View>
+      <View style={styles.logLiveBanner}>
+        <SkeletonBlock width={14} height={14} radius={7} />
+        <View style={{ flex: 1, marginLeft: 8, gap: 6 }}>
+          <SkeletonBlock width="92%" height={11} radius={4} />
+          <SkeletonBlock width="64%" height={11} radius={4} />
+        </View>
+      </View>
+      <View style={styles.logProgressBlock}>
+        <View style={styles.logProgressLabels}>
+          <SkeletonBlock width="38%" height={11} radius={4} />
+          <SkeletonBlock width="38%" height={11} radius={4} />
+        </View>
+        <SkeletonBlock height={10} radius={999} />
+        <SkeletonBlock width="58%" height={11} radius={4} style={{ marginTop: 8 }} />
+      </View>
+    </View>
+  );
+}
+
 /** Card-shaped rows matching daily-log group cards. */
 export function DailyLogListSkeleton({ rows = 8 }: { rows?: number }) {
   return (
@@ -332,7 +368,105 @@ export function PipelineLeadDetailSkeleton() {
   );
 }
 
+/** Home punch card + overview tiles. */
+export function HomeScreenSkeleton() {
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 8, gap: 12 }}>
+      <SkeletonBlock height={168} radius={24} />
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SkeletonBlock height={88} radius={20} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <SkeletonBlock height={88} radius={20} />
+        </View>
+      </View>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flex: 1 }}>
+          <SkeletonBlock height={88} radius={20} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <SkeletonBlock height={88} radius={20} />
+        </View>
+      </View>
+      <SkeletonBlock height={148} radius={20} />
+    </View>
+  );
+}
+
+/** Content-calendar-style card placeholders for the Tasks list. */
+export function TaskListSkeleton({ rows = 6 }: { rows?: number }) {
+  return (
+    <View style={{ paddingHorizontal: 16, paddingTop: 12, gap: 10 }}>
+      {Array.from({ length: rows }).map((_, index) => (
+        <View key={`task-skel-${index}`} style={styles.card}>
+          <View style={styles.row}>
+            <SkeletonBlock width={64} height={12} radius={4} />
+            <View style={{ flex: 1 }} />
+            <SkeletonBlock width={72} height={22} radius={10} />
+          </View>
+          <SkeletonBlock
+            width={`${58 + (index % 3) * 10}%` as DimensionValue}
+            height={16}
+            radius={5}
+            style={{ marginTop: 10 }}
+          />
+          <View style={[styles.row, { marginTop: 12 }]}>
+            <SkeletonBlock width={18} height={18} radius={9} />
+            <SkeletonBlock width={88} height={11} radius={4} style={{ marginLeft: 8 }} />
+            <View style={{ flex: 1 }} />
+            <SkeletonBlock width={70} height={11} radius={4} />
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  logOverview: {
+    marginTop: 10,
+  },
+  logStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  logStatCell: {
+    width: '47%',
+    flexGrow: 1,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  logLiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    marginTop: 8,
+  },
+  logProgressBlock: {
+    marginTop: 10,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+  },
+  logProgressLabels: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
   list: { gap: 10 },
   detail: { padding: 16, gap: 12 },
   card: {

@@ -1,3 +1,14 @@
+export function greetingForNow(d = new Date()): string {
+  const hour = d.getHours();
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+export function firstName(name?: string | null, fallback = 'there'): string {
+  return String(name || '').trim().split(/\s+/)[0] || fallback;
+}
+
 export function initials(name?: string | null) {
   const parts = String(name || 'R').trim().split(/\s+/).filter(Boolean);
   const letters = (parts[0]?.[0] || 'R') + (parts[1]?.[0] || '');
@@ -198,4 +209,20 @@ export function formatFollowUp(iso?: string | null): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+export function formatMinorMoney(
+  minorUnits: number | null | undefined,
+  currency?: string | null,
+): string {
+  const minor = Number(minorUnits || 0);
+  const major = minor / 100;
+  const code = (currency || 'PKR').trim().toUpperCase() || 'PKR';
+  const symbols: Record<string, string> = { USD: '$', PKR: '₨', GBP: '£' };
+  const formatted = major.toLocaleString('en-US', {
+    minimumFractionDigits: major % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+  const sym = symbols[code];
+  return sym ? `${sym}${formatted}` : `${code} ${formatted}`;
 }

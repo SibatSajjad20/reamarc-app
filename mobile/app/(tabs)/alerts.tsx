@@ -20,7 +20,8 @@ import { api } from '../../src/lib/api';
 import { useInbox } from '../../src/context/InboxContext';
 import { useAuth } from '../../src/context/AuthContext';
 import { canBroadcast as roleCanBroadcast } from '../../src/lib/roles';
-import { colors } from '../../src/theme';
+import { MenuButton } from '../../src/components/MenuButton';
+import { colors, useTheme } from '../../src/theme';
 import { isMissedAlert, relativeTime } from '../../src/ui/format';
 import { getClearedNotificationsCutoff, setClearedNotificationsCutoff } from '../../src/lib/secure';
 
@@ -113,6 +114,7 @@ function getNotificationMeta(n: Item) {
 export default function AlertsScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const theme = useTheme();
   const { markAllRead, refreshUnread } = useInbox();
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(false);
@@ -124,7 +126,7 @@ export default function AlertsScreen() {
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastMessage, setBroadcastMessage] = useState('');
 
-  const canBroadcast = roleCanBroadcast(user?.role);
+  const canBroadcast = roleCanBroadcast(user);
 
   const load = useCallback(async (spin = false) => {
     if (spin) setLoading(true);
@@ -195,21 +197,11 @@ export default function AlertsScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView
-        contentContainerStyle={styles.scroll}
-        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load(true)} />}
-      >
-        <View style={styles.head}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{canBroadcast ? 'Broadcasts & Alerts' : 'Alerts'}</Text>
-            <Text style={styles.muted}>
-              {canBroadcast
-                ? 'Company announcements, executive notices & team alerts.'
-                : 'Stay updated with announcements and automated shift reminders.'}
-            </Text>
-          </View>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]} edges={['top']}>
+      <View style={styles.head}>
+        <View style={styles.headTop}>
+          <MenuButton />
+          <View style={styles.headActions}>
             {canBroadcast && (
               <Pressable
                 onPress={() => {
@@ -230,7 +222,17 @@ export default function AlertsScreen() {
             )}
           </View>
         </View>
-
+        <Text style={[styles.title, { color: theme.text }]}>{canBroadcast ? 'Broadcasts & Alerts' : 'Alerts'}</Text>
+        <Text style={[styles.muted, { color: theme.textMuted }]}>
+          {canBroadcast
+            ? 'Company announcements, executive notices & team alerts.'
+            : 'Stay updated with announcements and automated shift reminders.'}
+        </Text>
+      </View>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => load(true)} />}
+      >
         {items.length === 0 ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIconCircle}>
@@ -294,9 +296,9 @@ export default function AlertsScreen() {
                     onPress={() => {
                       const data = (n as any).data;
                       if (data?.date) {
-                        router.push({ pathname: '/daily-log', params: { date: data.date } });
+                        router.navigate({ pathname: '/(tabs)/daily-log', params: { date: data.date } } as any);
                       } else {
-                        router.push('/daily-log');
+                        router.navigate('/(tabs)/daily-log' as any);
                       }
                     }}
                   >
@@ -328,7 +330,7 @@ export default function AlertsScreen() {
           <View style={styles.centerCard}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>📢 Send Announcement</Text>
+                <Text style={styles.modalTitle}>Send Announcement</Text>
                 <Text style={styles.modalSubtitle}>
                   Instant push notification sent to all active employees.
                 </Text>
@@ -412,8 +414,10 @@ export default function AlertsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
-  scroll: { padding: 20, paddingBottom: 120 },
-  head: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 16 },
+  scroll: { paddingHorizontal: 16, paddingBottom: 140 },
+  head: { paddingHorizontal: 16, paddingTop: 4, paddingBottom: 12, gap: 8 },
+  headTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  headActions: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 6, flexShrink: 1 },
   title: { fontSize: 26, fontWeight: '800', color: colors.text },
   muted: { color: colors.muted, marginTop: 4, lineHeight: 18 },
   clearBtn: {
@@ -426,7 +430,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#FECDD3',
-    marginTop: 4,
   },
   clearText: { color: colors.rose, fontWeight: '800', fontSize: 12 },
   card: {

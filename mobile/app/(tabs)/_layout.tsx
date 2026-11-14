@@ -1,108 +1,49 @@
-import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
-import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../../src/theme';
-import { useInbox } from '../../src/context/InboxContext';
+import React, { useMemo } from 'react';
+import { Tabs, type Href } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
-import { isAdmin as roleIsAdmin, canAccessCrm } from '../../src/lib/roles';
+import { isAdmin as roleIsAdmin } from '../../src/lib/roles';
+import { allTabScreens, resolveTabs } from '../../src/lib/tabResolver';
 
-function iconName(route: string, focused: boolean, isAdmin: boolean): keyof typeof Ionicons.glyphMap {
-  if (route === 'index') {
-    return isAdmin ? (focused ? 'pie-chart' : 'pie-chart-outline') : focused ? 'finger-print' : 'time-outline';
-  }
-  if (route === 'pipeline') {
-    return focused ? 'funnel' : 'funnel-outline';
-  }
-  if (route === 'requests') {
-    return isAdmin ? (focused ? 'shield-checkmark' : 'shield-checkmark-outline') : focused ? 'send' : 'document-text-outline';
-  }
-  if (route === 'alerts') {
-    return isAdmin ? (focused ? 'megaphone' : 'megaphone-outline') : focused ? 'notifications' : 'notifications-outline';
-  }
-  return focused ? 'person-circle' : 'person-circle-outline';
+function tabTitle(route: string, isAdmin: boolean, fallback: string): string {
+  if (route === 'index') return 'Home';
+  if (route === 'pipeline') return 'Pipeline';
+  if (route === 'requests') return isAdmin ? 'Approvals' : 'Requests';
+  if (route === 'alerts') return isAdmin ? 'Announce' : 'Alerts';
+  if (route === 'daily-log') return 'Log';
+  if (route === 'content-calendar') return 'Content';
+  if (route === 'website') return 'Website';
+  if (route === 'tasks') return 'Tasks';
+  return fallback;
 }
 
 export default function TabsLayout() {
-  const { unreadCount } = useInbox();
   const { user } = useAuth();
   const isAdmin = roleIsAdmin(user?.role);
-  const isCrmEligible = canAccessCrm(user);
+  const layout = useMemo(() => resolveTabs(user), [user]);
+  const visibleRoutes = useMemo(() => new Set(layout.tabs.map((tab) => tab.route)), [layout.tabs]);
+  const screens = useMemo(() => {
+    const rest = allTabScreens().filter((spec) => !visibleRoutes.has(spec.route));
+    return [...layout.tabs, ...rest];
+  }, [layout.tabs, visibleRoutes]);
 
   return (
     <Tabs
-      screenOptions={({ route }) => ({
+      tabBar={() => null}
+      screenOptions={{
         headerShown: false,
-        tabBarShowLabel: true,
-        tabBarActiveTintColor: colors.indigo,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: '700',
-          marginBottom: Platform.OS === 'ios' ? 0 : 2,
-        },
-        tabBarItemStyle: {
-          paddingTop: 2,
-        },
-        tabBarIcon: ({ focused, color }) => (
-          <View>
-            <Ionicons name={iconName(route.name, focused, isAdmin)} size={22} color={color} />
-            {route.name === 'alerts' && unreadCount > 0 ? (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-              </View>
-            ) : null}
-          </View>
-        ),
-        tabBarStyle: {
-          backgroundColor: 'rgba(255,255,255,0.96)',
-          borderTopWidth: 1,
-          borderTopColor: colors.line,
-          borderRadius: 22,
-          marginHorizontal: 12,
-          marginBottom: Platform.OS === 'ios' ? 8 : 10,
-          height: Platform.OS === 'ios' ? 78 : 68,
-          paddingTop: 8,
-          paddingBottom: Platform.OS === 'ios' ? 16 : 8,
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 0,
-          elevation: 12,
-          shadowColor: '#0F172A',
-          shadowOpacity: 0.12,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 6 },
-        },
-      })}
+        tabBarStyle: { display: 'none', height: 0 },
+      }}
     >
-      <Tabs.Screen name="index" options={{ title: isAdmin ? 'Overview' : 'Punch' }} />
-      <Tabs.Screen
-        name="pipeline"
-        options={{
-          title: 'Pipeline',
-          href: isCrmEligible ? '/pipeline' : null,
-        }}
-      />
-      <Tabs.Screen name="requests" options={{ title: isAdmin ? 'Approvals' : 'Requests' }} />
-      <Tabs.Screen name="alerts" options={{ title: isAdmin ? 'Announce' : 'Alerts' }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
+      {screens.map((spec) => (
+        <Tabs.Screen
+          key={spec.route}
+          name={spec.route}
+          options={{
+            title: tabTitle(spec.route, isAdmin, spec.title),
+            href: spec.href as Href,
+          }}
+        />
+      ))}
     </Tabs>
   );
 }
-
-const styles = StyleSheet.create({
-  badge: {
-    position: 'absolute',
-    top: -5,
-    right: -10,
-    minWidth: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: colors.rose,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 3,
-  },
-  badgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
-});

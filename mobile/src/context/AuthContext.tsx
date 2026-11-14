@@ -7,9 +7,11 @@ import { api, isAuthRejection } from '../lib/api';
 import { clearDailyLogCaches } from '../lib/dailyLogCache';
 import { clearAttendanceCaches } from '../lib/attendanceCache';
 import { clearCrmCaches } from '../lib/crmCache';
+import { invalidateModuleCache } from '../lib/moduleCache';
 import {
   clearSession,
   getOrCreateDeviceUuid,
+  resetDeviceUuid,
   loadPersistedSession,
   onSessionCleared,
   saveCachedUser,
@@ -39,7 +41,9 @@ export type AuthUser = {
   email: string;
   name: string;
   role: string;
+  avatar_url?: string | null;
   department?: string | null;
+  primary_department?: string | null;
   designation?: string | null;
   crm_enabled?: boolean | null;
   company_id?: string | null;
@@ -59,9 +63,19 @@ export type AuthUser = {
     accent_color?: string;
   }>;
   permissions?: {
-    summary?: { sales?: string; [key: string]: string | undefined };
-    capabilities?: { approve_won_deal?: boolean };
+    summary?: { sales?: string; finance?: string; [key: string]: string | undefined };
+    levels?: { [key: string]: string | undefined };
+    modules?: { [key: string]: boolean | undefined };
+    capabilities?: { approve_won_deal?: boolean; approve_requests?: boolean };
+    tracked?: { attendance?: boolean; daily_log?: boolean };
+    access_version?: number;
+    primary_department?: string;
+    view_only?: boolean;
+    [key: string]: any;
   } | null;
+  tracked?: { attendance?: boolean; daily_log?: boolean };
+  effective_access?: { [key: string]: boolean | undefined };
+  company_modules?: string[] | null;
 };
 
 type AuthContextValue = {
@@ -72,6 +86,7 @@ type AuthContextValue = {
   logout: () => Promise<void>;
   refreshMe: () => Promise<AuthUser>;
   switchCompany: (companyId: string) => Promise<void>;
+  resetDevice: () => Promise<string>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -84,8 +99,7 @@ async function registerPushToken(deviceUuid: string) {
   };
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('reamarc_alerts_v2', {
-        name: 'Reamarc Alerts',
+      const channelOpts = {
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#965cfd',
@@ -98,6 +112,14 @@ async function registerPushToken(deviceUuid: string) {
           usage: Notifications.AndroidAudioUsage.NOTIFICATION_RINGTONE,
           contentType: Notifications.AndroidAudioContentType.SONIFICATION,
         },
+      };
+      await Notifications.setNotificationChannelAsync('oneworklane_alerts_v1', {
+        name: 'OneWorkLane Alerts',
+        ...channelOpts,
+      });
+      await Notifications.setNotificationChannelAsync('reamarc_alerts_v2', {
+        name: 'OneWorkLane Alerts',
+        ...channelOpts,
       });
     }
     await Notifications.requestPermissionsAsync();
@@ -205,6 +227,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           clearDailyLogCaches();
           clearAttendanceCaches();
           clearCrmCaches();
+          invalidateModuleCache();
           await clearSession();
         }
         if (!cancelled) setUser(decision.user);
@@ -249,6 +272,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* token read-back already succeeded */
     }
     setUser(data.user);
+    try {
+      await refreshMe();
+    } catch {
+      /* login payload already applied */
+    }
     void registerPushToken(uuid);
   };
 
@@ -256,6 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearDailyLogCaches();
     clearAttendanceCaches();
     clearCrmCaches();
+    invalidateModuleCache();
     const data = await api<{ access_token?: string | null; refresh_token?: string | null; user: AuthUser }>(
       '/auth/switch-company',
       {
@@ -275,6 +304,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       /* ignore */
     }
     setUser(data.user);
+    try {
+      await refreshMe();
+    } catch {
+      /* switch payload already applied; tabs still follow the new company user */
+    }
     const uuid = deviceUuid || (await getOrCreateDeviceUuid());
     if (uuid) {
       void registerPushToken(uuid);
@@ -293,12 +327,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     clearDailyLogCaches();
     clearAttendanceCaches();
     clearCrmCaches();
+    invalidateModuleCache();
     await clearSession();
     setUser(null);
   };
 
+  const resetDevice = useCallback(async () => {
+    const next = await resetDeviceUuid();
+    setDeviceUuid(next);
+    return next;
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ user, loading, deviceUuid, login, logout, refreshMe, switchCompany }}>
+    <AuthContext.Provider
+      value={{ user, loading, deviceUuid, login, logout, refreshMe, switchCompany, resetDevice }}
+    >
       {children}
     </AuthContext.Provider>
   );

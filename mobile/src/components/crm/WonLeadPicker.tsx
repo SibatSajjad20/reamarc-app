@@ -114,7 +114,7 @@ export const WonLeadPicker: React.FC<WonLeadPickerProps> = ({ visible, onClose, 
               ListFooterComponent={
                 total > leads.length ? (
                   <Text style={styles.footer}>Showing {leads.length} of {total}. Search to narrow the list.</Text>
-                ) : null
+                ) : undefined
               }
               renderItem={({ item }) => (
                 <TouchableOpacity

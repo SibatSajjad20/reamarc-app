@@ -17,18 +17,23 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
+import { peekModuleCache, setModuleCache } from '../../src/lib/moduleCache';
 import { isAdmin as roleIsAdmin, canReviewRequests, isAttendanceTracked } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
-import { colors } from '../../src/theme';
+import { MenuButton } from '../../src/components/MenuButton';
+import { colors, useTheme } from '../../src/theme';
 import { DateField, TimeField } from '../../src/ui/DateTimeField';
 import { StatusBadge } from '../../src/ui/StatusBadge';
-import { TruckLoader } from '../../src/ui/TruckLoader';
+import { TaskListSkeleton } from '../../src/ui/Skeleton';
 import { formatDisplayDate, formatHours } from '../../src/ui/format';
 
 type RequestType = 'leave' | 'wfh' | 'short_leave' | 'regularization';
 type LeaveCategory = 'annual' | 'sick';
 type CorrectionTarget = 'both' | 'time_in' | 'time_out';
 type ScreenMode = 'apply' | 'mine' | 'review';
+
+const MINE_CACHE = 'requests:mine';
+const PENDING_CACHE = 'requests:pending';
 
 type LeaveBalance = {
   year: number;
@@ -210,8 +215,9 @@ function formatOvertimeLine(r: AttendanceRequest): string {
 export default function RequestsScreen() {
   const { user } = useAuth();
   const userRole = String(user?.role || '').toLowerCase();
+  const theme = useTheme();
   const params = useLocalSearchParams<{ form?: string }>();
-  const canReview = canReviewRequests(userRole) || REVIEW_ROLES.has(userRole);
+  const canReview = canReviewRequests(user);
   const isAdmin = roleIsAdmin(userRole);
 
   const [mode, setMode] = useState<ScreenMode>(canReview ? 'review' : 'apply');
@@ -223,7 +229,7 @@ export default function RequestsScreen() {
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget>('both');
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(() => !peekModuleCache<AttendanceRequest[]>(MINE_CACHE));
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
   const [shortLeaveDuration, setShortLeaveDuration] = useState(2);
@@ -233,8 +239,12 @@ export default function RequestsScreen() {
   const [busy, setBusy] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
-  const [mine, setMine] = useState<AttendanceRequest[]>([]);
-  const [pending, setPending] = useState<AttendanceRequest[]>([]);
+  const [mine, setMine] = useState<AttendanceRequest[]>(
+    () => peekModuleCache<AttendanceRequest[]>(MINE_CACHE) || [],
+  );
+  const [pending, setPending] = useState<AttendanceRequest[]>(
+    () => peekModuleCache<AttendanceRequest[]>(PENDING_CACHE) || [],
+  );
   const [filter, setFilter] = useState('all');
 
   // Expanded Cards Map
@@ -281,10 +291,19 @@ export default function RequestsScreen() {
     }
   }, [tab, user]);
 
-  const loadMine = useCallback(async () => {
+  const loadMine = useCallback(async (force = true) => {
+    if (!force) {
+      const cached = peekModuleCache<AttendanceRequest[]>(MINE_CACHE);
+      if (cached) {
+        setMine(cached);
+        return;
+      }
+    }
     try {
       const list = await api<AttendanceRequest[]>('/leaves/my-requests');
-      setMine(list || []);
+      const next = list || [];
+      setModuleCache(MINE_CACHE, next);
+      setMine(next);
     } catch {
       /* ignore */
     }
@@ -304,14 +323,23 @@ export default function RequestsScreen() {
     }
   }, []);
 
-  const loadPending = useCallback(async () => {
+  const loadPending = useCallback(async (force = true) => {
     if (!canReview) {
       setPending([]);
       return;
     }
+    if (!force) {
+      const cached = peekModuleCache<AttendanceRequest[]>(PENDING_CACHE);
+      if (cached) {
+        setPending(cached);
+        return;
+      }
+    }
     try {
       const list = await api<AttendanceRequest[]>('/leaves/pending');
-      setPending((list || []).filter((r) => r.user_id !== user?.id));
+      const next = (list || []).filter((r) => r.user_id !== user?.id);
+      setModuleCache(PENDING_CACHE, next);
+      setPending(next);
     } catch (err: any) {
       setMessage(err?.message || 'Could not load pending requests');
     }
@@ -322,7 +350,7 @@ export default function RequestsScreen() {
       let alive = true;
       (async () => {
         try {
-          await Promise.all([loadMine(), loadPending(), loadFormMeta()]);
+          await Promise.all([loadMine(false), loadPending(false), loadFormMeta()]);
         } finally {
           if (alive) setInitialLoading(false);
         }
@@ -592,16 +620,14 @@ export default function RequestsScreen() {
 
   if (initialLoading) {
     return (
-      <SafeAreaView style={[styles.safe, styles.centerScreen]}>
-        <View style={styles.loadingBox}>
-          <TruckLoader label="Loading Requests..." />
-        </View>
+      <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
+        <TaskListSkeleton rows={7} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.bg }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
@@ -614,7 +640,10 @@ export default function RequestsScreen() {
         >
           {/* Header Row: Title & Action Pill */}
           <View style={styles.headerRow}>
-            <Text style={styles.title}>{isAdmin ? 'Team Approvals' : 'Requests'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+              <MenuButton />
+              <Text style={styles.title}>{isAdmin ? 'Team Approvals' : 'Requests'}</Text>
+            </View>
             {isAdmin ? (
               <View style={styles.adminPendingBadge}>
                 <Text style={styles.adminPendingBadgeText}>{pending.length} Pending</Text>
@@ -734,7 +763,10 @@ export default function RequestsScreen() {
                 ].map((c) => (
                   <Pressable
                     key={c.id}
-                    onPress={() => setFilter(c.id)}
+                    onPress={() => {
+                      if (filter === c.id) return;
+                      setFilter(c.id);
+                    }}
                     style={[styles.filterChip, filter === c.id && styles.filterChipActive]}
                   >
                     <Text style={[styles.filterChipText, filter === c.id && styles.filterChipTextActive]}>
@@ -1347,30 +1379,15 @@ export default function RequestsScreen() {
           <Pressable style={styles.backdropPressable} onPress={Keyboard.dismiss} />
           <View style={styles.centerCard}>
             <View style={styles.modalHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>
-                  {tab === 'leave'
-                    ? `${leaveCategory === 'sick' ? 'Sick' : 'Annual'} Leave Reason`
-                    : tab === 'wfh'
-                    ? 'Work From Home Reason'
-                    : tab === 'short_leave'
-                    ? 'Short Leave Reason'
-                    : 'Correction Reason'}
-                </Text>
-                <Text style={styles.modalSubtitle}>
-                  {tab === 'leave' || tab === 'wfh'
-                    ? `${formatDisplayDate(start)}${start !== end ? ` to ${formatDisplayDate(end)}` : ''}`
-                    : tab === 'short_leave'
-                    ? `${startTime} → ${finalShortLeaveEndTime} (${formatHours(finalShortLeaveHours)})`
-                    : `${formatDisplayDate(start)} · ${
-                        correctionTarget === 'both'
-                          ? 'Both In & Out'
-                          : correctionTarget === 'time_in'
-                          ? `Time In (${corrIn})`
-                          : `Time Out (${corrOut})`
-                      }`}
-                </Text>
-              </View>
+              <Text style={styles.modalTitle} numberOfLines={1}>
+                {tab === 'leave'
+                  ? `${leaveCategory === 'sick' ? 'Sick' : 'Annual'} Leave Reason`
+                  : tab === 'wfh'
+                  ? 'Work From Home Reason'
+                  : tab === 'short_leave'
+                  ? 'Short Leave Reason'
+                  : 'Correction Reason'}
+              </Text>
               <Pressable
                 onPress={() => {
                   Keyboard.dismiss();
@@ -1379,9 +1396,22 @@ export default function RequestsScreen() {
                 hitSlop={12}
                 style={styles.modalCloseBtn}
               >
-                <Ionicons name="close" size={20} color={colors.slate} />
+                <Ionicons name="close" size={18} color={colors.slate} />
               </Pressable>
             </View>
+            <Text style={styles.modalSubtitle}>
+              {tab === 'leave' || tab === 'wfh'
+                ? `${formatDisplayDate(start)}${start !== end ? ` to ${formatDisplayDate(end)}` : ''}`
+                : tab === 'short_leave'
+                ? `${startTime} → ${finalShortLeaveEndTime} (${formatHours(finalShortLeaveHours)})`
+                : `${formatDisplayDate(start)} · ${
+                    correctionTarget === 'both'
+                      ? 'Both In & Out'
+                      : correctionTarget === 'time_in'
+                      ? `Time In (${corrIn})`
+                      : `Time Out (${corrOut})`
+                  }`}
+            </Text>
 
             <View style={styles.inputWrap}>
               <TextInput
@@ -2205,13 +2235,13 @@ const styles = StyleSheet.create({
   },
   modalHeaderRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 8,
-    gap: 8,
+    gap: 12,
   },
   modalTitle: {
-    fontWeight: '800',
+    flex: 1,
+    fontWeight: '600',
     fontSize: 16,
     color: colors.text,
   },
@@ -2221,9 +2251,12 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: '#F4F4F5',
-    borderRadius: 999,
-    padding: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   inputWrap: {
     marginVertical: 10,
@@ -2246,7 +2279,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   modalSubmitBtn: {
-    paddingVertical: 14,
+    minHeight: 48,
+    paddingHorizontal: 16,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -2255,7 +2289,8 @@ const styles = StyleSheet.create({
   modalSubmitBtnText: {
     color: '#fff',
     fontSize: 15,
-    fontWeight: '800',
+    fontWeight: '600',
+    textAlign: 'center',
   },
   cancelText: {
     color: colors.muted,

@@ -1,14 +1,20 @@
 import React, { useEffect } from 'react';
-import { ActivityIndicator, Platform, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { InboxProvider } from '../src/context/InboxContext';
+import { DrawerProvider } from '../src/context/DrawerContext';
+import { AppSidebar } from '../src/components/AppSidebar';
+import { AppTabBar } from '../src/components/AppTabBar';
 import { InboxSync } from '../src/lib/inboxSync';
 import { shouldSwitchCompanyForPush } from '../src/lib/notificationCompany';
+import { isMobileRouteAllowed, resolveTabs, routeForNotification } from '../src/lib/tabResolver';
 import { TruckLoader } from '../src/ui/TruckLoader';
-import { colors } from '../src/theme';
+import { ThemeProvider, useThemeMode, colors } from '../src/theme';
+import { FontProvider } from '../src/theme/FontProvider';
+import { APP_FONT } from '../src/theme/typography';
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -21,8 +27,7 @@ Notifications.setNotificationHandler({
 
 async function setupAndroidNotificationChannel() {
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('reamarc_alerts_v2', {
-      name: 'Reamarc Alerts',
+    const channelOpts = {
       importance: Notifications.AndroidImportance.MAX,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#965cfd',
@@ -35,6 +40,14 @@ async function setupAndroidNotificationChannel() {
         usage: Notifications.AndroidAudioUsage.NOTIFICATION_RINGTONE,
         contentType: Notifications.AndroidAudioContentType.SONIFICATION,
       },
+    };
+    await Notifications.setNotificationChannelAsync('oneworklane_alerts_v1', {
+      name: 'OneWorkLane Alerts',
+      ...channelOpts,
+    });
+    await Notifications.setNotificationChannelAsync('reamarc_alerts_v2', {
+      name: 'OneWorkLane Alerts',
+      ...channelOpts,
     });
   }
 }
@@ -49,7 +62,18 @@ function Gate({ children }: { children: React.ReactNode }) {
     const onLogin = segments[0] === 'login';
     const onReview = segments[0] === 'review';
     if (!user && !onLogin && !onReview) router.replace('/login');
-    if (user && onLogin) router.replace('/(tabs)');
+    if (user && onLogin) {
+      router.replace(resolveTabs(user).landingHref as any);
+    }
+  }, [user, loading, segments, router]);
+
+  React.useEffect(() => {
+    if (loading || !user) return;
+    const parts = segments.map(String);
+    if (parts[0] === 'login' || parts[0] === 'review') return;
+    if (!isMobileRouteAllowed(user, parts)) {
+      router.replace(resolveTabs(user).landingHref as any);
+    }
   }, [user, loading, segments, router]);
 
   React.useEffect(() => {
@@ -57,6 +81,7 @@ function Gate({ children }: { children: React.ReactNode }) {
       const data = (response?.notification?.request?.content?.data || {}) as {
         type?: string;
         lead_id?: string;
+        task_id?: string;
         company_id?: string;
       };
       const run = async () => {
@@ -68,23 +93,71 @@ function Gate({ children }: { children: React.ReactNode }) {
             /* stay on current company */
           }
         }
-        if (data?.type === 'crm_lead' && data?.lead_id) {
+        const href = routeForNotification(user, data);
+        if (data?.type === 'crm_lead' && data?.lead_id && href.includes('/pipeline/lead/')) {
           router.push({ pathname: '/pipeline/lead/[id]', params: { id: String(data.lead_id) } });
+          return;
         }
+        router.push(href as any);
       };
       void run();
     });
     return () => sub.remove();
-  }, [router, user?.company_id, user?.companies, switchCompany]);
+  }, [router, user, user?.company_id, user?.companies, switchCompany]);
 
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-        <TruckLoader label="Loading Reamarc..." size={1.05} />
+        <TruckLoader label="Loading OneWorkLane..." size={1.05} />
       </View>
     );
   }
-  return <>{children}</>;
+  const onLogin = segments[0] === 'login';
+  const onReview = segments[0] === 'review';
+
+  return (
+    <View style={{ flex: 1 }}>
+      {children}
+      {user && !onLogin && !onReview ? <AppTabBar /> : null}
+      {user ? <AppSidebar /> : null}
+    </View>
+  );
+}
+
+function InnerApp() {
+  const { isDark, theme } = useThemeMode();
+  return (
+    <AuthProvider>
+      <InboxProvider>
+        <DrawerProvider>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
+          <Gate>
+            <InboxSync />
+            <Stack
+              screenOptions={{
+                headerShown: false,
+                contentStyle: { backgroundColor: theme.bg },
+                headerTitleStyle: {
+                  fontFamily: APP_FONT.semibold,
+                },
+                headerBackTitleStyle: {
+                  fontFamily: APP_FONT.medium,
+                },
+              }}
+            >
+              <Stack.Screen name="login" />
+              <Stack.Screen name="(tabs)" />
+              <Stack.Screen name="pipeline" />
+              <Stack.Screen name="won-deals" />
+              <Stack.Screen name="daily-log" />
+              <Stack.Screen name="tasks" />
+              <Stack.Screen name="review" />
+            </Stack>
+          </Gate>
+        </DrawerProvider>
+      </InboxProvider>
+    </AuthProvider>
+  );
 }
 
 export default function RootLayout() {
@@ -95,21 +168,10 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <AuthProvider>
-      <InboxProvider>
-        <StatusBar style="dark" />
-        <Gate>
-          <InboxSync />
-          <Stack screenOptions={{ headerShown: false }}>
-            <Stack.Screen name="login" />
-            <Stack.Screen name="(tabs)" />
-            <Stack.Screen name="pipeline" />
-            <Stack.Screen name="won-deals" />
-            <Stack.Screen name="daily-log" />
-            <Stack.Screen name="review" />
-          </Stack>
-        </Gate>
-      </InboxProvider>
-    </AuthProvider>
+    <FontProvider>
+      <ThemeProvider>
+        <InnerApp />
+      </ThemeProvider>
+    </FontProvider>
   );
 }

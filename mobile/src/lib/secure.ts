@@ -160,6 +160,11 @@ export async function getOrCreateDeviceUuid(): Promise<string> {
   return uuid;
 }
 
+export async function resetDeviceUuid(): Promise<string> {
+  await deleteKey(DEVICE_KEY);
+  return getOrCreateDeviceUuid();
+}
+
 export async function saveCachedUser(user: CachedAuthUser): Promise<void> {
   const payload = JSON.stringify(user);
   await writeSecret(USER_KEY_V2, payload);

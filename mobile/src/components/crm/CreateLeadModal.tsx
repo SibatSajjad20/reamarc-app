@@ -73,7 +73,7 @@ function DropdownField({
               {options.map((item) => (
                 <TouchableOpacity
                   key={item.value || 'blank'}
-                  style={styles.menuRow}
+                  style={[styles.menuRow, item.value === value ? styles.menuRowSelected : null]}
                   onPress={() => {
                     onChange(item.value);
                     setOpen(false);
@@ -127,7 +127,7 @@ function MultiDropdownField({
                 return (
                   <TouchableOpacity
                     key={item}
-                    style={styles.menuRow}
+                    style={[styles.menuRow, on ? styles.menuRowSelected : null]}
                     onPress={() =>
                       onChange(on ? values.filter((value) => value !== item) : [...values, item])
                     }
@@ -639,8 +639,14 @@ const styles = StyleSheet.create({
   },
   menuRow: {
     paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#F4F4F5',
+  },
+  menuRowSelected: {
+    backgroundColor: '#EEF2FF',
+    borderBottomColor: 'transparent',
   },
   menuRowText: {
     fontSize: 14,

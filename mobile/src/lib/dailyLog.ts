@@ -234,32 +234,4 @@ export function groupEntriesByDate(entries: DailyLogEntry[]): DateLogGroup[] {
   return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
 }
 
-/** Parse matrix `work_hours` values like `08:30` or numeric hours. */
-export function parseWorkHoursValue(value: string | number | null | undefined): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
-  const raw = String(value ?? '').trim();
-  if (!raw || raw === '—' || raw === '-') return 0;
-  const colon = raw.match(/^(\d+):(\d{1,2})$/);
-  if (colon) return Math.max(0, Number(colon[1]) + Number(colon[2]) / 60);
-  const num = Number(raw.replace(/hrs?|hours?/gi, '').trim());
-  return Number.isFinite(num) ? Math.max(0, num) : 0;
-}
 
-export function enumerateDatesInclusive(startIso: string, endIso: string, hardCap = 31): string[] {
-  const start = startIso <= endIso ? startIso : endIso;
-  const end = startIso <= endIso ? endIso : startIso;
-  const out: string[] = [];
-  const cursor = new Date();
-  const parts = start.split('-').map(Number);
-  if (parts.length === 3 && parts.every((n) => !Number.isNaN(n))) {
-    cursor.setFullYear(parts[0], parts[1] - 1, parts[2]);
-  }
-  cursor.setHours(12, 0, 0, 0);
-  while (out.length < hardCap) {
-    const iso = toIsoLocal(cursor);
-    out.push(iso);
-    if (iso >= end) break;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return out;
-}

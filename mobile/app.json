@@ -1,26 +1,24 @@
 {
   "expo": {
-    "name": "Reamarc",
+    "name": "OneWorkLane",
     "slug": "reamarc-mobile",
-    "version": "1.0.0",
-    "platforms": ["ios", "android"],
+    "version": "2.0.0",
+    "platforms": [
+      "ios",
+      "android"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "reamarc",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FFFFFF"
-    },
+    "scheme": "oneworklane",
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.reamarc.mobile",
+      "buildNumber": "2",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "Reamarc uses your location to confirm you are at the office when you check in or out.",
-        "NSFaceIDUsageDescription": "Reamarc uses Face ID to confirm it is you before check-in and check-out.",
-        "NSLocalNetworkUsageDescription": "Reamarc uses the local network to reach the office API on your computer during development.",
+        "NSLocationWhenInUseUsageDescription": "OneWorkLane uses your location to confirm you are at the office when you check in or out.",
+        "NSFaceIDUsageDescription": "OneWorkLane uses Face ID to confirm it is you before check-in and check-out.",
+        "NSLocalNetworkUsageDescription": "OneWorkLane uses the local network to reach the office API on your computer during development.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
@@ -28,6 +26,7 @@
       }
     },
     "android": {
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -56,13 +55,13 @@
       [
         "expo-location",
         {
-          "locationWhenInUsePermission": "Reamarc uses your location to confirm you are at the office when you check in or out."
+          "locationWhenInUsePermission": "OneWorkLane uses your location to confirm you are at the office when you check in or out."
         }
       ],
       [
         "expo-local-authentication",
         {
-          "faceIDPermission": "Reamarc uses Face ID to confirm it is you before check-in and check-out."
+          "faceIDPermission": "OneWorkLane uses Face ID to confirm it is you before check-in and check-out."
         }
       ],
       [
@@ -72,7 +71,14 @@
           "color": "#4F46E5"
         }
       ],
-      "expo-splash-screen",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
       "expo-font",
       "expo-status-bar",
       "@react-native-community/datetimepicker"
@@ -92,4 +98,4 @@
       "fallbackToCacheTimeout": 0
     }
   }
-}
+}

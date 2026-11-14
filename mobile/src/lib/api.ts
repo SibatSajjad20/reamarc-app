@@ -2,6 +2,7 @@ import { API_URL } from '../theme';
 import { clearAttendanceCaches } from './attendanceCache';
 import { clearDailyLogCaches } from './dailyLogCache';
 import { clearCrmCaches } from './crmCache';
+import { invalidateModuleCache } from './moduleCache';
 import { clearSession, getAccessToken, getRefreshToken, saveTokens } from './secure';
 
 /** Hermes in Expo Go does not implement AbortSignal.timeout. */
@@ -68,6 +69,7 @@ async function tryRefresh(): Promise<RefreshResult> {
     clearDailyLogCaches();
     clearAttendanceCaches();
     clearCrmCaches();
+    invalidateModuleCache();
     await clearSession();
     return 'rejected';
   }
@@ -141,6 +143,7 @@ export async function api<T>(
           clearDailyLogCaches();
           clearAttendanceCaches();
           clearCrmCaches();
+          invalidateModuleCache();
           await clearSession();
           throw new ApiError(await parseError(retry), retry.status);
         }
