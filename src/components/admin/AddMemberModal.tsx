@@ -23,16 +23,10 @@ import { looksLikeEmail, normalizePhoneForSave } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
 import { cn } from '../../lib/utils';
 import { CANONICAL_DEPARTMENTS, sameDept } from '../../utils/departments';
+import { assignableDirectoryRoles } from '../../utils/directoryRoles';
+import { defaultProbationEnd } from '../../utils/probationDates';
 
 export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
-
-export const ROLES: { id: UserRole; label: string; description: string }[] = [
-  { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
-  { id: 'team_lead', label: 'Team lead', description: 'Leads a department and reviews team logs' },
-  { id: 'hr', label: 'HR', description: 'All departments, logs and compliance' },
-  { id: 'operations', label: 'Operations', description: 'Company-wide view-only access, plus won-deal and HR approvals' },
-  { id: 'client', label: 'Client', description: 'Client portal and approvals only' },
-];
 
 interface AddMemberModalProps {
   isOpen: boolean;
@@ -68,6 +62,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   ];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
+  const [probationEndDate, setProbationEndDate] = useState('');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -89,6 +84,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       const today = new Date().toISOString().slice(0, 10);
       setJoiningDate(today);
       setEmploymentType('contract');
+      setProbationEndDate(defaultProbationEnd(today));
       setTemporaryPassword(generateRandomPassword());
       setShowPassword(false);
       setSelectedWorkspaceId('');
@@ -153,6 +149,9 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           errs.departments = 'Please select at least one department';
         }
       }
+      if (employmentType === 'probation' && !probationEndDate.trim()) {
+        errs.probationEnd = 'Probation end date is required';
+      }
     }
     return errs;
   };
@@ -204,6 +203,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         primary_department: isClientForm ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
         joining_date: isClientForm ? null : joiningDate.trim() || null,
         employment_type: isClientForm ? 'contract' : employmentType,
+        probation_start_date:
+          !isClientForm && employmentType === 'probation' ? joiningDate.trim() || null : null,
+        probation_end_date:
+          !isClientForm && employmentType === 'probation' ? probationEndDate.trim() || null : null,
         temporary_password: temporaryPassword,
         send_invite_email: true,
         is_active: true,
@@ -368,7 +371,12 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 </label>
                 <CustomDatePicker
                   value={joiningDate}
-                  onChange={setJoiningDate}
+                  onChange={(val) => {
+                    setJoiningDate(val);
+                    if (employmentType === 'probation') {
+                      setProbationEndDate((prev) => prev || defaultProbationEnd(val));
+                    }
+                  }}
                 />
                 <p className="text-caption text-fg-muted mt-1">
                   Attendance starts from this date.
@@ -382,8 +390,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             <div>
               <label className="block text-ui font-medium text-fg mb-2">Role</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {ROLES.filter((r) => r.id !== 'client')
-                  .filter((r) => r.id !== 'operations' || user?.role === 'admin')
+                {assignableDirectoryRoles(user?.role)
                   .map((r) => {
                     const isSelected = role === r.id;
                     return (
@@ -552,12 +559,45 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 <SegmentedControl
                   size="sm"
                   value={employmentType}
-                  onValueChange={(val) => setEmploymentType(val as EmploymentType)}
+                  onValueChange={(val) => {
+                    const next = val as EmploymentType;
+                    setEmploymentType(next);
+                    if (next === 'probation' && !probationEndDate) {
+                      setProbationEndDate(defaultProbationEnd(joiningDate));
+                    }
+                  }}
                   options={[
                     { value: 'probation', label: 'Probation' },
                     { value: 'contract', label: 'Contract' },
                   ]}
                 />
+              </div>
+            )}
+            {!isClientForm && employmentType === 'probation' && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Probation end date <span className="text-danger-fg">*</span>
+                </label>
+                <CustomDatePicker
+                  value={probationEndDate}
+                  onChange={(val) => {
+                    setProbationEndDate(val);
+                    if (hasSubmitted && val) {
+                      setFieldErrors((prev) => {
+                        const n = { ...prev };
+                        delete n.probationEnd;
+                        return n;
+                      });
+                    }
+                  }}
+                  minDate={joiningDate || undefined}
+                />
+                {fieldErrors.probationEnd && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.probationEnd}</span>
+                  </div>
+                )}
               </div>
             )}
 

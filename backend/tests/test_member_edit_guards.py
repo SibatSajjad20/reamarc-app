@@ -21,6 +21,7 @@ from app.routers import admin as admin_router  # noqa: E402
 from app.schemas.user import MemberUpdate  # noqa: E402
 from app.services.identity_guard import (  # noqa: E402
     ADMIN_PEER_MSG,
+    DIRECTORY_NO_ADMIN_MSG,
     HR_ROLE_MSG,
     LAST_ADMIN_MSG,
     OWN_ROLE_MSG,
@@ -241,6 +242,13 @@ class TestMemberEditGuards(IsolatedAsyncioTestCase):
                 await assert_can_edit_member(_actor("hr1", "hr"), tm, "team_member", {"role": "admin"})
             self.assertEqual(hr_role.exception.status_code, 403)
             self.assertIn(HR_ROLE_MSG.split()[0], str(hr_role.exception.detail))
+
+            with self.assertRaises(HTTPException) as admin_promote:
+                await assert_can_edit_member(
+                    _actor("admin1", "admin"), tm, "team_member", {"role": "admin"}
+                )
+            self.assertEqual(admin_promote.exception.status_code, 400)
+            self.assertEqual(admin_promote.exception.detail, DIRECTORY_NO_ADMIN_MSG)
 
             admin = next(u for u in gdb.users.rows if u["id"] == "admin1")
             with self.assertRaises(HTTPException) as own_role:

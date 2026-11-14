@@ -1,6 +1,12 @@
 /** Browser-local theme preference. Survives logout; never clear on sign-out. */
 export const THEME_STORAGE_KEY = 'reamarc-theme';
 
+/** Content calendar share / client review pages always open in light mode. */
+export function isPublicContentReviewPath(pathname?: string): boolean {
+  const path = (pathname ?? (typeof window !== 'undefined' ? window.location.pathname : '')).toLowerCase();
+  return path.startsWith('/review') || path.startsWith('/client-review');
+}
+
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ThemeMode = 'light' | 'dark';
 

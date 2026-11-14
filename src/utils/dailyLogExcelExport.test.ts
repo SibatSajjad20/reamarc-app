@@ -86,6 +86,33 @@ describe('dailyLogExcelExport', () => {
     expect(dataRows).toHaveLength(2);
   });
 
+  it('exports formatted task descriptions as plain text', () => {
+    const { sheetData } = buildDailyLogWorkbook(
+      [
+        entry({
+          date: '2026-11-14',
+          resource_name: 'Ada',
+          task_description: '<b>Design banner</b><ul><li>Crop</li></ul>',
+        }),
+      ],
+      COLUMNS,
+      {
+        periodLabel: 'Today',
+        startDate: '2026-11-14',
+        endDate: '2026-11-14',
+        department: 'All',
+        exportedBy: 'Ada',
+      },
+    );
+    const headerIdx = sheetData.findIndex((row) => row[0] === '#');
+    const taskDescIdx = COLUMNS.findIndex((c) => c.key === 'task_description') + 1;
+    const cell = String(sheetData[headerIdx + 1][taskDescIdx]);
+    expect(cell).toContain('Design banner');
+    expect(cell).toContain('Crop');
+    expect(cell).not.toContain('<b>');
+    expect(cell).not.toContain('<ul>');
+  });
+
   it('formula-guards cell values like Content Calendar (excelSafeCell)', () => {
     const { sheetData } = buildDailyLogWorkbook(
       [

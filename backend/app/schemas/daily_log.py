@@ -82,7 +82,7 @@ class DailyLogEntryCreate(BaseModel):
     resource_name: str = ""
     role: str = ""
     department: Optional[str] = None
-    client_project: str = ""
+    client_project: str
     task_description: str = ""
     task_type: str = "Scheduled Task"
     task_status: str = "Incomplete"
@@ -101,6 +101,14 @@ class DailyLogEntryCreate(BaseModel):
     @classmethod
     def validate_hours_utilized(cls, v: Any) -> float:
         return parse_duration_to_hours(v)
+
+    @field_validator("client_project")
+    @classmethod
+    def require_client_project(cls, v: Any) -> str:
+        text = str(v or "").strip()
+        if not text:
+            raise ValueError("Please select a client.")
+        return text
 
 
 class DailyLogEntryUpdate(BaseModel):
@@ -131,6 +139,16 @@ class DailyLogEntryUpdate(BaseModel):
         if v is None:
             return None
         return parse_duration_to_hours(v)
+
+    @field_validator("client_project")
+    @classmethod
+    def require_client_project(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        text = str(v).strip()
+        if not text:
+            raise ValueError("Please select a client.")
+        return text
 
 
 class DailyLogEntryResponse(BaseModel):

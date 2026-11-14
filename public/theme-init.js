@@ -1,12 +1,15 @@
 /* Kept in sync with the inline bootstrap in index.html. Prefer the inline script. */
 (function () {
   try {
+    var path = (location.pathname || '').toLowerCase();
+    var forceLight = path.indexOf('/review') === 0 || path.indexOf('/client-review') === 0;
     var raw = localStorage.getItem('reamarc-theme');
     var p = raw === 'light' || raw === 'dark' || raw === 'system' ? raw : null;
     var dark =
-      p === 'dark' ||
-      ((p === null || p === 'system') &&
-        window.matchMedia('(prefers-color-scheme: dark)').matches);
+      !forceLight &&
+      (p === 'dark' ||
+        ((p === null || p === 'system') &&
+          window.matchMedia('(prefers-color-scheme: dark)').matches));
     var theme = dark ? 'dark' : 'light';
     var root = document.documentElement;
     root.classList.remove('light', 'dark');

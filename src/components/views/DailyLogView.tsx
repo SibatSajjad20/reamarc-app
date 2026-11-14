@@ -49,6 +49,8 @@ import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { Modal } from '../ui/Modal';
 import { DailyLogForm } from '../daily-log/DailyLogForm';
 import { ShiftTasksTracker } from '../daily-log/ShiftTasksTracker';
+import { TaskDescriptionHtml } from '../daily-log/TaskDescriptionHtml';
+import { htmlToPlainText } from '../../utils/taskDescriptionHtml';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { toSafeHttpsUrl } from '../../utils/safeUrl';
@@ -1537,7 +1539,7 @@ export const DailyLogView: React.FC = () => {
                                 <div className="flex-1 min-w-0 pb-2">
                                   <div className="flex items-start justify-between gap-3">
                                     <h4 className="text-ui font-medium text-fg line-clamp-2 leading-snug group-hover:text-accent-text transition-colors">
-                                      {entry.task_description}
+                                      <TaskDescriptionHtml html={entry.task_description} clamp />
                                     </h4>
                                     <span className="text-ui font-semibold font-numeric tabular-nums text-fg shrink-0">
                                       {formatHours(hoursNum)}
@@ -2058,7 +2060,7 @@ export const DailyLogView: React.FC = () => {
                                   <td
                                     key={col.key}
                                     className="p-2 border-b border-r border-border h-full overflow-hidden"
-                                    title={desc}
+                                    title={htmlToPlainText(desc)}
                                   >
                                     {desc ? (
                                       <button
@@ -2073,7 +2075,7 @@ export const DailyLogView: React.FC = () => {
                                             : 'line-clamp-2'
                                         )}
                                       >
-                                        {desc}
+                                        <TaskDescriptionHtml html={desc} clamp={!isTallRow} />
                                       </button>
                                     ) : (
                                       <span className="text-fg-faint italic">—</span>
@@ -2310,7 +2312,7 @@ export const DailyLogView: React.FC = () => {
         title={descPreview?.title || ''}
         maxWidth="lg"
       >
-        <p className="whitespace-pre-wrap break-words">{descPreview?.description}</p>
+        <TaskDescriptionHtml html={descPreview?.description || ''} />
       </Modal>
 
       <DailyLogModal

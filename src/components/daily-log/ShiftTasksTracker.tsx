@@ -3,7 +3,7 @@ import { Timer } from 'lucide-react';
 import type { DayTarget } from '../../types/dailyLog';
 import type { OffDayInfo } from '../../utils/offDays';
 import { formatShiftDate, toIsoDate } from '../../utils/offDays';
-import { formatHours } from '../../utils/logTimeChecks';
+import { formatHours, remainingShiftHours } from '../../utils/logTimeChecks';
 import {
   formatNowHhMm,
   LOG_GAP_MATCH_HOURS,
@@ -99,7 +99,7 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   }, [dayTarget, stillIn, nowTick, isWfh, hasCheckin]);
 
   const expectedHours = Math.max(0, Number(dayTarget?.expected_hours) || 8);
-  const remainingHours = Math.max(0, expectedHours - loggedHours);
+  const remainingHours = remainingShiftHours(expectedHours, timeAtWorkHours);
   const progressTarget = Math.max(timeAtWorkHours, expectedHours, 0.1);
   const progressPercent = Math.min(100, Math.max(0, (loggedHours / progressTarget) * 100));
 

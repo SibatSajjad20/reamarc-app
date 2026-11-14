@@ -665,7 +665,7 @@ async def create_member(
     if member_in.role in (UserRole.ADMIN, "admin"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Creating additional Super Admin accounts is not permitted. Only one Super Admin exists.",
+            detail="Admin accounts cannot be created or assigned from Team directory.",
         )
     if member_in.role in (UserRole.OPERATIONS, "operations") and not is_caller_admin:
         raise HTTPException(
@@ -866,11 +866,11 @@ async def update_member(
                 if deactivating:
                     raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
-    # Prevent promoting any non-admin to admin (owner may still do this)
-    if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin") and not is_owner_actor(current_user):
+    # Team directory never creates or assigns Admin.
+    if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Promoting accounts to Super Admin is not permitted.",
+            detail="Admin accounts cannot be created or assigned from Team directory.",
         )
 
     update_fields = {}

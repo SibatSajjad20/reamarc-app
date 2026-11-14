@@ -29,17 +29,10 @@ import {
   memberDepartmentLists,
   sameDept,
 } from '../../utils/departments';
+import { assignableDirectoryRoles } from '../../utils/directoryRoles';
+import { defaultProbationEnd } from '../../utils/probationDates';
 
 export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
-
-export const ROLES: { id: UserRole; label: string; description: string }[] = [
-  { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
-  { id: 'team_lead', label: 'Team lead', description: 'Leads a department and reviews team logs' },
-  { id: 'hr', label: 'HR', description: 'All departments, logs and compliance' },
-  { id: 'operations', label: 'Operations', description: 'Company-wide view-only access, plus won-deal and HR approvals' },
-  { id: 'admin', label: 'Admin', description: 'Full system control and user management' },
-  { id: 'client', label: 'Client', description: 'Client portal and approvals only' },
-];
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -75,6 +68,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   ];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
+  const [probationEndDate, setProbationEndDate] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isActive, setIsActive] = useState(true);
@@ -107,6 +101,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
+      setProbationEndDate(
+        member.probation_end_date ||
+          (member.employment_type === 'probation'
+            ? defaultProbationEnd(member.joining_date || '')
+            : ''),
+      );
       setPassword('');
       setShowPassword(false);
       setIsActive(member.is_active !== undefined ? member.is_active : true);
@@ -162,6 +162,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     if (role !== 'client' && role !== 'admin' && role !== 'operations' && role !== 'hr' && selectedDepartments.length === 0) {
       errs.departments = 'Please select at least one department';
     }
+    if (role !== 'client' && employmentType === 'probation' && !probationEndDate.trim()) {
+      errs.probationEnd = 'Probation end date is required';
+    }
     return errs;
   };
 
@@ -205,7 +208,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setIsSubmitting(true);
       if (loginManagedElsewhere || !canEditIdentity) {
         const payload: UpdateMemberPayload = {};
-        if (finishingSetup || (canEditRole && role !== member.role)) {
+        if (finishingSetup || (canEditRole && role !== member.role && role !== 'admin' && member.role !== 'admin')) {
           payload.role = role;
         }
         const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));
@@ -225,6 +228,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         if (newEmpType !== member.employment_type) {
           payload.employment_type = newEmpType;
         }
+        if (role !== 'client' && newEmpType === 'probation') {
+          payload.probation_start_date = joiningDate.trim() || member.joining_date || null;
+          payload.probation_end_date = probationEndDate.trim() || null;
+        }
         const newWorkspaces = role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [];
         const oldWorkspaces = member.workspace_ids || [];
         if (JSON.stringify(newWorkspaces) !== JSON.stringify(oldWorkspaces)) {
@@ -238,6 +245,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         const payload: UpdateMemberPayload = {
           joining_date: role === 'client' ? null : joiningDate.trim() || null,
           employment_type: role === 'client' ? 'contract' : employmentType,
+          probation_start_date:
+            role !== 'client' && employmentType === 'probation'
+              ? joiningDate.trim() || member.joining_date || null
+              : null,
+          probation_end_date:
+            role !== 'client' && employmentType === 'probation' ? probationEndDate.trim() || null : null,
           is_active: isActive,
           ...(!isActive && deactivationDate && deactivationDate !== (member.deactivation_date || '')
             ? { deactivation_date: deactivationDate }
@@ -246,7 +259,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           full_name: fullName.trim(),
           phone: normalizedPhone,
         };
-        if (finishingSetup || (canEditRole && role !== member.role)) {
+        if (finishingSetup || (canEditRole && role !== member.role && role !== 'admin' && member.role !== 'admin')) {
           payload.role = role;
         }
         if (finishingSetup || (newPrimary !== member.primary_department && (newPrimary !== undefined || member.primary_department !== undefined))) {
@@ -427,8 +440,13 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           {/* Row 3: Role (2-column RadioCards) */}
           <div>
             <label className="block text-ui font-medium text-fg mb-2">Role</label>
+            {member?.role === 'admin' ? (
+              <p className="text-ui text-fg-muted">
+                Admin cannot be assigned from Team directory. This account stays Admin.
+              </p>
+            ) : (
             <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${!canEditRole ? 'opacity-60' : ''}`}>
-              {ROLES.filter((r) => r.id !== 'operations' || user?.role === 'admin').map((r) => {
+              {assignableDirectoryRoles(user?.role, { includeClient: true }).map((r) => {
                 const isSelected = role === r.id;
                 return (
                   <div
@@ -464,6 +482,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 );
               })}
             </div>
+            )}
           </div>
 
           {/* Row 4: Client Workspace picker (when role is client) */}
@@ -605,12 +624,45 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 <SegmentedControl
                   size="sm"
                   value={employmentType}
-                  onValueChange={(val) => setEmploymentType(val as EmploymentType)}
+                  onValueChange={(val) => {
+                    const next = val as EmploymentType;
+                    setEmploymentType(next);
+                    if (next === 'probation' && !probationEndDate) {
+                      setProbationEndDate(defaultProbationEnd(joiningDate || member?.joining_date || ''));
+                    }
+                  }}
                   options={[
                     { value: 'probation', label: 'Probation' },
                     { value: 'contract', label: 'Contract' },
                   ]}
                 />
+              </div>
+            )}
+            {role !== 'client' && employmentType === 'probation' && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Probation end date <span className="text-danger-fg">*</span>
+                </label>
+                <CustomDatePicker
+                  value={probationEndDate}
+                  onChange={(val) => {
+                    setProbationEndDate(val);
+                    if (hasSubmitted && val) {
+                      setFieldErrors((prev) => {
+                        const n = { ...prev };
+                        delete n.probationEnd;
+                        return n;
+                      });
+                    }
+                  }}
+                  minDate={joiningDate || undefined}
+                />
+                {fieldErrors.probationEnd && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.probationEnd}</span>
+                  </div>
+                )}
               </div>
             )}
 

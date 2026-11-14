@@ -432,7 +432,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                 </>
               )}
               <TH>Contact</TH>
-              {directoryTab === 'team' && <TH className="hidden xl:table-cell">Linked clients</TH>}
               <TH>Employment</TH>
               {canManageMembers && <TH align="right" className="w-12"></TH>}
             </TR>
@@ -459,11 +458,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                   <TD>
                     <div className="w-24 h-3 rounded bg-subtle animate-pulse" />
                   </TD>
-                  {directoryTab === 'team' && (
-                    <TD className="hidden xl:table-cell">
-                      <div className="w-12 h-5 rounded bg-subtle animate-pulse" />
-                    </TD>
-                  )}
                   <TD>
                     <div className="w-14 h-5 rounded bg-subtle animate-pulse" />
                   </TD>
@@ -476,7 +470,15 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
               ))
             ) : filteredMembers.length === 0 ? (
               <TableEmptyRow
-                colSpan={canManageMembers ? (directoryTab === 'team' ? 8 : 7) : 7}
+                colSpan={
+                  directoryTab === 'clients'
+                    ? canManageMembers
+                      ? 5
+                      : 4
+                    : canManageMembers
+                      ? 6
+                      : 5
+                }
                 title={directoryTab === 'clients' ? 'No client accounts found' : 'No members found'}
                 description={
                   searchQuery || roleFilter !== 'all' || departmentFilter !== 'all'
@@ -595,30 +597,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     <TD className="text-fg-muted tabular-nums text-caption">
                       {formatPhoneDisplay(m.phone) || '—'}
                     </TD>
-
-                    {/* Linked clients (on Team tab) */}
-                    {directoryTab === 'team' && (
-                      <TD className="hidden xl:table-cell">
-                        {clientWs.length === 0 ? (
-                          <span className="text-fg-muted text-caption">—</span>
-                        ) : (
-                          <div className="flex -space-x-1.5 items-center">
-                            {clientWs.map((ws) => (
-                              <ClientAvatar
-                                key={ws.id}
-                                name={ws.name}
-                                clientId={ws.id}
-                                logoUrl={ws.logo_url}
-                                brandColor={ws.brandColor}
-                                initials={ws.initials}
-                                size={24}
-                                className="ring-2 ring-surface"
-                              />
-                            ))}
-                          </div>
-                        )}
-                      </TD>
-                    )}
 
                     {/* Employment Type */}
                     <TD>

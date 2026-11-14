@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   THEME_STORAGE_KEY,
   applyResolvedTheme,
+  isPublicContentReviewPath,
   persistThemePreference,
   readThemePreference,
   resolveTheme,
@@ -49,6 +50,13 @@ describe('themePreference', () => {
     expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(document.documentElement.classList.contains('dark')).toBe(false);
     expect(document.documentElement.style.colorScheme).toBe('light');
+  });
+
+  it('treats content calendar share links as public review paths', () => {
+    expect(isPublicContentReviewPath('/review/abc')).toBe(true);
+    expect(isPublicContentReviewPath('/client-review/abc')).toBe(true);
+    expect(isPublicContentReviewPath('/dashboard')).toBe(false);
+    expect(isPublicContentReviewPath('/content-calendar')).toBe(false);
   });
 
   it('applyResolvedTheme toggles html/body classes', () => {

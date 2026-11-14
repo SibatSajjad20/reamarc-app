@@ -37,6 +37,8 @@ import {
 import { cn } from '../../lib/utils';
 import { focusFirstError } from '../../utils/formFocus';
 import { isValidWebUrl } from '../../utils/safeUrl';
+import { htmlToPlainText, isTaskDescriptionEmpty, sanitizeTaskHtml } from '../../utils/taskDescriptionHtml';
+import { TaskDescriptionEditor } from './TaskDescriptionEditor';
 
 export interface DailyLogFormProps {
   mode: 'create' | 'edit';
@@ -117,7 +119,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const { addToast } = useToast();
   const { isOffDay, lastWorkday, getOffDay, holidays, workingSaturdays } = useOffDays();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const taskDescRef = useRef<HTMLTextAreaElement>(null);
 
   const getTodayIso = () => {
     const d = new Date();
@@ -174,7 +175,13 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const isBusy = isSubmitting || isUploadingFile;
-  const [fieldErrors, setFieldErrors] = useState<{ date?: string; task?: string; link?: string; [k: string]: string | undefined }>({});
+  const [fieldErrors, setFieldErrors] = useState<{
+    date?: string;
+    task?: string;
+    link?: string;
+    client?: string;
+    [k: string]: string | undefined;
+  }>({});
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
@@ -230,7 +237,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       setResourceName(initialData.resource_name || '');
       setRole(initialData.role || '');
       setDepartment(initialData.department || '');
-      setClientProject(initialData.client_project || (workspaces[0]?.name || 'Internal Agency Work'));
+      setClientProject(initialData.client_project || '');
       setTaskDescription(initialData.task_description || '');
       setTaskType(initialData.task_type || 'Scheduled Task');
       setTaskStatus(initialData.task_status || 'Incomplete');
@@ -292,7 +299,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       setResourceName(currentUser?.full_name || currentUser?.name || 'User');
       setRole(formattedRole);
       setDepartment(resolvedDept);
-      setClientProject(workspaces[0]?.name || 'Internal Agency Work');
+      setClientProject('');
       setTaskDescription('');
       setTaskType('Scheduled Task');
       setTaskStatus('Incomplete');
@@ -403,12 +410,17 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     return undefined;
   };
 
+  const getClientError = (client: string): string | undefined => {
+    if (!client.trim()) return 'Please select a client.';
+    return undefined;
+  };
+
   const getTaskError = (
     task: string,
     hours: string = hoursUtilized,
     d: string = date
   ): string | undefined => {
-    if (!task.trim()) return 'Task description is required.';
+    if (isTaskDescriptionEmpty(task)) return 'Task description is required.';
     const dup = findDuplicate(
       {
         id: initialData?.id,
@@ -435,11 +447,13 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     if (isBusy) return;
 
     const dateErr = getDateError(date);
+    const clientErr = getClientError(clientProject);
     const taskErr = getTaskError(taskDescription, hoursUtilized, date);
     const linkErr = getDeliverableUrlError(deliverableUrl);
 
-    const errors: { date?: string; task?: string; link?: string } = {};
+    const errors: { date?: string; task?: string; link?: string; client?: string } = {};
     if (dateErr) errors.date = dateErr;
+    if (clientErr) errors.client = clientErr;
     if (taskErr) errors.task = taskErr;
     if (linkErr) errors.link = linkErr;
 
@@ -474,7 +488,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           resource_name: resourceName.trim(),
           role: role.trim(),
           client_project: clientProject.trim(),
-          task_description: taskDescription.trim(),
+          task_description: sanitizeTaskHtml(taskDescription) || htmlToPlainText(taskDescription),
           task_type: taskType,
           task_status: taskStatus,
           revisions_done: formattedRevisions,
@@ -492,6 +506,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           onClose();
         } else {
           addToast('Log added', 'Task saved successfully.', 'success');
+          setClientProject('');
           setTaskDescription('');
           setRevisionPoints(['']);
           setAttachedFiles([]);
@@ -510,7 +525,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           resource_name: resourceName.trim(),
           role: role.trim(),
           client_project: clientProject.trim(),
-          task_description: taskDescription.trim(),
+          task_description: sanitizeTaskHtml(taskDescription) || htmlToPlainText(taskDescription),
           task_type: taskType,
           task_status: taskStatus,
           revisions_done: formattedRevisions,
@@ -657,13 +672,30 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           <label className="block text-label text-fg mb-1 flex items-center gap-1.5">
             <FolderGit2 size={14} className="text-fg-muted" />
             <span>Client / project</span>
+            <span className="text-danger-fg" aria-hidden>
+              *
+            </span>
           </label>
           <CustomSelect
+            id="daily-log-client"
             value={clientProject}
-            onChange={setClientProject}
+            onChange={(val) => {
+              setClientProject(val);
+              if (hasAttemptedSubmit) {
+                const err = getClientError(val);
+                setFieldErrors((prev) => {
+                  const copy = { ...prev };
+                  if (err) copy.client = err;
+                  else delete copy.client;
+                  return copy;
+                });
+              }
+            }}
             options={workspaceOptions}
             icon={FolderGit2}
-            placeholder="Select client or project..."
+            placeholder="Select a client"
+            error={fieldErrors.client}
+            aria-invalid={Boolean(fieldErrors.client)}
           />
         </div>
       </div>
@@ -673,14 +705,14 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         <label htmlFor="daily-log-task-desc" className="block text-label text-fg mb-1">
           Task description
         </label>
-        <textarea
+        <TaskDescriptionEditor
           id="daily-log-task-desc"
-          ref={taskDescRef}
-          rows={isCard ? 2 : 3}
+          minRows={isCard ? 3 : 4}
           placeholder="Describe what you worked on..."
           value={taskDescription}
-          onChange={(e) => {
-            const val = e.target.value;
+          error={Boolean(fieldErrors.task)}
+          describedBy={fieldErrors.task ? 'daily-log-task-desc-error' : undefined}
+          onChange={(val) => {
             setTaskDescription(val);
             if (hasAttemptedSubmit) {
               const err = getTaskError(val, hoursUtilized, date);
@@ -692,12 +724,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
               });
             }
           }}
-          aria-invalid={Boolean(fieldErrors.task)}
-          aria-describedby={fieldErrors.task ? 'daily-log-task-desc-error' : undefined}
-          className={cn(
-            'w-full px-3 py-2 bg-surface border rounded-md text-ui text-fg placeholder:text-fg-faint focus-visible:focus-ring resize-none leading-relaxed transition-colors',
-            fieldErrors.task ? 'border-danger-dot focus:border-danger-fg' : 'border-border-strong'
-          )}
         />
         {fieldErrors.task && (
           <p

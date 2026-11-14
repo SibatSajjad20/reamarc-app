@@ -26,6 +26,7 @@ import { StatusPill } from '../ui/StatusPill';
 import { EmptyState } from '../ui/EmptyState';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { cn } from '../../lib/utils';
+import { applyResolvedTheme } from '../../utils/themePreference';
 import {
   downloadAllPublicAssets,
   downloadPublicAsset,
@@ -114,8 +115,9 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     setIsMobile(isMobileDevice());
   }, []);
 
-  // Uniform canvas styling
+  // Uniform canvas styling — share links always render light, ignoring the viewer's app/system theme.
   useEffect(() => {
+    applyResolvedTheme('light');
     document.documentElement.classList.add('public-review-page');
     document.body.classList.add('public-review-page');
 

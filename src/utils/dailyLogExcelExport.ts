@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import type { DailyLogColumn, DailyLogEntry } from '../types/dailyLog';
 import { formatHours } from './logTimeChecks';
 import { excelSafeCell } from './safeHttpUrl';
+import { htmlToPlainText } from './taskDescriptionHtml';
 
 export interface DailyLogExportMeta {
   periodLabel: string;
@@ -46,6 +47,10 @@ function getCellValue(entry: DailyLogEntry, key: string): string | number {
   }
 
   if (raw === undefined || raw === null) return '';
+
+  if (key === 'task_description') {
+    return excelSafeCell(htmlToPlainText(String(raw)));
+  }
 
   if (key === 'deliverables') {
     const text = String(raw).trim();

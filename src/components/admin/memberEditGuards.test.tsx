@@ -185,4 +185,12 @@ describe('member edit guards', () => {
     expect(submitted[0].department).toBe('Sales');
     expect(submitted[0].departments).toEqual(['Sales']);
   });
+
+  it('does not offer Admin as a role on edit', () => {
+    renderWithProviders(
+      <EditMemberModal isOpen={true} member={baseMember} onClose={vi.fn()} onSubmit={vi.fn()} />,
+    );
+    expect(screen.queryByText('Full system control and user management')).toBeNull();
+    expect(screen.getByText('Team member')).toBeDefined();
+  });
 });

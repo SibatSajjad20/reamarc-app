@@ -25,6 +25,7 @@ ADMIN_PEER_MSG = "Only the platform owner can edit another Admin."
 OWN_ROLE_MSG = "You can't change your own role"
 HR_ROLE_MSG = "HR cannot set a role to or from Admin or Operations."
 ADMIN_EDIT_DENIED_MSG = "You cannot change another Admin's details."
+DIRECTORY_NO_ADMIN_MSG = "Admin accounts cannot be created or assigned from Team directory."
 
 PRIVILEGED_ROLES: Set[str] = {"admin", "operations"}
 ADMIN_ROLES: Set[str] = {"admin"}
@@ -358,6 +359,8 @@ async def assert_can_edit_member(
         if actor_role == "hr" and not owner:
             if new_role in PRIVILEGED_ROLES or target_role in PRIVILEGED_ROLES:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HR_ROLE_MSG)
+        if new_role in ADMIN_ROLES and target_role not in ADMIN_ROLES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=DIRECTORY_NO_ADMIN_MSG)
 
     return flags
 

@@ -50,6 +50,15 @@ export function formatHours(hours: number): string {
   return `${h}h ${m}m`;
 }
 
+/** Shift time still left: expected minus hours already spent at work (live while punched in). */
+export function remainingShiftHours(expectedHours: number, timeAtWorkHours: number): number {
+  const expected = Number(expectedHours);
+  const atWork = Number(timeAtWorkHours);
+  const safeExpected = Number.isFinite(expected) ? Math.max(0, expected) : 0;
+  const safeAtWork = Number.isFinite(atWork) ? Math.max(0, atWork) : 0;
+  return Math.max(0, safeExpected - safeAtWork);
+}
+
 export function formatSignedHours(hours: number): string {
   if (Math.abs(hours) < 0.01) return '0h';
   const sign = hours > 0 ? '+' : '−';
@@ -102,17 +111,28 @@ export function findOverlap(
   return null;
 }
 
+function taskTextForCompare(raw?: string): string {
+  const value = String(raw || '');
+  if (!value) return '';
+  if (typeof document === 'undefined') {
+    return value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+  const holder = document.createElement('div');
+  holder.innerHTML = value;
+  return (holder.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
 export function findDuplicate(
   candidate: TimedLogSlice,
   existing: TimedLogSlice[],
 ): TimedLogSlice | null {
-  const task = (candidate.task_description || '').trim().toLowerCase();
+  const task = taskTextForCompare(candidate.task_description);
   const hours = Number(candidate.hours_utilized || 0);
   if (!task) return null;
   for (const row of existing) {
     if (candidate.id && row.id === candidate.id) continue;
     if (candidate.date && row.date && candidate.date !== row.date) continue;
-    const otherTask = (row.task_description || '').trim().toLowerCase();
+    const otherTask = taskTextForCompare(row.task_description);
     const otherHours = Number(row.hours_utilized || 0);
     if (otherTask === task && Math.round(otherHours * 100) === Math.round(hours * 100)) {
       return row;

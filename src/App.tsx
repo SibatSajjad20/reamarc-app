@@ -59,6 +59,7 @@ import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
 import { isOwnerLegacyPath, ownerPathToCompaniesPath } from './utils/companiesRoutes';
 import {
   applyResolvedTheme,
+  isPublicContentReviewPath,
   persistThemePreference,
   readThemePreference,
   resolveTheme,
@@ -793,6 +794,11 @@ function AppInner() {
 
   useEffect(() => {
     const updateTheme = () => {
+      if (isPublicContentReviewPath()) {
+        setTheme('light');
+        applyResolvedTheme('light');
+        return;
+      }
       const newTheme = resolveTheme(themePreference);
       setTheme(newTheme);
       applyResolvedTheme(newTheme);
