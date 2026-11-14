@@ -59,11 +59,12 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
-import { isAdmin } from '@/utils/taskAccess';
+import { canTransitionTo, isAdmin, stageChangeNeedsReason } from '@/utils/taskAccess';
 import type { BoardDensity } from '@/components/task-manager/TaskPipelineCard';
 import {
   appendUniqueTasks,
   mergePolledTaskPage,
+  overlayPendingStages,
   taskListCacheKey,
   taskManagerViewCache,
 } from '@/utils/taskManagerViewCache';
@@ -194,6 +195,7 @@ export const TaskManagerView: React.FC = () => {
   const [importOpen, setImportOpen] = useState(false);
   const loadGen = useRef(0);
   const motionBusy = useRef(false);
+  const pendingMoves = useRef(new Map<string, TaskStatus>());
   const tasksRef = useRef<Task[]>([]);
   tasksRef.current = tasks;
 
@@ -205,7 +207,7 @@ export const TaskManagerView: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchInput]);
 
-  motionBusy.current = Boolean(leavingId || arrivingId);
+  motionBusy.current = Boolean(leavingId || arrivingId || pendingMoves.current.size);
 
   const persistList = (key: string, next: { items: Task[]; total: number; truncated: boolean; stage_counts?: Partial<Record<TaskStatus, number>> }) => {
     taskManagerViewCache.setList(key, {
@@ -241,7 +243,10 @@ export const TaskManagerView: React.FC = () => {
       if (silent) {
         const list = await taskService.getAllTasks(filters, { cap: Math.max(tasksRef.current.length, 200) });
         if (motionBusy.current || gen !== loadGen.current) return;
-        const merged = mergePolledTaskPage(tasksRef.current, list.items || []);
+        const merged = overlayPendingStages(
+          mergePolledTaskPage(tasksRef.current, list.items || []),
+          pendingMoves.current,
+        );
         const truncatedNow = Boolean(list.truncated) || (list.total || 0) > merged.length;
         setTasks(merged);
         setStageCounts(list.stage_counts || {});
@@ -413,7 +418,27 @@ export const TaskManagerView: React.FC = () => {
   };
 
   const applyStageChange = async (task: Task, to: TaskStatus, origin?: { x: number; y: number }) => {
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (task.status === to) return;
+    const needsReason = stageChangeNeedsReason(task.status, to);
+    if (!canTransitionTo(actor, task, to, needsReason ? 'x' : undefined)) {
+      addToast('Cannot move task', 'That stage change is not allowed.', 'error');
+      return;
+    }
+    let reason: string | undefined;
+    if (needsReason) {
+      const entered = await prompt({ title: 'Send back', label: 'Reason' });
+      if (!entered?.trim()) return;
+      reason = entered.trim();
+    }
+    loadGen.current += 1;
+    pendingMoves.current.set(task.id, to);
+    motionBusy.current = true;
+    let reduced = false;
+    try {
+      reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    } catch {
+      reduced = false;
+    }
     const leavesFilteredStage = Boolean(filters.stage && filters.stage !== 'all' && filters.stage !== to);
     if (leavesFilteredStage && !reduced) {
       setLeavingId(task.id);
@@ -429,9 +454,13 @@ export const TaskManagerView: React.FC = () => {
       setConfetti({ x: origin.x, y: origin.y, key: Date.now() });
     }
     try {
-      const updated = await taskService.changeStage(task.id, to);
+      const updated = await taskService.changeStage(task.id, to, reason);
+      pendingMoves.current.delete(task.id);
+      motionBusy.current = Boolean(leavingId || arrivingId || pendingMoves.current.size);
       setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
     } catch (err) {
+      pendingMoves.current.delete(task.id);
+      motionBusy.current = Boolean(leavingId || arrivingId || pendingMoves.current.size);
       setTasks((cur) => cur.map((t) => (t.id === task.id ? task : t)));
       throw err;
     }
@@ -786,14 +815,7 @@ export const TaskManagerView: React.FC = () => {
           density={boardDensity}
           onOpen={openTask}
           onStageChange={async (task, to) => {
-            setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, status: to } : t)));
-            try {
-              const updated = await taskService.changeStage(task.id, to);
-              setTasks((cur) => cur.map((t) => (t.id === updated.id ? updated : t)));
-            } catch (err) {
-              setTasks((cur) => cur.map((t) => (t.id === task.id ? task : t)));
-              throw err;
-            }
+            await applyStageChange(task, to);
           }}
           onAddToStage={(stage) => openCreate(undefined, stage)}
         />
@@ -845,6 +867,18 @@ export const TaskManagerView: React.FC = () => {
           setActiveTask(null);
           setDefaultStage(undefined);
           setFocusAssignee(false);
+        }}
+        onDeleted={(task) => {
+          setDialogOpen(false);
+          setActiveTask(null);
+          setTasks((cur) => cur.filter((t) => t.id !== task.id));
+          setStageCounts((cur) => {
+            const key = task.status;
+            const next = { ...cur };
+            if (typeof next[key] === 'number') next[key] = Math.max(0, (next[key] || 0) - 1);
+            return next;
+          });
+          taskManagerViewCache.invalidateLists();
         }}
         onSaved={(task, opts) => {
           setActiveTask((cur) => (cur && cur.id !== task.id ? cur : task));

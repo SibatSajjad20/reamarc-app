@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useToast } from '@/context/ToastContext';
 import { TASK_STAGES, type Task, type TaskActor, type TaskStatus } from '@/types/task';
-import { canTransitionTo } from '@/utils/taskAccess';
+import { canTransitionTo, stageChangeNeedsReason } from '@/utils/taskAccess';
 import { cn } from '@/lib/utils';
 import { stageBarClass } from './TaskPriorityPill';
 import { TaskPipelineCard, type BoardDensity } from './TaskPipelineCard';
@@ -216,11 +216,14 @@ export const TaskKanbanView: React.FC<Props> = ({
                   setDraggingId(null);
                   const task = tasks.find((t) => t.id === id);
                   if (!task || task.status === stage.value) return;
-                  if (!canTransitionTo(actor, task, stage.value, stage.value === 'in_progress' ? 'Returned' : undefined)) {
+                  const needsReason = stageChangeNeedsReason(task.status, stage.value);
+                  if (!canTransitionTo(actor, task, stage.value, needsReason ? 'x' : undefined)) {
                     addToast('Cannot move task', 'That stage change is not allowed.', 'error');
                     return;
                   }
-                  setSnapshot(tasks.map((t) => (t.id === id ? { ...t, status: stage.value } : t)));
+                  if (!needsReason) {
+                    setSnapshot(tasks.map((t) => (t.id === id ? { ...t, status: stage.value } : t)));
+                  }
                   try {
                     await onStageChange(task, stage.value);
                     setSnapshot(null);

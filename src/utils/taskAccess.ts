@@ -108,6 +108,10 @@ export function canAddWatcher(user: TaskActor | null | undefined, task: Task): b
   return id === task.creator_id || id === task.assigner_id;
 }
 
+export function stageChangeNeedsReason(from: TaskStatus, to: TaskStatus): boolean {
+  return from === 'in_review' && to === 'in_progress';
+}
+
 export function canTransitionTo(
   user: TaskActor | null | undefined,
   task: Task,

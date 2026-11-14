@@ -254,4 +254,45 @@ describe('TaskManagerView pipeline', () => {
     expect(screen.queryByTestId('task-scope-select')).toBeNull();
     expect(screen.queryByTestId('task-summary-counts')).toBeNull();
   });
+
+  it('prompts for a reason when a list card is dropped back from In Review', async () => {
+    mockPrompt.mockResolvedValue('Need a revision');
+    vi.mocked(taskService.getAllTasks).mockResolvedValue({
+      items: [
+        {
+          id: 'tsk-review',
+          serial: 'T-0099',
+          title: 'Review drop',
+          status: 'in_review',
+          priority: 'medium',
+          creator_id: 'admin',
+          assigner_id: 'admin',
+          assignee_id: 'member.1',
+          department: 'Content',
+          involved_ids: ['admin', 'member.1'],
+        },
+      ],
+      total: 1,
+      page: 1,
+      limit: 50,
+      stage_counts: { in_review: 1 },
+    } as any);
+    vi.mocked(taskService.changeStage).mockResolvedValue({
+      id: 'tsk-review',
+      status: 'in_progress',
+      serial: 'T-0099',
+      title: 'Review drop',
+    } as any);
+    renderTasks();
+    await waitFor(() => expect(screen.getByText('Review drop')).toBeTruthy());
+    fireEvent.drop(screen.getByTestId('task-stage-in_progress'), {
+      dataTransfer: { getData: () => 'tsk-review' },
+    });
+    await waitFor(() =>
+      expect(mockPrompt).toHaveBeenCalledWith(expect.objectContaining({ title: 'Send back' })),
+    );
+    await waitFor(() =>
+      expect(taskService.changeStage).toHaveBeenCalledWith('tsk-review', 'in_progress', 'Need a revision'),
+    );
+  });
 });

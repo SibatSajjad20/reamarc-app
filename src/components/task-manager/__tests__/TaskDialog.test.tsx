@@ -4,7 +4,11 @@ import { TaskDialog } from '../TaskDialog';
 import type { Task } from '@/types/task';
 import { taskService } from '@/services/taskService';
 
-const { mockAddToast, mockPrompt } = vi.hoisted(() => ({ mockAddToast: vi.fn(), mockPrompt: vi.fn() }));
+const { mockAddToast, mockPrompt, mockConfirm } = vi.hoisted(() => ({
+  mockAddToast: vi.fn(),
+  mockPrompt: vi.fn(),
+  mockConfirm: vi.fn(),
+}));
 
 class MockResizeObserver {
   observe() {}
@@ -23,7 +27,7 @@ vi.mock('@/context/ToastContext', () => ({
   useToast: () => ({ addToast: mockAddToast }),
 }));
 vi.mock('@/components/ui/ConfirmProvider', () => ({
-  useConfirm: () => vi.fn(),
+  useConfirm: () => mockConfirm,
   usePrompt: () => mockPrompt,
 }));
 vi.mock('@/hooks/useUnsavedChangesGuard', () => ({
@@ -44,6 +48,7 @@ vi.mock('@/services/taskService', () => ({
     addChecklist: vi.fn(),
     patchChecklist: vi.fn(),
     deleteChecklist: vi.fn(),
+    remove: vi.fn(),
   },
 }));
 
@@ -51,9 +56,12 @@ describe('TaskDialog', () => {
   afterEach(() => {
     cleanup();
     mockPrompt.mockReset();
+    mockConfirm.mockReset();
+    mockAddToast.mockReset();
     vi.mocked(taskService.patchTask).mockReset();
     vi.mocked(taskService.createTask).mockReset();
     vi.mocked(taskService.changeStage).mockReset();
+    vi.mocked(taskService.remove).mockReset();
   });
   it('keeps the discussion pane from scrolling with the form on desktop', () => {
     render(
@@ -424,6 +432,34 @@ describe('TaskDialog', () => {
     fireEvent.click(screen.getByText('Close'));
     expect(screen.queryByTestId('task-unsaved-changes')).toBeNull();
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('hides Save on a completed task until a field is edited', () => {
+    const completed: Task = { ...editTodo, status: 'completed', title: 'Done work' };
+    render(
+      <TaskDialog open task={completed} actor={adminActor} assignable={[]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+    expect(screen.queryByTestId('task-dialog-save')).toBeNull();
+    expect(screen.queryByTestId('task-dialog-primary')).toBeNull();
+    expect(screen.getByText('Close')).toBeTruthy();
+  });
+
+  it('shows Saving on the primary while field edits are in flight', async () => {
+    let finish!: (task: Task) => void;
+    vi.mocked(taskService.patchTask).mockImplementation(
+      () => new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    render(
+      <TaskDialog open task={editTodo} actor={adminActor} assignable={[]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: 'Updated landing copy' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(screen.getAllByText('Saving…').length).toBeGreaterThan(0));
+    finish({ ...editTodo, title: 'Updated landing copy', updated_at: '2026-11-11T01:00:00Z' });
+    await waitFor(() => expect(screen.queryByText('Saving…')).toBeNull());
   });
 
   it('keeps Create task as the primary on the add-task flow even when dirty', () => {

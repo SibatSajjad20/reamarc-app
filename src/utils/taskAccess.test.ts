@@ -11,6 +11,7 @@ import {
   isViewOnly,
   listQuickActions,
   listRowAdvanceTo,
+  stageChangeNeedsReason,
 } from './taskAccess';
 import type { Task, TaskActor } from '@/types/task';
 
@@ -109,6 +110,8 @@ describe('taskAccess', () => {
     const assigned = task({ status: 'in_review' });
     expect(canTransitionTo(memberC1, assigned, 'completed')).toBe(false);
     expect(canTransitionTo(leadC, assigned, 'completed')).toBe(true);
+    expect(stageChangeNeedsReason('in_review', 'in_progress')).toBe(true);
+    expect(stageChangeNeedsReason('todo', 'in_progress')).toBe(false);
     expect(canTransitionTo(leadC, assigned, 'in_progress')).toBe(false);
     expect(canTransitionTo(leadC, assigned, 'in_progress', 'fix it')).toBe(true);
     const selfTask = task({

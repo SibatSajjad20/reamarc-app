@@ -26,6 +26,14 @@ export function mergePolledTaskPage(previous: Task[], polled: Task[]): Task[] {
   return [...polled, ...previous.filter((task) => !polledIds.has(task.id))];
 }
 
+export function overlayPendingStages(tasks: Task[], pending: Map<string, TaskStatus>): Task[] {
+  if (!pending.size) return tasks;
+  return tasks.map((task) => {
+    const status = pending.get(task.id);
+    return status && status !== task.status ? { ...task, status } : task;
+  });
+}
+
 export function appendUniqueTasks(previous: Task[], nextPage: Task[]): Task[] {
   const seen = new Set(previous.map((task) => task.id));
   const extra = nextPage.filter((task) => !seen.has(task.id));

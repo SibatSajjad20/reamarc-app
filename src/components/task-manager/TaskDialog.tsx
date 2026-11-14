@@ -45,6 +45,7 @@ import {
   changedFields,
   isAdmin,
   isViewOnly,
+  stageChangeNeedsReason,
 } from '@/utils/taskAccess';
 import { TaskStagePill } from './TaskPriorityPill';
 import { TaskChecklist } from './TaskChecklist';
@@ -99,6 +100,7 @@ interface Props {
   focusAssignee?: boolean;
   onClose: () => void;
   onSaved: (task: Task, opts?: { refreshList?: boolean }) => void;
+  onDeleted?: (task: Task) => void;
 }
 
 export const TaskDialog: React.FC<Props> = ({
@@ -112,6 +114,7 @@ export const TaskDialog: React.FC<Props> = ({
   focusAssignee,
   onClose,
   onSaved,
+  onDeleted,
 }) => {
   const { addToast } = useToast();
   const confirm = useConfirm();
@@ -125,6 +128,7 @@ export const TaskDialog: React.FC<Props> = ({
   const [activity, setActivity] = useState<Activity[]>([]);
   const [checklist, setChecklist] = useState<TaskChecklistItem[]>(task?.checklist || []);
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [watchers, setWatchers] = useState<string[]>(task?.watcher_ids || []);
   const [watchersBaseline, setWatchersBaseline] = useState<string[]>(task?.watcher_ids || []);
@@ -358,13 +362,22 @@ export const TaskDialog: React.FC<Props> = ({
 
   const runStage = async (to: TaskStatus, reason?: string) => {
     if (!task) return;
+    let note = reason;
+    if (stageChangeNeedsReason(task.status, to) && !(note || '').trim()) {
+      note = (await prompt({ title: 'Send back', label: 'Reason' })) || undefined;
+      if (!(note || '').trim()) {
+        setDraft((d) => ({ ...d, status: task.status }));
+        return;
+      }
+    }
     setBusy(true);
     try {
-      const updated = await taskService.changeStage(task.id, to, reason);
+      const updated = await taskService.changeStage(task.id, to, note);
       onSaved(updated);
       setDraft((d) => ({ ...d, status: updated.status }));
       setBaseline(draftFrom(updated));
     } catch (err: any) {
+      setDraft((d) => ({ ...d, status: task.status }));
       setServerError(err?.message || 'Could not change stage');
     } finally {
       setBusy(false);
@@ -381,11 +394,30 @@ export const TaskDialog: React.FC<Props> = ({
           : null
     : null;
 
+  const showPrimary = isCreate || showFieldSave || Boolean(stageAction);
   const primaryLabel = isCreate
     ? 'Create task'
     : showFieldSave
       ? 'Save'
-      : stageAction?.label || (canEdit ? 'Save' : 'Close');
+      : stageAction?.label || 'Close';
+  const primaryBusyLabel = isCreate
+    ? 'Creating…'
+    : showFieldSave
+      ? 'Saving…'
+      : stageAction
+        ? `${stageAction.label}…`
+        : undefined;
+  const footerBusyLabel = deleting
+    ? 'Deleting task…'
+    : busy
+      ? isCreate
+        ? 'Creating task…'
+        : showFieldSave
+          ? 'Saving…'
+          : stageAction
+            ? `${stageAction.label}…`
+            : 'Updating…'
+      : false;
 
   const onPrimary = async () => {
     if (isCreate) {
@@ -468,8 +500,21 @@ export const TaskDialog: React.FC<Props> = ({
                         tone: 'danger',
                       });
                       if (ok) {
-                        await taskService.remove(task.id);
-                        onClose();
+                        setDeleting(true);
+                        setBusy(true);
+                        try {
+                          await taskService.remove(task.id);
+                          addToast('Task deleted', `${task.serial} was removed.`, 'success');
+                          onDeleted?.(task);
+                          onClose();
+                        } catch (err: any) {
+                          const message = err?.message || 'Could not delete task';
+                          setServerError(message);
+                          addToast('Delete failed', message, 'error');
+                        } finally {
+                          setDeleting(false);
+                          setBusy(false);
+                        }
                       }
                     }}
                   >
@@ -779,12 +824,12 @@ export const TaskDialog: React.FC<Props> = ({
             </Tabs>
           </div>
         </FormDialogBody>
-        <FormFooter serverError={serverError || clientError || undefined} uploading={busy}>
+        <FormFooter serverError={serverError || clientError || undefined} uploading={footerBusyLabel}>
           {task?.status === 'in_review' && canTransitionTo(actor, task, 'in_progress', 'x') && (
             <Button
               type="button"
               variant="secondary"
-              disabled={busy}
+              disabled={busy || deleting}
               onClick={async () => {
                 const reason = await prompt({ title: 'Send back', label: 'Reason' });
                 if (reason) await runStage('in_progress', reason);
@@ -793,17 +838,21 @@ export const TaskDialog: React.FC<Props> = ({
               Send back
             </Button>
           )}
-          <Button type="button" variant="secondary" disabled={fileBusy} onClick={() => void handleClose()}>
+          <Button type="button" variant="secondary" disabled={fileBusy || deleting} onClick={() => void handleClose()}>
             Close
           </Button>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={busy || ((isCreate || showFieldSave) && !draft.title.trim()) || (isCreate && !draft.assignee_id)}
-            data-testid={showFieldSave ? 'task-dialog-save' : 'task-dialog-primary'}
-          >
-            {primaryLabel}
-          </Button>
+          {showPrimary && (
+            <Button
+              type="submit"
+              variant="primary"
+              loading={busy && !deleting}
+              loadingText={busy && !deleting ? primaryBusyLabel : undefined}
+              disabled={busy || deleting || ((isCreate || showFieldSave) && !draft.title.trim()) || (isCreate && !draft.assignee_id)}
+              data-testid={showFieldSave ? 'task-dialog-save' : 'task-dialog-primary'}
+            >
+              {primaryLabel}
+            </Button>
+          )}
         </FormFooter>
       </form>
     </FormDialog>
