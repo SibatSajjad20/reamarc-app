@@ -1,6 +1,6 @@
 import { BoundedCache } from './cache';
 import { registerCacheClearer } from './cacheBus';
-import type { Task, TaskFilters, TaskListResponse } from '../types/task';
+import type { Task, TaskFilters, TaskListResponse, TaskStatus } from '../types/task';
 
 export type TaskListCachePayload = Pick<TaskListResponse, 'items' | 'total' | 'page' | 'limit' | 'truncated' | 'stage_counts'>;
 
