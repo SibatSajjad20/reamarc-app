@@ -253,12 +253,15 @@ export function isMobileRouteAllowed(user: RoleUserLike | null | undefined, segm
 
 export function routeForNotification(
   user: RoleUserLike | null | undefined,
-  data: { type?: string; lead_id?: string; task_id?: string },
+  data: { type?: string; lead_id?: string; task_id?: string; project_id?: string },
 ): string {
   const type = String(data?.type || '').toLowerCase();
   const layout = resolveTabs(user);
   if ((type === 'crm_lead' || type.includes('crm') || type.includes('lead')) && data.lead_id && canAccessCrm(user)) {
     return `/pipeline/lead/${encodeURIComponent(String(data.lead_id))}`;
+  }
+  if ((type.includes('website') || data.project_id) && data.project_id && canAccessWebsiteProjects(user)) {
+    return `/website-projects/${encodeURIComponent(String(data.project_id))}`;
   }
   if ((type.includes('task') || type === 'tasks') && canAccessTasks(user)) {
     if (data.task_id) return `/tasks/${encodeURIComponent(String(data.task_id))}`;

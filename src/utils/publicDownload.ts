@@ -40,11 +40,18 @@ export function triggerAnchorDownload(url: string, filename: string, doc: Docume
   const a = doc.createElement('a');
   a.href = url;
   a.download = filename || 'download';
-  a.rel = 'noopener';
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
   a.style.display = 'none';
   doc.body.appendChild(a);
   a.click();
-  a.remove();
+  setTimeout(() => {
+    try {
+      a.remove();
+    } catch {
+      // ignore
+    }
+  }, 1000);
   return a;
 }
 
@@ -113,7 +120,7 @@ export async function downloadPublicAsset(
 
 export async function downloadAllPublicAssets(
   assets: PublicDownloadAsset[],
-  gapMs = 400,
+  gapMs = 800,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   onProgress?: (current: number, total: number) => void,
 ): Promise<void> {

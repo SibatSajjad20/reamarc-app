@@ -27,11 +27,18 @@ function clickAnchor(href: string, filename?: string) {
   const a = document.createElement('a');
   a.href = href;
   if (filename) a.download = filename;
-  a.rel = 'noopener';
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
   a.style.display = 'none';
   document.body.appendChild(a);
   a.click();
-  a.remove();
+  setTimeout(() => {
+    try {
+      a.remove();
+    } catch {
+      // ignore
+    }
+  }, 1000);
 }
 
 export async function getDirectDownloadUrl(asset: DirectDownloadAsset): Promise<string | null> {
@@ -79,7 +86,7 @@ export async function downloadAllAssets(
       /* keep going with the rest */
     }
     opts.onProgress?.(i + 1, queue.length);
-    if (i < queue.length - 1) await sleep(opts.gapMs ?? 600);
+    if (i < queue.length - 1) await sleep(opts.gapMs ?? 800);
   }
   return { downloaded, skipped: skipped.map((s) => s.asset) };
 }

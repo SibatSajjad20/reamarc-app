@@ -56,13 +56,23 @@ describe('direct downloads', () => {
   it('Drive file: asks the API for a Google link and never proxies', async () => {
     const { downloadAssetDirect } = await load('utils/directDownload');
     getMock.mockResolvedValue({ url: 'https://drive.usercontent.google.com/download?id=X' });
+    const createdAnchors: HTMLAnchorElement[] = [];
+    const origCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag) => {
+      const el = origCreate(tag);
+      if (tag === 'a') createdAnchors.push(el as HTMLAnchorElement);
+      return el;
+    });
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     const how = await downloadAssetDirect({ url: '/uploads/gdrive/X/a.mp4', filename: 'a.mp4' });
     expect(how).toBe('direct');
     expect(getMock.mock.calls[0][0]).toContain('/drive/direct-link?path=%2Fuploads%2Fgdrive%2FX%2Fa.mp4');
     expect(proxyDownload).not.toHaveBeenCalled();
     expect(click).toHaveBeenCalled();
+    expect(createdAnchors[0]?.target).toBe('_blank');
+    expect(createdAnchors[0]?.rel).toBe('noopener noreferrer');
     click.mockRestore();
+    createSpy.mockRestore();
   });
 
   it('falls back to the normal download when the link is refused, and local files never ask', async () => {

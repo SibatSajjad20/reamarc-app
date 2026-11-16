@@ -182,8 +182,10 @@ describe('publicDownload', () => {
     ]);
   });
 
-  it('triggerAnchorDownload sets the download attribute', () => {
+  it('triggerAnchorDownload sets download and target=_blank to prevent tab navigation', () => {
     const a = triggerAnchorDownload('/file.png?download=1', 'file.png');
     expect(a.download).toBe('file.png');
+    expect(a.target).toBe('_blank');
+    expect(a.rel).toBe('noopener noreferrer');
   });
 });

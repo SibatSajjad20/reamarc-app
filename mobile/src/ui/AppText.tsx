@@ -7,7 +7,7 @@ import {
 } from 'react-native';
 import { appTypeStyle } from '../theme/typography';
 
-export const Text = React.forwardRef<RNText, TextProps>(function AppText(
+export const Text = React.forwardRef<React.ComponentRef<typeof RNText>, TextProps>(function AppText(
   { style, allowFontScaling = true, ...rest },
   ref,
 ) {
@@ -16,7 +16,7 @@ export const Text = React.forwardRef<RNText, TextProps>(function AppText(
   );
 });
 
-export const TextInput = React.forwardRef<RNTextInput, TextInputProps>(function AppTextInput(
+export const TextInput = React.forwardRef<React.ComponentRef<typeof RNTextInput>, TextInputProps>(function AppTextInput(
   { style, allowFontScaling = true, ...rest },
   ref,
 ) {

@@ -497,7 +497,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     try {
       await downloadAllPublicAssets(
         bulkQueue,
-        400,
+        800,
         undefined,
         (current, total) => {
           if (isMountedRef.current) {
