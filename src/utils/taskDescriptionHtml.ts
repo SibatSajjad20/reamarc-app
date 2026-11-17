@@ -12,6 +12,20 @@ function unwrapElement(el: Element): void {
   parent.removeChild(el);
 }
 
+function styleIsBold(el: Element): boolean {
+  const style = `${el.getAttribute('style') || ''} ${el.getAttribute('face') || ''}`;
+  if (/font-weight\s*:\s*(bold|bolder|700|800|900)/i.test(style)) return true;
+  const weight = (el.getAttribute('weight') || '').toLowerCase();
+  return weight === 'bold' || weight === '700' || weight === '800' || weight === '900';
+}
+
+function wrapChildrenInBold(el: Element): void {
+  const doc = el.ownerDocument;
+  const bold = doc.createElement('b');
+  while (el.firstChild) bold.appendChild(el.firstChild);
+  el.appendChild(bold);
+}
+
 function scrub(node: Element): void {
   Array.from(node.childNodes).forEach((child) => {
     if (child.nodeType === Node.COMMENT_NODE) {
@@ -21,6 +35,7 @@ function scrub(node: Element): void {
     if (child.nodeType !== Node.ELEMENT_NODE) return;
     const el = child as Element;
     if (!ALLOWED_TAGS.has(el.tagName)) {
+      if (styleIsBold(el)) wrapChildrenInBold(el);
       unwrapElement(el);
       scrub(node);
       return;
@@ -59,4 +74,4 @@ export function isTaskDescriptionEmpty(html: string): boolean {
 }
 
 export const TASK_DESC_HTML_CLASS =
-  'task-desc-html [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:my-0.5 [&_b]:font-semibold [&_strong]:font-semibold [&_p]:m-0 [&_p+p]:mt-1';
+  'task-desc-html [&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5 [&_li]:my-0.5 [&_b]:font-bold [&_strong]:font-bold [&_p]:m-0 [&_p+p]:mt-1';

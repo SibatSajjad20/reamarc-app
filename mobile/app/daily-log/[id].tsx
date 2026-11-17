@@ -174,6 +174,13 @@ export default function DailyLogDetailScreen() {
   }
 
   const tone = taskStatusTone(entry.task_status);
+  const taskSerial =
+    entry.task_serial ||
+    (entry.task_id
+      ? entry.task_id.startsWith('t_')
+        ? entry.task_id
+        : `T-${entry.task_id.slice(-4)}`
+      : null);
   const deliverables = splitDeliverables(entry.deliverables);
   const customFields = entry.custom_fields
     ? Object.entries(entry.custom_fields).filter(([, v]) => String(v ?? '').trim())
@@ -197,6 +204,20 @@ export default function DailyLogDetailScreen() {
             </View>
           </View>
 
+          {taskSerial ? (
+            <Pressable
+              disabled={!entry.task_id}
+              onPress={() => entry.task_id && router.push(`/tasks/${entry.task_id}`)}
+              style={styles.taskSerialBadge}
+            >
+              <Ionicons name="briefcase-outline" size={13} color={colors.indigo} />
+              <Text style={styles.taskSerialText}>{taskSerial}</Text>
+              {entry.task_id ? (
+                <Ionicons name="chevron-forward" size={12} color={colors.indigo} />
+              ) : null}
+            </Pressable>
+          ) : null}
+
           <TaskHtmlText html={entry.task_description || 'Untitled task'} style={styles.taskTitle} />
           <View style={styles.metaRow}>
             <View style={styles.metaChip}>
@@ -212,8 +233,27 @@ export default function DailyLogDetailScreen() {
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Details</Text>
-          <Field label="Client / Project" value={entry.client_project} />
+          {taskSerial ? (
+            <View style={styles.field}>
+              <Text style={styles.fieldLabel}>Task Manager Task</Text>
+              {entry.task_id ? (
+                <Pressable
+                  onPress={() => router.push(`/tasks/${entry.task_id}`)}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}
+                >
+                  <Text style={[styles.fieldValue, { color: colors.indigo, fontWeight: '700' }]}>
+                    {taskSerial}
+                  </Text>
+                  <Ionicons name="open-outline" size={13} color={colors.indigo} />
+                </Pressable>
+              ) : (
+                <Text style={styles.fieldValue}>{taskSerial}</Text>
+              )}
+            </View>
+          ) : null}
+          <Field label="Client / Project" value={entry.client_project || 'Internal agency work'} />
           <Field label="Task type" value={entry.task_type} />
+          <Field label="Status in Daily Log" value={tone.label} />
           <Field label="Hours utilized" value={formatHoursShort(entry.hours_utilized)} />
           {entry.start_time || entry.end_time ? (
             <Field
@@ -331,6 +371,22 @@ const styles = StyleSheet.create({
   heroMeta: { marginTop: 2, fontSize: 12, color: colors.muted },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusText: { fontSize: 10.5, fontWeight: '600' },
+  taskSerialBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginBottom: 8,
+  },
+  taskSerialText: {
+    color: colors.indigo,
+    fontSize: 12,
+    fontWeight: '800',
+  },
   taskTitle: { fontSize: 16, fontWeight: '400', color: colors.text, lineHeight: 24 },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   metaChip: {

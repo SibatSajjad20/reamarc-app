@@ -31,6 +31,9 @@ export interface DailyLogEntry {
   end_time?: string | null;
   estimated_hours?: number | null;
   variance_reason?: string | null;
+  task_id?: string | null;
+  task_serial?: string | null;
+  sync_task_status?: string | null;
   month_sheet: string;
   custom_fields?: Record<string, any>;
   created_at?: string;
@@ -54,6 +57,9 @@ export interface CreateDailyLogEntryPayload {
   end_time?: string | null;
   estimated_hours?: number | null;
   variance_reason?: string | null;
+  task_id?: string | null;
+  task_serial?: string | null;
+  sync_task_status?: string | null;
   month_sheet?: string;
   custom_fields?: Record<string, any>;
 }
@@ -76,6 +82,9 @@ export interface UpdateDailyLogEntryPayload {
   end_time?: string | null;
   estimated_hours?: number | null;
   variance_reason?: string | null;
+  task_id?: string | null;
+  task_serial?: string | null;
+  sync_task_status?: string | null;
   month_sheet?: string;
   custom_fields?: Record<string, any>;
 }

@@ -21,7 +21,10 @@ import {
   Columns3,
   Rows3,
   User,
+  Briefcase,
 } from 'lucide-react';
+import { taskService } from '../../services/taskService';
+import type { Task } from '../../types/task';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -252,6 +255,7 @@ export const DailyLogView: React.FC = () => {
   const [entryModalMode, setEntryModalMode] = useState<'create' | 'edit'>('create');
   const [selectedEntry, setSelectedEntry] = useState<DailyLogEntry | null>(null);
   const [prefilledDate, setPrefilledDate] = useState<string | undefined>(undefined);
+  const [prefilledTask, setPrefilledTask] = useState<Task | null>(null);
   const [formDate, setFormDate] = useState<string>(() => nearestPastWorkdayIso(getTodayIso()));
   const [isDayTargetLoading, setIsDayTargetLoading] = useState<boolean>(false);
 
@@ -1539,6 +1543,11 @@ export const DailyLogView: React.FC = () => {
                                 <div className="flex-1 min-w-0 pb-2">
                                   <div className="flex items-start justify-between gap-3">
                                     <h4 className="text-ui font-medium text-fg line-clamp-2 leading-snug group-hover:text-accent-text transition-colors">
+                                      {(entry.task_serial || entry.task_id) && (
+                                        <span className="inline-flex items-center text-micro font-numeric text-accent font-semibold px-1.5 py-0.5 rounded-xs bg-accent/10 mr-1.5 align-middle">
+                                          {entry.task_serial || entry.task_id}
+                                        </span>
+                                      )}
                                       <TaskDescriptionHtml html={entry.task_description} clamp />
                                     </h4>
                                     <span className="text-ui font-semibold font-numeric tabular-nums text-fg shrink-0">
@@ -2075,6 +2084,11 @@ export const DailyLogView: React.FC = () => {
                                             : 'line-clamp-2'
                                         )}
                                       >
+                                        {(row.task_serial || row.task_id) && (
+                                          <span className="inline-flex items-center text-micro font-numeric text-accent font-semibold px-1 py-0.5 rounded-xs bg-accent/10 mr-1.5 align-middle">
+                                            {row.task_serial || row.task_id}
+                                          </span>
+                                        )}
                                         <TaskDescriptionHtml html={desc} clamp={!isTallRow} />
                                       </button>
                                     ) : (
@@ -2312,7 +2326,7 @@ export const DailyLogView: React.FC = () => {
         title={descPreview?.title || ''}
         maxWidth="lg"
       >
-        <TaskDescriptionHtml html={descPreview?.description || ''} />
+        <TaskDescriptionHtml html={descPreview?.description || ''} className="whitespace-pre-wrap" />
       </Modal>
 
       <DailyLogModal
@@ -2320,6 +2334,7 @@ export const DailyLogView: React.FC = () => {
         mode={entryModalMode}
         initialData={selectedEntry}
         prefilledDate={prefilledDate}
+        prefilledTask={prefilledTask}
         columns={columns}
         activeSheet={activeSheet}
         currentUser={modalCurrentUser}
@@ -2327,6 +2342,7 @@ export const DailyLogView: React.FC = () => {
         onClose={() => {
           setIsEntryModalOpen(false);
           setPrefilledDate(undefined);
+          setPrefilledTask(null);
         }}
         onSaved={handleEntrySaved}
         onRefreshRequired={fetchEntries}

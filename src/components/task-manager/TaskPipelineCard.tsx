@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, ListChecks, MessageSquare, Paperclip, SquareCheckBig } from 'lucide-react';
+import { Calendar, Clock, ListChecks, MessageSquare, Paperclip, SquareCheckBig } from 'lucide-react';
 import { KanbanCard } from '@/components/ui/Kanban';
 import { Avatar } from '@/components/ui/Avatar';
 import { Progress } from '@/components/ui/progress';
@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import type { Task } from '@/types/task';
 import { formatPktDate } from '@/utils/datetime';
 import { isOverdue } from '@/utils/taskFollowUp';
+import { isSharedStageCard } from '@/utils/taskAssignmentGroup';
 import { TaskPriorityPill } from './TaskPriorityPill';
 
 export type BoardDensity = 'comfortable' | 'compact';
@@ -19,6 +20,7 @@ interface Props {
   density?: BoardDensity;
   isDragging?: boolean;
   onOpen: (task: Task) => void;
+  onLogTime?: (task: Task) => void;
   onDragStart: (event: React.DragEvent<HTMLDivElement>, task: Task) => void;
   onDragEnd: () => void;
 }
@@ -45,12 +47,17 @@ export const TaskPipelineCard: React.FC<Props> = ({
   density = 'comfortable',
   isDragging,
   onOpen,
+  onLogTime,
   onDragStart,
   onDragEnd,
 }) => {
   const { getAvatarUrl } = useMemberAvatars();
   const overdue = isOverdue(task);
-  const assigneeName = task.assignee_name || 'Unassigned';
+  const sharedStage = isSharedStageCard(task);
+  const peopleCount = task.assignment_group?.total_count || 0;
+  const assigneeName = sharedStage
+    ? `${peopleCount} people`
+    : task.assignee_name || 'Unassigned';
   const avatarSrc = getAvatarUrl(task.assignee_id || undefined, task.assignee_name) || undefined;
   const dueText = task.due_date ? formatPktDate(task.due_date) : '';
 
@@ -67,9 +74,15 @@ export const TaskPipelineCard: React.FC<Props> = ({
     return (
       <KanbanCard
         isDragging={isDragging}
-        draggable
+        draggable={!sharedStage}
         tabIndex={0}
-        onDragStart={(e) => onDragStart(e, task)}
+        onDragStart={(e) => {
+          if (sharedStage) {
+            e.preventDefault();
+            return;
+          }
+          onDragStart(e, task);
+        }}
         onDragEnd={onDragEnd}
         onClick={open}
         onKeyDown={onKeyDown}
@@ -80,7 +93,20 @@ export const TaskPipelineCard: React.FC<Props> = ({
             <span className="font-sans font-numeric tabular-nums text-micro text-fg-muted shrink-0">{task.serial}</span>
             {task.department ? <DepartmentChip name={task.department} /> : null}
           </div>
-          <div className="shrink-0">
+          <div className="shrink-0 flex items-center gap-1">
+            {onLogTime && task.status !== 'cancelled' && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onLogTime(task);
+                }}
+                className="p-1 rounded-xs text-fg-muted hover:text-accent hover:bg-hover transition-colors"
+                title="Log time"
+              >
+                <Clock size={12} />
+              </button>
+            )}
             <TaskPriorityPill priority={task.priority} />
           </div>
         </div>
@@ -98,14 +124,23 @@ export const TaskPipelineCard: React.FC<Props> = ({
         )}
         <div className="mt-2 flex items-center justify-between gap-2">
           <div className="flex items-center gap-1.5 min-w-0">
-            <Avatar name={assigneeName} src={avatarSrc} size={20} />
-            <span className="text-micro text-fg-muted truncate">{assigneeName}</span>
-          </div>
-          {task.due_date && (
-            <span className={cn('text-micro font-numeric', overdue ? 'text-danger-fg' : 'text-fg-muted')}>
-              {dueText}
+            <Avatar name={sharedStage ? 'Group' : assigneeName} src={sharedStage ? undefined : avatarSrc} size={20} />
+            <span className="text-micro text-fg-muted truncate" data-testid="task-pipeline-assignee">
+              {assigneeName}
             </span>
-          )}
+          </div>
+          <div className="flex items-center gap-2">
+            {(task.logged_hours || 0) > 0 && (
+              <span className="text-micro font-numeric text-accent font-medium">
+                {task.logged_hours}h
+              </span>
+            )}
+            {task.due_date && (
+              <span className={cn('text-micro font-numeric', overdue ? 'text-danger-fg' : 'text-fg-muted')}>
+                {dueText}
+              </span>
+            )}
+          </div>
         </div>
       </KanbanCard>
     );
@@ -157,13 +192,29 @@ export const TaskPipelineCard: React.FC<Props> = ({
       label: `${task.attachments_count} attachments`,
     });
   }
+  if ((task.logged_hours || 0) > 0 || (task.estimate_hours || 0) > 0) {
+    const logged = task.logged_hours || 0;
+    const est = task.estimate_hours;
+    meta.push({
+      key: 'hours',
+      icon: <Clock size={13} />,
+      text: est ? `${logged}h / ${est}h` : `${logged}h`,
+      label: est ? `${logged}h logged of ${est}h estimated` : `${logged}h logged`,
+    });
+  }
 
   return (
     <KanbanCard
       isDragging={isDragging}
-      draggable
+      draggable={!sharedStage}
       tabIndex={0}
-      onDragStart={(e) => onDragStart(e, task)}
+      onDragStart={(e) => {
+        if (sharedStage) {
+          e.preventDefault();
+          return;
+        }
+        onDragStart(e, task);
+      }}
       onDragEnd={onDragEnd}
       onClick={open}
       onKeyDown={onKeyDown}
@@ -203,22 +254,40 @@ export const TaskPipelineCard: React.FC<Props> = ({
           <span className="text-micro font-numeric text-fg-muted">{task.progress}%</span>
         </div>
       )}
-      <div className="mt-3 -mx-3 px-3 py-2 border-t border-border flex justify-between gap-2">
+      <div className="mt-3 -mx-3 px-3 py-2 border-t border-border flex justify-between items-center gap-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <Avatar name={assigneeName} src={avatarSrc} size={20} />
-          <span className="text-small font-medium text-fg-2 truncate">{assigneeName}</span>
-        </div>
-        {task.due_date && (
-          <span
-            className={cn(
-              'inline-flex items-center gap-1 text-small font-numeric shrink-0',
-              overdue ? 'text-danger-fg' : 'text-fg-muted',
-            )}
-          >
-            <Calendar size={12} />
-            {dueText}
+          <Avatar name={sharedStage ? 'Group' : assigneeName} src={sharedStage ? undefined : avatarSrc} size={20} />
+          <span className="text-small font-medium text-fg-2 truncate" data-testid="task-pipeline-assignee">
+            {assigneeName}
           </span>
-        )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {onLogTime && task.status !== 'cancelled' && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onLogTime(task);
+              }}
+              className="inline-flex items-center gap-1 text-micro text-fg-muted hover:text-accent font-medium px-1.5 py-0.5 rounded-xs hover:bg-hover transition-colors"
+              title="Log time against this task"
+            >
+              <Clock size={11} />
+              <span>Log</span>
+            </button>
+          )}
+          {task.due_date && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 text-small font-numeric shrink-0',
+                overdue ? 'text-danger-fg' : 'text-fg-muted',
+              )}
+            >
+              <Calendar size={12} />
+              {dueText}
+            </span>
+          )}
+        </div>
       </div>
     </KanbanCard>
   );

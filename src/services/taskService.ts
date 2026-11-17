@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import type { DailyLogEntry } from '../types/dailyLog';
 import type {
   Task,
   TaskAttachment,
@@ -230,5 +231,9 @@ export const taskService = {
   },
   async deleteSavedView(id: string): Promise<{ ok: boolean }> {
     return apiClient.delete<{ ok: boolean }>(`/tasks/saved-views/${id}`);
+  },
+  async getTaskLogs(id: string): Promise<DailyLogEntry[]> {
+    const res = await apiClient.get<{ logs: DailyLogEntry[] }>(`/tasks/${id}/logs`);
+    return res.logs || [];
   },
 };

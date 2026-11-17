@@ -95,6 +95,9 @@ class DailyLogEntryCreate(BaseModel):
     estimated_hours: Optional[float] = None
     variance_reason: Optional[str] = None
     month_sheet: Optional[str] = None
+    task_id: Optional[str] = None
+    task_serial: Optional[str] = None
+    sync_task_status: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
 
     @field_validator("hours_utilized", mode="before")
@@ -131,6 +134,9 @@ class DailyLogEntryUpdate(BaseModel):
     estimated_hours: Optional[float] = None
     variance_reason: Optional[str] = None
     month_sheet: Optional[str] = None
+    task_id: Optional[str] = None
+    task_serial: Optional[str] = None
+    sync_task_status: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
 
     @field_validator("hours_utilized", mode="before")
@@ -173,6 +179,8 @@ class DailyLogEntryResponse(BaseModel):
     estimated_hours: Optional[float] = None
     variance_reason: Optional[str] = None
     month_sheet: str
+    task_id: Optional[str] = None
+    task_serial: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

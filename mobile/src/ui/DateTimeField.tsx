@@ -37,10 +37,14 @@ export function DateField({
   label,
   value,
   onChange,
+  minimumDate,
+  maximumDate,
 }: {
   label: string;
   value: string;
   onChange: (next: string) => void;
+  minimumDate?: Date;
+  maximumDate?: Date;
 }) {
   return (
     <PickerField
@@ -50,6 +54,8 @@ export function DateField({
       mode="date"
       date={parseDate(value)}
       onChange={(d) => onChange(toIsoDate(d))}
+      minimumDate={minimumDate}
+      maximumDate={maximumDate}
     />
   );
 }
@@ -82,6 +88,8 @@ function PickerField({
   mode,
   date,
   onChange,
+  minimumDate,
+  maximumDate,
 }: {
   label: string;
   display: string;
@@ -89,6 +97,8 @@ function PickerField({
   mode: 'date' | 'time';
   date: Date;
   onChange: (next: Date) => void;
+  minimumDate?: Date;
+  maximumDate?: Date;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(date);
@@ -112,6 +122,8 @@ function PickerField({
           value={value}
           mode={mode}
           display="default"
+          minimumDate={minimumDate}
+          maximumDate={maximumDate}
           onChange={(_, selected) => {
             setOpen(false);
             if (selected) onChange(selected);
@@ -139,6 +151,8 @@ function PickerField({
                 value={draft}
                 mode={mode}
                 display={mode === 'date' ? 'inline' : 'spinner'}
+                minimumDate={minimumDate}
+                maximumDate={maximumDate}
                 textColor="#0F172A"
                 themeVariant="light"
                 accentColor={colors.indigo}

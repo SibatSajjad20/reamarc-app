@@ -17,6 +17,8 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
+import { taskService } from '../../services/taskService';
+import type { Task } from '../../types/task';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -44,6 +46,7 @@ export interface DailyLogFormProps {
   mode: 'create' | 'edit';
   initialData?: DailyLogEntry | null;
   prefilledDate?: string;
+  prefilledTask?: Task | null;
   columns?: DailyLogColumn[];
   activeSheet: string;
   currentUser?: { name?: string; role?: string; full_name?: string; department?: string } | null;
@@ -105,6 +108,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   mode,
   initialData,
   prefilledDate,
+  prefilledTask,
   columns = [],
   activeSheet,
   currentUser,
@@ -159,6 +163,11 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const [taskType, setTaskType] = useState<string>('Scheduled Task');
   const [taskStatus, setTaskStatus] = useState<string>('Incomplete');
 
+  const [assignedTasks, setAssignedTasks] = useState<Task[]>([]);
+  const [selectedTaskId, setSelectedTaskId] = useState<string>(() => prefilledTask?.id || initialData?.task_id || '');
+  const [selectedTaskSerial, setSelectedTaskSerial] = useState<string>(() => prefilledTask?.serial || initialData?.task_serial || '');
+  const [syncTaskStage, setSyncTaskStage] = useState<boolean>(true);
+
   // Itemized Revisions List
   const [revisionPoints, setRevisionPoints] = useState<string[]>(['']);
 
@@ -194,6 +203,22 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const activeWorkspaces = useMemo(() => {
     return workspaces.filter((w) => w.status !== 'inactive');
   }, [workspaces]);
+
+  useEffect(() => {
+    if (mode !== 'create') return;
+    let cancelled = false;
+    taskService
+      .getTasks({ scope: 'mine', limit: 50 })
+      .then((res) => {
+        if (!cancelled && res.items) {
+          setAssignedTasks(res.items.filter((t) => t.status !== 'completed' && t.status !== 'cancelled'));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
 
   const workspaceOptions = useMemo(() => {
     if (activeWorkspaces.length === 0) {
@@ -299,10 +324,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       setResourceName(currentUser?.full_name || currentUser?.name || 'User');
       setRole(formattedRole);
       setDepartment(resolvedDept);
-      setClientProject('');
-      setTaskDescription('');
+      setClientProject(prefilledTask?.related?.client_name || '');
+      setTaskDescription(prefilledTask?.title || '');
+      setSelectedTaskId(prefilledTask?.id || '');
+      setSelectedTaskSerial(prefilledTask?.serial || '');
       setTaskType('Scheduled Task');
-      setTaskStatus('Incomplete');
+      setTaskStatus(prefilledTask?.status === 'completed' ? 'Completed' : 'Incomplete');
       setRevisionPoints(['']);
       setAttachedFiles([]);
       setDeliverableUrl('');
@@ -482,6 +509,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       }
       const formattedDeliverables = deliverableParts.join(' | ');
 
+      let sync_task_status: string | undefined = undefined;
+      if (syncTaskStage && selectedTaskId) {
+        if (taskStatus === 'Completed') sync_task_status = 'completed';
+        else if (taskStatus === 'Incomplete') sync_task_status = 'in_progress';
+      }
+
       if (mode === 'create') {
         const payload = {
           date: date.trim(),
@@ -495,6 +528,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           deliverables: formattedDeliverables,
           hours_utilized: hoursUtilized.trim(),
           remarks: remarks.trim(),
+          task_id: selectedTaskId || undefined,
+          task_serial: selectedTaskSerial || undefined,
+          sync_task_status,
           month_sheet: derivedMonthSheet,
           custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
         };
@@ -508,6 +544,8 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           addToast('Log added', 'Task saved successfully.', 'success');
           setClientProject('');
           setTaskDescription('');
+          setSelectedTaskId('');
+          setSelectedTaskSerial('');
           setRevisionPoints(['']);
           setAttachedFiles([]);
           setDeliverableUrl('');
@@ -522,8 +560,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         const payload = {
           version: initialData.version,
           date: date.trim(),
-          resource_name: resourceName.trim(),
-          role: role.trim(),
           client_project: clientProject.trim(),
           task_description: sanitizeTaskHtml(taskDescription) || htmlToPlainText(taskDescription),
           task_type: taskType,
@@ -532,6 +568,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           deliverables: formattedDeliverables,
           hours_utilized: hoursUtilized.trim(),
           remarks: remarks.trim(),
+          task_id: selectedTaskId || undefined,
+          task_serial: selectedTaskSerial || undefined,
+          sync_task_status,
           month_sheet: initialData.month_sheet || derivedMonthSheet,
           custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
         };
@@ -623,6 +662,118 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
               </span>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Link to Assigned Task (Optional) */}
+      {(assignedTasks.length > 0 || selectedTaskId) && (
+        <div className="p-3 bg-subtle/60 border border-border rounded-md space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-fg flex items-center gap-1.5">
+              <Briefcase size={13} className="text-accent" />
+              <span>Link to Task (Task Manager)</span>
+            </span>
+            {selectedTaskId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedTaskId('');
+                  setSelectedTaskSerial('');
+                }}
+                className="text-micro text-fg-muted hover:text-danger-fg transition-colors"
+              >
+                Unlink
+              </button>
+            )}
+          </div>
+          <CustomSelect
+            id="daily-log-task-link"
+            value={selectedTaskId}
+            onChange={(val) => {
+              const found = assignedTasks.find((t) => t.id === val);
+              if (found) {
+                setSelectedTaskId(found.id);
+                setSelectedTaskSerial(found.serial);
+                if (found.related?.client_name) {
+                  setClientProject(found.related.client_name);
+                }
+                if (found.title) {
+                  setTaskDescription(found.title);
+                }
+              } else {
+                setSelectedTaskId('');
+                setSelectedTaskSerial('');
+              }
+            }}
+            options={[
+              {
+                value: '',
+                label: 'None (General / Ad-hoc)',
+                node: (
+                  <div className="py-0.5">
+                    <span className="text-xs font-medium text-fg-muted">None (General / Ad-hoc)</span>
+                  </div>
+                ),
+              },
+              ...assignedTasks.map((t) => {
+                const clientName = t.related?.client_name;
+                const statusLabel = (t.status || '').replace('_', ' ');
+                const statusDotColor =
+                  t.status === 'completed'
+                    ? 'bg-success-fg'
+                    : t.status === 'blocked'
+                      ? 'bg-danger-fg'
+                      : 'bg-warning-fg';
+
+                return {
+                  value: t.id,
+                  label: `${t.serial} · ${t.title}${clientName ? ` (${clientName})` : ''}`,
+                  title: `${t.serial} · ${t.title}${clientName ? ` (${clientName})` : ''}`,
+                  node: (
+                    <div className="flex flex-col gap-1 py-1 w-full min-w-0">
+                      {/* Top Row: Serial Badge, Client Name, Status Chip */}
+                      <div className="flex items-center gap-1.5 flex-wrap text-micro">
+                        <span className="font-numeric font-semibold text-accent bg-accent-soft/80 px-1.5 py-0.5 rounded-xs shrink-0">
+                          {t.serial}
+                        </span>
+                        {clientName && (
+                          <span className="font-medium text-fg-2 truncate max-w-[180px]">
+                            {clientName}
+                          </span>
+                        )}
+                        <span className="ml-auto text-micro text-fg-muted flex items-center gap-1 shrink-0 capitalize">
+                          <span className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusDotColor)} />
+                          {statusLabel}
+                        </span>
+                      </div>
+                      {/* Second Row: Full Task Title (multi-line, not truncated to single line) */}
+                      <div className="text-xs text-fg leading-relaxed whitespace-normal break-words line-clamp-3">
+                        {t.title}
+                      </div>
+                    </div>
+                  ),
+                };
+              }),
+            ]}
+            placeholder="Select an assigned task..."
+            dropdownWidth="wide"
+            searchable={assignedTasks.length > 5}
+            searchPlaceholder="Search task by title or serial..."
+          />
+          {selectedTaskId && (
+            <div className="flex items-center gap-2 pt-0.5">
+              <input
+                type="checkbox"
+                id="daily-log-sync-task-stage"
+                checked={syncTaskStage}
+                onChange={(e) => setSyncTaskStage(e.target.checked)}
+                className="rounded border-border text-accent focus:ring-accent"
+              />
+              <label htmlFor="daily-log-sync-task-stage" className="text-micro text-fg-muted cursor-pointer select-none">
+                Update Task status to <strong className="text-fg capitalize">{taskStatus === 'Completed' ? 'Completed' : 'In Progress'}</strong>
+              </label>
+            </div>
+          )}
         </div>
       )}
 

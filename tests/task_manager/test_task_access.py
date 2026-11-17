@@ -31,6 +31,7 @@ from tests.task_manager.conftest import (
     MEMBER_HR,
     MEMBER_WEB,
     OPS,
+    SAFEER,
     task_doc,
 )
 
@@ -44,6 +45,7 @@ class TaskAccessMatrixTests(unittest.TestCase):
         self.assertTrue(can_open_module(MEMBER_C1))
         self.assertFalse(can_open_module(HR))
         self.assertFalse(can_open_module(OPS))
+        self.assertTrue(can_open_module(SAFEER))
         self.assertFalse(can_open_module(MEMBER_HR))
         self.assertTrue(can_open_module(HR, FLIPPED))
         self.assertTrue(can_open_module(OPS, FLIPPED))
@@ -54,6 +56,7 @@ class TaskAccessMatrixTests(unittest.TestCase):
     def test_hr_ops_member_hr_excluded(self):
         self.assertTrue(is_task_excluded(HR))
         self.assertTrue(is_task_excluded(OPS))
+        self.assertFalse(is_task_excluded(SAFEER))
         self.assertTrue(is_task_excluded(MEMBER_HR))
         self.assertFalse(is_task_excluded(HR, FLIPPED))
 
@@ -69,14 +72,22 @@ class TaskAccessMatrixTests(unittest.TestCase):
         self.assertTrue(can_assign_to(LEAD_CONTENT, LEAD_CONTENT))
         self.assertFalse(can_assign_to(LEAD_CONTENT, HR))
         self.assertFalse(can_assign_to(MEMBER_C1, OPS))
+        self.assertTrue(can_assign_to(ADMIN, SAFEER))
+        self.assertTrue(can_assign_to(LEAD_CONTENT, SAFEER))
+        self.assertTrue(can_assign_to(LEAD_WEB, SAFEER))
+        self.assertFalse(can_assign_to(MEMBER_C1, SAFEER))
+        self.assertTrue(can_assign_to(SAFEER, SAFEER))
+        self.assertFalse(can_assign_to(OPS, MEMBER_C1))
 
     def test_assignable_users_drops_excluded(self):
-        cands = [ADMIN, LEAD_CONTENT, MEMBER_C1, MEMBER_C2, LEAD_WEB, MEMBER_WEB, HR, OPS, MEMBER_HR]
+        cands = [ADMIN, LEAD_CONTENT, MEMBER_C1, MEMBER_C2, LEAD_WEB, MEMBER_WEB, HR, OPS, MEMBER_HR, SAFEER]
         ids = {u["id"] for u in assignable_users(LEAD_CONTENT, cands)}
         self.assertIn(LEAD_WEB["id"], ids)
+        self.assertIn(SAFEER["id"], ids)
         self.assertNotIn(MEMBER_WEB["id"], ids)
         self.assertNotIn(HR["id"], ids)
         self.assertNotIn(MEMBER_HR["id"], ids)
+        self.assertNotIn(OPS["id"], ids)
         member_ids = {u["id"] for u in assignable_users(MEMBER_C1, cands)}
         self.assertIn(MEMBER_C2["id"], member_ids)
         self.assertIn(LEAD_CONTENT["id"], member_ids)
@@ -98,6 +109,7 @@ class TaskAccessMatrixTests(unittest.TestCase):
         self.assertFalse(can_cancel(MEMBER_C1, t))
         self.assertFalse(can_view(HR, t))
         self.assertFalse(can_view(OPS, t))
+        self.assertFalse(can_view(SAFEER, t))
         self.assertFalse(can_view(MEMBER_HR, t))
         self.assertFalse(can_view(MEMBER_WEB, t))
 
@@ -290,4 +302,44 @@ class TaskAccessMatrixTests(unittest.TestCase):
         self.assertTrue(ok)
         t2 = task_doc(status="cancelled")
         ok, _ = can_transition(ADMIN, t2, "todo")
+        self.assertFalse(ok)
+
+    def test_safeer_operations_employee_tasks(self):
+        own = task_doc(
+            status="in_review",
+            creator_id=SAFEER["id"],
+            assigner_id=SAFEER["id"],
+            assigner_role="operations",
+            assignee_id=SAFEER["id"],
+            assignee_role="operations",
+            involved_ids=[SAFEER["id"]],
+            assignment_chain=[],
+            department="",
+        )
+        self.assertTrue(can_view(SAFEER, own))
+        self.assertTrue(is_approver(SAFEER, own))
+        ok, _ = can_transition(SAFEER, own, "completed")
+        self.assertTrue(ok)
+
+        admin_assigned = task_doc(
+            status="in_review",
+            creator_id=ADMIN["id"],
+            assigner_id=ADMIN["id"],
+            assigner_role="admin",
+            assignee_id=SAFEER["id"],
+            assignee_role="operations",
+            involved_ids=[ADMIN["id"], SAFEER["id"]],
+            assignment_chain=[],
+            department="",
+        )
+        self.assertTrue(can_view(SAFEER, admin_assigned))
+        self.assertTrue(is_approver(SAFEER, admin_assigned))
+        ok, _ = can_transition(SAFEER, admin_assigned, "completed")
+        self.assertTrue(ok)
+        self.assertTrue(is_approver(ADMIN, admin_assigned))
+
+        other = task_doc(status="in_review")
+        self.assertFalse(can_view(SAFEER, other))
+        self.assertFalse(is_approver(SAFEER, other))
+        ok, _ = can_transition(SAFEER, other, "completed")
         self.assertFalse(ok)

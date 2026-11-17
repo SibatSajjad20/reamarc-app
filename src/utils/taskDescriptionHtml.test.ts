@@ -18,6 +18,14 @@ describe('taskDescriptionHtml', () => {
     expect(clean).not.toContain('img');
   });
 
+  it('converts browser span/font bold wrappers into <b>', () => {
+    const fromChrome = sanitizeTaskHtml('<span style="font-weight: 700">test:</span> hello');
+    expect(fromChrome).toContain('<b>test:</b>');
+    expect(fromChrome).toContain('hello');
+    const fromNamed = sanitizeTaskHtml('<span style="font-weight:bold">Done</span>');
+    expect(fromNamed).toContain('<b>Done</b>');
+  });
+
   it('treats empty tags as empty description', () => {
     expect(isTaskDescriptionEmpty('')).toBe(true);
     expect(isTaskDescriptionEmpty('<p><br></p>')).toBe(true);

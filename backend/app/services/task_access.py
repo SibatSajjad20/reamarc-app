@@ -20,6 +20,8 @@ DEFAULT_EXCLUDED_ROLES = ["hr", "operations"]
 DEFAULT_EXCLUDED_DEPARTMENTS = ["HR"]
 
 HR_DEPT_MARKERS = {"hr", "human resources", "human resource"}
+# Operations is excluded by default; Safeer is an explicit exception (employee-level Tasks).
+TASK_INCLUDED_OPS_MARKERS = ("safeer",)
 
 
 class TaskAccessError(Exception):
@@ -45,6 +47,20 @@ def display_name(user: Optional[Dict[str, Any]]) -> str:
     if not user:
         return ""
     return str(user.get("full_name") or user.get("name") or "").strip()
+
+
+def is_task_included_operations(user: Optional[Dict[str, Any]]) -> bool:
+    """Operations users named Safeer may use Tasks like an employee."""
+    if not user or role_of(user) != "operations":
+        return False
+    blob = " ".join(
+        [
+            display_name(user),
+            str(user.get("email") or ""),
+            str(user.get("username") or ""),
+        ]
+    ).lower()
+    return any(marker in blob for marker in TASK_INCLUDED_OPS_MARKERS)
 
 
 def is_admin(user: Optional[Dict[str, Any]]) -> bool:
@@ -108,7 +124,7 @@ def _dept_markers(name: str) -> Set[str]:
 
 def is_task_excluded(user: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
     """Admin is never excluded. Role or primary department match the company exclusion lists."""
-    if not user or is_admin(user):
+    if not user or is_admin(user) or is_task_included_operations(user):
         return False
     cfg = settings or default_task_settings()
     excluded_roles_raw = cfg.get("excluded_roles")
@@ -267,6 +283,8 @@ def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], 
         return False
     if is_lead(user) and is_assignee(user, task) and (is_self_assigned(task) or assigner_is_admin(task)):
         return True
+    if is_task_included_operations(user) and is_assignee(user, task) and (is_self_assigned(task) or assigner_is_admin(task)):
+        return True
     if is_assignee(user, task):
         return False
     if assignee_is_lead(task) and not is_self_assigned(task) and not assigner_is_admin(task):
@@ -388,6 +406,8 @@ def can_assign_to(
         return False
     if is_client(target) or is_task_excluded(target, settings):
         return False
+    if is_task_included_operations(target):
+        return is_admin(actor) or is_lead(actor) or uid_of(actor) == uid_of(target)
     if is_admin(actor):
         return True
     if uid_of(actor) == uid_of(target):
@@ -400,6 +420,10 @@ def can_assign_to(
             return target_role in ("team_member", "team_lead")
         return target_role == "team_lead"
     if actor_role == "team_member":
+        if not shared:
+            return False
+        return target_role in ("team_member", "team_lead")
+    if is_task_included_operations(actor):
         if not shared:
             return False
         return target_role in ("team_member", "team_lead")

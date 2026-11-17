@@ -1227,6 +1227,22 @@ async def create_entry(
 
     assert_no_overlap_or_duplicate(existing_same_day, entry_dict)
 
+    sync_task_status = entry_dict.pop("sync_task_status", None)
+    if entry_dict.get("task_id"):
+        if not entry_dict.get("task_serial"):
+            task_doc = await db.tasks.find_one({"id": entry_dict["task_id"]})
+            if task_doc:
+                entry_dict["task_serial"] = task_doc.get("serial", "")
+        if sync_task_status and sync_task_status in ("todo", "in_progress", "in_review", "completed"):
+            t_now = datetime.now(timezone.utc).isoformat()
+            t_update: Dict[str, Any] = {"status": sync_task_status, "updated_at": t_now}
+            if sync_task_status == "completed":
+                t_update["completed_at"] = t_now
+                t_update["completed_by"] = current_user.get("id")
+            elif sync_task_status == "in_review":
+                t_update["review_requested_at"] = t_now
+            await db.tasks.update_one({"id": entry_dict["task_id"]}, {"$set": t_update})
+
     await db.daily_log_entries.insert_one(entry_dict)
     _schedule_background_score_recompute(
         entry_dict["user_id"],
@@ -1353,6 +1369,22 @@ async def update_entry(
     if target_uid and target_date:
         existing_same_day = await load_user_day_entries(target_uid, target_date)
         assert_no_overlap_or_duplicate(existing_same_day, merged, exclude_id=entry_id)
+
+    sync_task_status = update_data.pop("sync_task_status", None)
+    linked_tid = update_data.get("task_id") or existing_entry.get("task_id")
+    if update_data.get("task_id") and not update_data.get("task_serial"):
+        task_doc = await db.tasks.find_one({"id": update_data["task_id"]})
+        if task_doc:
+            update_data["task_serial"] = task_doc.get("serial", "")
+    if sync_task_status and linked_tid and sync_task_status in ("todo", "in_progress", "in_review", "completed"):
+        t_now = datetime.now(timezone.utc).isoformat()
+        t_update: Dict[str, Any] = {"status": sync_task_status, "updated_at": t_now}
+        if sync_task_status == "completed":
+            t_update["completed_at"] = t_now
+            t_update["completed_by"] = current_user.get("id")
+        elif sync_task_status == "in_review":
+            t_update["review_requested_at"] = t_now
+        await db.tasks.update_one({"id": linked_tid}, {"$set": t_update})
 
     # Optimistic Concurrency Control (OCC) Check
     if entry_in.version is not None:

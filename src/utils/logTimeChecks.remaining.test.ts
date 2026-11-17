@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findDuplicate, formatHours, remainingShiftHours } from './logTimeChecks';
+import { findDuplicate, formatHours, parseDurationToHours, remainingShiftHours } from './logTimeChecks';
 
 describe('remainingShiftHours', () => {
   it('drops remaining as time at work increases, even with 0 logged', () => {
@@ -15,6 +15,37 @@ describe('remainingShiftHours', () => {
   it('is zero when at-work meets or exceeds expected', () => {
     expect(remainingShiftHours(6, 6)).toBe(0);
     expect(remainingShiftHours(6, 7.5)).toBe(0);
+  });
+});
+
+describe('parseDurationToHours', () => {
+  it('parses colon format e.g. 0:30 into 0.5', () => {
+    expect(parseDurationToHours('0:30')).toBe(0.5);
+    expect(parseDurationToHours('1:15')).toBe(1.25);
+    expect(parseDurationToHours('2:45')).toBe(2.75);
+  });
+
+  it('parses unit notation e.g. 30m, 1h, 1h 30m', () => {
+    expect(parseDurationToHours('30m')).toBe(0.5);
+    expect(parseDurationToHours('45 mins')).toBe(0.75);
+    expect(parseDurationToHours('1h')).toBe(1.0);
+    expect(parseDurationToHours('1h 30m')).toBe(1.5);
+    expect(parseDurationToHours('2 hrs')).toBe(2.0);
+  });
+
+  it('parses decimals and numeric values', () => {
+    expect(parseDurationToHours('1.5')).toBe(1.5);
+    expect(parseDurationToHours(2.5)).toBe(2.5);
+    expect(parseDurationToHours('0.75')).toBe(0.75);
+  });
+
+  it('returns null for invalid inputs or out of range minutes', () => {
+    expect(parseDurationToHours('')).toBeNull();
+    expect(parseDurationToHours(null)).toBeNull();
+    expect(parseDurationToHours(undefined)).toBeNull();
+    expect(parseDurationToHours('0:60')).toBeNull();
+    expect(parseDurationToHours('invalid')).toBeNull();
+    expect(parseDurationToHours(-1)).toBeNull();
   });
 });
 

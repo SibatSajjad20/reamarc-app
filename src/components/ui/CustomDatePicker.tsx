@@ -27,6 +27,8 @@ export interface CustomDatePickerProps {
   clearable?: boolean;
   /** disable = cannot pick off days (logging). mark = still selectable, styled as holiday (viewing / appeals). */
   offDayMode?: 'none' | 'disable' | 'mark';
+  /** Optional custom predicate to disable specific dates (e.g. 48-hour submission window expiration or unstarted shift). */
+  isDateDisabled?: (isoDate: string) => boolean;
   'aria-label'?: string;
   'aria-labelledby'?: string;
   'aria-invalid'?: boolean | 'true' | 'false';
@@ -84,6 +86,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   className = '',
   clearable = true,
   offDayMode = 'none',
+  isDateDisabled,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledby,
   'aria-invalid': ariaInvalid,
@@ -129,8 +132,9 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       const off = offDayMode !== 'none' ? getOffDay(iso) : { isOff: false, label: '' };
       const rangeBlocked = Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate));
       const offBlocked = Boolean(offDayMode === 'disable' && off.isOff);
+      const customBlocked = Boolean(isDateDisabled && isDateDisabled(iso));
       return {
-        isDisabled: rangeBlocked || offBlocked,
+        isDisabled: rangeBlocked || offBlocked || customBlocked,
         offLabel: off.isOff ? off.label : undefined,
       };
     };
@@ -179,7 +183,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     }
 
     return days;
-  }, [viewYear, viewMonth, minDate, maxDate, offDayMode, getOffDay]);
+  }, [viewYear, viewMonth, minDate, maxDate, offDayMode, getOffDay, isDateDisabled]);
 
   const handlePrevMonth = () => {
     if (viewMonth === 0) {
@@ -210,10 +214,15 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     onChange('');
   };
 
+  const isTodayBlocked = Boolean(
+    (minDate && todayIso < minDate) ||
+    (maxDate && todayIso > maxDate) ||
+    (offDayMode === 'disable' && getOffDay(todayIso).isOff) ||
+    (isDateDisabled && isDateDisabled(todayIso))
+  );
+
   const handleSelectToday = () => {
-    if (minDate && todayIso < minDate) return;
-    if (maxDate && todayIso > maxDate) return;
-    if (offDayMode === 'disable' && getOffDay(todayIso).isOff) return;
+    if (isTodayBlocked) return;
     onChange(todayIso);
     setIsOpen(false);
   };
@@ -348,13 +357,17 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                         : undefined
                     }
                     className={cn(
-                      'h-8 rounded-sm text-small font-numeric tabular-nums transition-colors flex items-center justify-center relative cursor-pointer',
-                      day.isDisabled && 'opacity-40 cursor-not-allowed text-fg-muted',
-                      isSelected && 'bg-accent text-accent-fg font-semibold shadow-xs',
-                      !isSelected && isToday && 'ring-1 ring-accent text-accent font-semibold',
-                      !isSelected && !isToday && isOffMarked && 'bg-info-bg text-info-fg border border-info-bd',
-                      !isSelected && !isToday && !isOffMarked && day.isCurrentMonth && 'text-fg hover:bg-hover',
-                      !isSelected && !isToday && !isOffMarked && !day.isCurrentMonth && 'text-fg-faint hover:bg-hover'
+                      'h-8 rounded-sm text-small font-numeric tabular-nums transition-colors flex items-center justify-center relative select-none',
+                      day.isDisabled
+                        ? 'opacity-25 cursor-not-allowed text-fg-muted/40 hover:bg-transparent pointer-events-none'
+                        : cn(
+                            'cursor-pointer',
+                            isSelected && 'bg-accent text-accent-fg font-semibold shadow-xs',
+                            !isSelected && isToday && 'ring-1 ring-accent text-accent font-semibold',
+                            !isSelected && !isToday && isOffMarked && 'bg-info-bg text-info-fg border border-info-bd',
+                            !isSelected && !isToday && !isOffMarked && day.isCurrentMonth && 'text-fg hover:bg-hover',
+                            !isSelected && !isToday && !isOffMarked && !day.isCurrentMonth && 'text-fg-faint hover:bg-hover'
+                          )
                     )}
                   >
                     <span>{day.dayNumber}</span>
@@ -380,8 +393,12 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                 <Button
                   variant="ghost"
                   size="sm"
+                  disabled={isTodayBlocked}
                   onClick={handleSelectToday}
-                  className="h-7 px-2 text-small text-accent hover:text-accent font-medium"
+                  className={cn(
+                    'h-7 px-2 text-small text-accent hover:text-accent font-medium',
+                    isTodayBlocked && 'opacity-30 cursor-not-allowed pointer-events-none'
+                  )}
                 >
                   Today
                 </Button>

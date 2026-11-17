@@ -153,6 +153,21 @@ function TaskRows({
     <>
       {entries.map((entry) => {
         const tone = taskStatusTone(entry.task_status);
+        const taskSerial =
+          entry.task_serial ||
+          (entry.task_id
+            ? entry.task_id.startsWith('t_')
+              ? entry.task_id
+              : `T-${entry.task_id.slice(-4)}`
+            : null);
+        const taskTypeShort =
+          entry.task_type === 'Scheduled Task'
+            ? 'Scheduled'
+            : entry.task_type === 'Runtime Task'
+            ? 'Runtime'
+            : entry.task_type;
+        const hasDeliverables = Boolean(entry.deliverables && String(entry.deliverables).trim());
+
         return (
           <PressScale
             key={entry.id}
@@ -161,21 +176,42 @@ function TaskRows({
             onPress={() => onOpen(entry)}
           >
             <View style={{ flex: 1 }}>
+              {taskSerial ? (
+                <View style={styles.entryTaskBadge}>
+                  <Ionicons name="briefcase-outline" size={11} color={colors.indigo} />
+                  <Text style={styles.entryTaskBadgeText}>{taskSerial}</Text>
+                </View>
+              ) : null}
               <TaskHtmlText
                 html={entry.task_description || 'Untitled task'}
                 style={styles.taskTitle}
                 numberOfLines={2}
               />
-              <Text style={styles.taskProject} numberOfLines={1}>
-                {entry.client_project || 'No project'}
-                {entry.task_type ? ` · ${entry.task_type}` : ''}
-                {entry.date && entry.date !== fallbackDate ? ` · ${formatDisplayDate(entry.date)}` : ''}
-              </Text>
+              <View style={styles.entryMetaRow}>
+                <Text style={styles.taskProject} numberOfLines={1}>
+                  {entry.client_project || 'Internal agency work'}
+                </Text>
+                <View style={styles.inlineStatusChip}>
+                  <View style={[styles.inlineStatusDot, { backgroundColor: tone.fg }]} />
+                  <Text style={[styles.inlineStatusText, { color: tone.fg }]}>{tone.label}</Text>
+                </View>
+                {taskTypeShort ? (
+                  <View style={styles.typeChip}>
+                    <Text style={styles.typeChipText}>{taskTypeShort}</Text>
+                  </View>
+                ) : null}
+                {hasDeliverables ? (
+                  <View style={styles.deliverableChip}>
+                    <Ionicons name="attach-outline" size={11} color={colors.indigo} />
+                    <Text style={styles.deliverableChipText}>Deliverables</Text>
+                  </View>
+                ) : null}
+                {entry.date && entry.date !== fallbackDate ? (
+                  <Text style={styles.taskDateMeta}>{formatDisplayDate(entry.date)}</Text>
+                ) : null}
+              </View>
             </View>
             <View style={styles.taskRightMeta}>
-              <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
-                <Text style={[styles.statusText, { color: tone.fg }]}>{tone.label}</Text>
-              </View>
               <Text style={styles.taskHours}>{formatHoursShort(entry.hours_utilized)}</Text>
               <Ionicons name="chevron-forward" size={16} color={colors.muted} />
             </View>
@@ -1740,8 +1776,80 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#F4F4F5',
   },
+  entryTaskBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#EEF2FF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginBottom: 4,
+  },
+  entryTaskBadgeText: {
+    color: colors.indigo,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   taskTitle: { fontSize: 14, fontWeight: '400', color: colors.text, lineHeight: 20 },
-  taskProject: { marginTop: 3, fontSize: 11.5, color: colors.muted },
+  taskProject: { fontSize: 11.5, color: colors.muted },
+  entryMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+  },
+  inlineStatusChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#F4F4F5',
+  },
+  inlineStatusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  inlineStatusText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  typeChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#F4F4F5',
+    borderWidth: 1,
+    borderColor: '#E4E4E7',
+  },
+  typeChipText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: colors.slate,
+  },
+  deliverableChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    backgroundColor: '#EEF2FF',
+  },
+  deliverableChipText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    color: colors.indigo,
+  },
+  taskDateMeta: {
+    fontSize: 11,
+    color: colors.muted,
+  },
   taskRightMeta: { alignItems: 'flex-end', gap: 4 },
   statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
   statusText: { fontSize: 10.5, fontWeight: '800' },

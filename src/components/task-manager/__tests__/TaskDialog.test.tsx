@@ -91,7 +91,7 @@ describe('TaskDialog', () => {
       />,
     );
     expect(screen.getByText('Create task')).toBeTruthy();
-    expect(screen.getByText(/Assigned person/)).toBeTruthy();
+    expect(screen.getByText(/Assigned people/)).toBeTruthy();
     expect(screen.getByTestId('task-dialog-primary')).toHaveProperty('disabled', true);
     expect(screen.getByText('Department')).toBeTruthy();
     const dept = screen.getByDisplayValue('Content');
@@ -311,11 +311,66 @@ describe('TaskDialog', () => {
     render(
       <TaskDialog open task={task} actor={{ id: 'admin', role: 'admin' }} assignable={[]} onClose={vi.fn()} onSaved={onSaved} />,
     );
-    fireEvent.click(screen.getByText('Ship it'));
-    expect(screen.getByRole('checkbox', { name: /Ship it/ }).getAttribute('data-state')).toBe('checked');
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Ship it' }));
+    expect(screen.getByRole('checkbox', { name: 'Ship it' }).getAttribute('data-state')).toBe('checked');
     expect(onSaved).not.toHaveBeenCalled();
     finish({ ...task, checklist: [{ id: 'c1', text: 'Ship it', done: true }] });
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ id: 'tsk1' }), { refreshList: false }));
+  });
+
+  it('does not restore a deleted checklist item when a stale task fetch returns', async () => {
+    let finishGet!: (value: Task | null) => void;
+    vi.mocked(taskService.getTask).mockImplementation(
+      () => new Promise((resolve) => {
+        finishGet = resolve;
+      }),
+    );
+    const task: Task = {
+      id: 'tsk1',
+      serial: 'T-0001',
+      title: 'Checks',
+      status: 'todo',
+      priority: 'medium',
+      creator_id: 'admin',
+      assigner_id: 'admin',
+      assignee_id: 'admin',
+      checklist: [{ id: 'c1', text: 'Ship it', done: false }],
+    };
+    vi.mocked(taskService.deleteChecklist).mockResolvedValue({ ...task, checklist: [] });
+    render(
+      <TaskDialog open task={task} actor={{ id: 'admin', role: 'admin' }} assignable={[]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Remove checklist item' }));
+    expect(screen.queryByText('Ship it')).toBeNull();
+    finishGet({ ...task, checklist: [{ id: 'c1', text: 'Ship it', done: false }] });
+    await waitFor(() => expect(taskService.deleteChecklist).toHaveBeenCalledWith('tsk1', 'c1'));
+    expect(screen.queryByText('Ship it')).toBeNull();
+  });
+
+  it('renames a checklist item', async () => {
+    const task: Task = {
+      id: 'tsk1',
+      serial: 'T-0001',
+      title: 'Checks',
+      status: 'todo',
+      priority: 'medium',
+      creator_id: 'admin',
+      assigner_id: 'admin',
+      assignee_id: 'admin',
+      checklist: [{ id: 'c1', text: 'Ship it', done: false }],
+    };
+    vi.mocked(taskService.patchChecklist).mockResolvedValue({
+      ...task,
+      checklist: [{ id: 'c1', text: 'Ship later', done: false }],
+    });
+    render(
+      <TaskDialog open task={task} actor={{ id: 'admin', role: 'admin' }} assignable={[]} onClose={vi.fn()} onSaved={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByText('Ship it'));
+    const input = screen.getByRole('textbox', { name: 'Edit checklist item' });
+    fireEvent.change(input, { target: { value: 'Ship later' } });
+    fireEvent.blur(input);
+    await waitFor(() => expect(taskService.patchChecklist).toHaveBeenCalledWith('tsk1', 'c1', { text: 'Ship later' }));
   });
 
   it('shows the child serial for a subtask of T-0001', async () => {
@@ -469,5 +524,83 @@ describe('TaskDialog', () => {
     fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: 'New board task' } });
     expect(screen.getByRole('button', { name: 'Create task' })).toBeTruthy();
     expect(screen.queryByTestId('task-dialog-save')).toBeNull();
+  });
+
+  it('creates one payload with assignee_ids when several people are picked', async () => {
+    const created = {
+      id: 'new1',
+      serial: 'T-0200',
+      title: 'Group brief',
+      status: 'todo',
+      priority: 'medium',
+      assignment_group: { id: 'tag1', total_count: 2, done_count: 0, rollup_status: 'todo', peers: [] },
+    };
+    vi.mocked(taskService.createTask).mockResolvedValue(created as Task);
+    render(
+      <TaskDialog
+        open
+        actor={{ id: 'admin', role: 'admin' }}
+        assignable={[
+          { id: 'member.content1', name: 'Member Content 1', department: 'Content', role: 'team_member' },
+          { id: 'member.content2', name: 'Member Content 2', department: 'Content', role: 'team_member' },
+        ]}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText(/Title/i), { target: { value: 'Group brief' } });
+    fireEvent.click(screen.getByText('Select option...'));
+    fireEvent.click(screen.getByText('Member Content 1'));
+    fireEvent.click(screen.getByText('Select option...'));
+    fireEvent.click(screen.getByText('Member Content 2'));
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+    await waitFor(() => expect(taskService.createTask).toHaveBeenCalled());
+    const payload = vi.mocked(taskService.createTask).mock.calls[0][0] as Record<string, unknown>;
+    expect(payload.assignee_ids).toEqual(['member.content1', 'member.content2']);
+  });
+
+  it('lists assignment copies so admin can open a peer', async () => {
+    const onOpenTask = vi.fn();
+    const peerTask = {
+      id: 'tsk-b',
+      serial: 'T-0002',
+      title: 'Site QA',
+      status: 'todo',
+      priority: 'medium',
+    } as Task;
+    vi.mocked(taskService.getTask).mockResolvedValue(peerTask);
+    const task: Task = {
+      id: 'tsk-a',
+      serial: 'T-0001',
+      title: 'Site QA',
+      status: 'in_progress',
+      priority: 'medium',
+      assignee_id: 'member.content1',
+      assignee_name: 'Member Content 1',
+      assignment_group: {
+        id: 'tag1',
+        rollup_status: 'todo',
+        done_count: 0,
+        total_count: 2,
+        peers: [
+          { id: 'tsk-a', serial: 'T-0001', assignee_id: 'member.content1', assignee_name: 'Member Content 1', status: 'in_progress' },
+          { id: 'tsk-b', serial: 'T-0002', assignee_id: 'member.content2', assignee_name: 'Member Content 2', status: 'todo' },
+        ],
+      },
+    };
+    render(
+      <TaskDialog
+        open
+        task={task}
+        actor={{ id: 'admin', role: 'admin' }}
+        assignable={[]}
+        onClose={vi.fn()}
+        onSaved={vi.fn()}
+        onOpenTask={onOpenTask}
+      />,
+    );
+    expect(screen.getByTestId('task-assignment-group')).toBeTruthy();
+    fireEvent.click(screen.getByText('Member Content 2'));
+    await waitFor(() => expect(onOpenTask).toHaveBeenCalledWith(peerTask));
   });
 });

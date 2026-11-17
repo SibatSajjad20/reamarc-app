@@ -1,5 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, MoreHorizontal, Repeat, Paperclip, MessageSquare } from 'lucide-react';
+import { ChevronDown, ChevronRight, MoreHorizontal, Repeat, Paperclip, MessageSquare, Clock } from 'lucide-react';
 import {
   TableCard,
   Table,
@@ -12,7 +12,6 @@ import {
 } from '@/components/ui/DataTable';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Avatar } from '@/components/ui/Avatar';
-import { Progress } from '@/components/ui/progress';
 import { StatusPill } from '@/components/ui/StatusPill';
 import {
   DropdownMenu,
@@ -24,6 +23,7 @@ import { TASK_STAGES, type Task, type TaskStatus } from '@/types/task';
 import { TaskPriorityPill, TaskStagePill, stageBarClass } from './TaskPriorityPill';
 import { isOverdue, isDueToday } from '@/utils/taskFollowUp';
 import { listQuickActions, listRowAdvanceAction, listRowAdvanceTo } from '@/utils/taskAccess';
+import { assignedByLabel, assignmentPeopleNames, isGroupedAssignment, isSharedStageCard } from '@/utils/taskAssignmentGroup';
 import { useMemberAvatars } from '@/hooks/useMemberAvatars';
 import { cn } from '@/lib/utils';
 import type { TaskActor } from '@/types/task';
@@ -46,6 +46,7 @@ interface Props {
   onToggle: () => void;
   onViewAll: () => void;
   onOpen: (task: Task) => void;
+  onLogTime?: (task: Task) => void;
   onAction: (task: Task, action: string, origin?: { x: number; y: number }) => void;
   actor: TaskActor | null;
   limitRows?: boolean;
@@ -66,6 +67,7 @@ export const TaskStageSection: React.FC<Props> = ({
   onToggle,
   onViewAll,
   onOpen,
+  onLogTime,
   onAction,
   actor,
   limitRows = true,
@@ -140,7 +142,6 @@ export const TaskStageSection: React.FC<Props> = ({
               <TH>Task Name</TH>
               <TH>Assignee</TH>
               <TH>Project Name</TH>
-              <TH>Progress</TH>
               <TH>Deadline</TH>
               <TH>Priority</TH>
               <TH className="w-10">Action</TH>
@@ -151,12 +152,20 @@ export const TaskStageSection: React.FC<Props> = ({
               const due = formatDue(task);
               const checklist = task.checklist || [];
               const done = checklist.filter((c) => c.done).length;
-              const next = showAdvanceColumn ? listRowAdvanceTo(actor, task) : null;
+              const grouped = isGroupedAssignment(task);
+              const sharedStage = isSharedStageCard(task);
+              const people = assignmentPeopleNames(task);
+              const assignedBy = assignedByLabel(task);
+              const hoursLabel =
+                (task.logged_hours || 0) > 0
+                  ? `${task.logged_hours}h logged${task.estimate_hours ? ` / ${task.estimate_hours}h` : ''}`
+                  : '';
+              const next = showAdvanceColumn && !sharedStage ? listRowAdvanceTo(actor, task) : null;
               const action = next ? listRowAdvanceAction(next) : null;
               return (
                 <TR
                   key={task.id}
-                  draggable={enableDrag}
+                  draggable={enableDrag && !sharedStage}
                   className={cn(
                     'cursor-pointer',
                     enableDrag && 'cursor-grab active:cursor-grabbing',
@@ -164,7 +173,7 @@ export const TaskStageSection: React.FC<Props> = ({
                     leavingId === task.id && 'task-stage-leave',
                   )}
                   onDragStart={(e) => {
-                    if (!enableDrag) return;
+                    if (!enableDrag || sharedStage) return;
                     e.dataTransfer.setData('text/plain', task.id);
                     e.dataTransfer.effectAllowed = 'move';
                     dragged.current = true;
@@ -213,6 +222,11 @@ export const TaskStageSection: React.FC<Props> = ({
                   <TD>
                     <div className="flex flex-col gap-1 min-w-0">
                       <span className="text-sm text-fg truncate">{task.title}</span>
+                      {grouped && (
+                        <span className="text-micro text-fg-muted" data-testid="task-group-people">
+                          {task.assignment_group?.done_count}/{task.assignment_group?.total_count} people done
+                        </span>
+                      )}
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {task.blocked && <StatusPill variant="danger" label="Blocked" hasDot={false} />}
                         {(task.subtasks_count || 0) > 0 && (
@@ -240,15 +254,29 @@ export const TaskStageSection: React.FC<Props> = ({
                     </div>
                   </TD>
                   <TD>
-                    <div className="flex items-center gap-2" title={(task.assignment_chain || []).map((h) => h.to_name).join(' → ')}>
-                      {task.assignee_name ? (
-                        <>
-                          <Avatar name={task.assignee_name} src={getAvatarUrl(task.assignee_id || undefined, task.assignee_name) || undefined} size={24} />
-                          <span className="text-sm truncate">{task.assignee_name}</span>
-                        </>
-                      ) : (
-                        <span className="text-fg-muted text-sm">Unassigned</span>
-                      )}
+                    <div
+                      className="flex items-start gap-2 min-w-[11rem] max-w-[18rem]"
+                      title={(task.assignment_chain || []).map((h) => h.to_name).join(' → ')}
+                      data-testid="task-list-assignee"
+                    >
+                      {(people[0] || task.assignee_name) ? (
+                        <Avatar
+                          name={people[0] || task.assignee_name || ''}
+                          src={getAvatarUrl(task.assignee_id || undefined, people[0] || task.assignee_name) || undefined}
+                          size={24}
+                        />
+                      ) : null}
+                      <div className="flex flex-col min-w-0">
+                        {people.length ? (
+                          <span className="text-sm text-fg whitespace-normal break-words">{people.join(', ')}</span>
+                        ) : (
+                          <span className="text-fg-muted text-sm">Unassigned</span>
+                        )}
+                        {assignedBy ? <span className="text-micro text-fg-muted truncate">from {assignedBy}</span> : null}
+                        {hoursLabel ? (
+                          <span className="text-micro font-numeric text-accent font-medium">{hoursLabel}</span>
+                        ) : null}
+                      </div>
                     </div>
                   </TD>
                   <TD>
@@ -257,12 +285,6 @@ export const TaskStageSection: React.FC<Props> = ({
                       {task.related?.client_name && (
                         <span className="text-micro text-fg-muted truncate">{task.related.client_name}</span>
                       )}
-                    </div>
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-2 min-w-[88px]">
-                      <Progress value={task.progress || 0} className="flex-1" />
-                      <span className="text-micro font-numeric text-fg-muted w-8 text-right">{task.progress || 0}%</span>
                     </div>
                   </TD>
                   <TD className={cn('text-sm', due.className)}>{due.label}</TD>
@@ -282,6 +304,20 @@ export const TaskStageSection: React.FC<Props> = ({
                         </button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        {onLogTime && task.status !== 'cancelled' && (
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              skipRowOpen.current = true;
+                              window.setTimeout(() => {
+                                skipRowOpen.current = false;
+                              }, 400);
+                              onLogTime(task);
+                            }}
+                          >
+                            <Clock className="w-4 h-4 mr-2" />
+                            Log Time
+                          </DropdownMenuItem>
+                        )}
                         {listQuickActions(actor, task).map((item) => (
                           <DropdownMenuItem
                             key={item.action}

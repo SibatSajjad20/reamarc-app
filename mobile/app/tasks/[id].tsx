@@ -13,21 +13,25 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useFocusEffect } from 'expo-router';
-import { MessageSquare, SquarePen, Trash2 } from 'lucide-react-native';
+import { Clock, MessageSquare, SquarePen, Trash2, Users } from 'lucide-react-native';
 import { useTheme } from '../../src/theme';
 import { Card } from '../../src/ui/Card';
 import { TaskListSkeleton } from '../../src/ui/Skeleton';
 import { useTabBarOffset } from '../../src/ui/layout';
 import { TaskFormModal } from '../../src/components/tasks/TaskFormModal';
+import { LogWorkModal } from '../../src/components/daily-log/LogWorkModal';
 import { useAuth } from '../../src/context/AuthContext';
 import {
   addTaskComment,
   asCommentList,
+  assignmentPeers,
   changeTaskStage,
   deleteTask,
   getTask,
+  isGroupedAssignment,
   nextAllowedStage,
   stageLabel,
+  stageTone,
   type Task,
 } from '../../src/lib/tasks';
 
@@ -55,6 +59,7 @@ export default function TaskDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [logModalOpen, setLogModalOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
 
   const load = useCallback(async () => {
@@ -150,6 +155,9 @@ export default function TaskDetailScreen() {
   }
 
   const comments = asCommentList(task.comments);
+  const peers = assignmentPeers(task);
+  const isGrouped = isGroupedAssignment(task);
+  const assigneesCount = task.assignment_group?.total_count || peers.length;
 
   return (
     <KeyboardAvoidingView
@@ -158,8 +166,29 @@ export default function TaskDetailScreen() {
     >
       <ScrollView contentContainerStyle={[styles.pad, { paddingBottom: tabOffset + 24 }]}>
         <View style={styles.topRow}>
-          <Text style={[styles.serial, { color: theme.textMuted }]}>{task.serial || 'TASK'}</Text>
+          <View style={styles.serialGroup}>
+            <Text style={[styles.serial, { color: theme.textMuted }]}>{task.serial || 'TASK'}</Text>
+            {isGrouped ? (
+              <View
+                style={[
+                  styles.groupBadge,
+                  { backgroundColor: theme.primaryLight, borderColor: theme.primary },
+                ]}
+              >
+                <Users size={12} color={theme.primary} />
+                <Text style={[styles.groupBadgeText, { color: theme.primary }]}>
+                  {assigneesCount} Assignees
+                </Text>
+              </View>
+            ) : null}
+          </View>
           <View style={styles.actions}>
+            <Pressable
+              onPress={() => setLogModalOpen(true)}
+              style={[styles.iconBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
+            >
+              <Clock size={20} color={theme.primary} strokeWidth={2.2} />
+            </Pressable>
             {canEdit ? (
               <Pressable
                 onPress={() => setFormOpen(true)}
@@ -198,11 +227,71 @@ export default function TaskDetailScreen() {
         ) : null}
 
         <Card>
-          <Text style={[styles.label, { color: theme.textMuted }]}>Assignee</Text>
-          <Text style={[styles.value, { color: theme.text }]}>
-            {task.assignee_name || 'Unassigned'}
-            {task.department ? ` · ${task.department}` : ''}
-          </Text>
+          {isGrouped ? (
+            <View style={styles.assigneesBlock}>
+              <View style={styles.assigneesHeaderRow}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Users size={14} color={theme.primary} />
+                  <Text style={[styles.label, { color: theme.text, fontWeight: '700' }]}>
+                    Assignees ({assigneesCount})
+                  </Text>
+                </View>
+                <Text style={[styles.assigneeProgressText, { color: theme.textMuted }]}>
+                  {task.assignment_group?.done_count ?? peers.filter((p) => p.status === 'completed').length} of {assigneesCount} completed
+                </Text>
+              </View>
+              <View style={styles.peersList}>
+                {peers.map((peer) => {
+                  const isCurrent = peer.id === task.id;
+                  const tone = stageTone(peer.status);
+                  return (
+                    <Pressable
+                      key={peer.id}
+                      disabled={isCurrent}
+                      onPress={() => router.push(`/tasks/${peer.id}`)}
+                      style={[
+                        styles.peerRow,
+                        {
+                          backgroundColor: isCurrent ? theme.bgSubtle : theme.surface,
+                          borderColor: isCurrent ? theme.primary : theme.border,
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.peerName, { color: theme.text, fontWeight: isCurrent ? '700' : '500' }]}>
+                            {peer.assignee_name || 'Unassigned'}
+                          </Text>
+                          {isCurrent && (
+                            <Text style={[styles.peerCurrentBadge, { color: theme.primary }]}>
+                              (Current)
+                            </Text>
+                          )}
+                        </View>
+                        {peer.serial ? (
+                          <Text style={[styles.peerSerial, { color: theme.textMuted }]}>{peer.serial}</Text>
+                        ) : null}
+                      </View>
+                      <View style={[styles.peerStatusBadge, { backgroundColor: tone.bg }]}>
+                        <View style={[styles.peerStatusDot, { backgroundColor: tone.color }]} />
+                        <Text style={[styles.peerStatusText, { color: tone.color }]}>
+                          {stageLabel(peer.status)}
+                        </Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ) : (
+            <>
+              <Text style={[styles.label, { color: theme.textMuted }]}>Assignee</Text>
+              <Text style={[styles.value, { color: theme.text }]}>
+                {task.assignee_name || 'Unassigned'}
+                {task.department ? ` · ${task.department}` : ''}
+              </Text>
+            </>
+          )}
           <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Start date</Text>
           <Text style={[styles.value, { color: theme.text }]}>{prettyDate(task.start_date) || 'Not set'}</Text>
           <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Due</Text>
@@ -211,9 +300,10 @@ export default function TaskDetailScreen() {
               ? `${prettyDate(task.due_date)}${task.due_time ? ` · ${task.due_time}` : ''}`
               : 'No due date'}
           </Text>
-          <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Estimate</Text>
+          <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Logged vs Estimate</Text>
           <Text style={[styles.value, { color: theme.text }]}>
-            {task.estimate_hours != null ? `${task.estimate_hours} hours` : 'Not set'}
+            <Text style={{ color: theme.primary, fontWeight: '800' }}>{task.logged_hours || 0}h</Text>
+            {task.estimate_hours != null ? ` / ${task.estimate_hours}h estimated` : ' logged'}
           </Text>
           <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Related client</Text>
           <Text style={[styles.value, { color: theme.text }]}>{task.client_name || 'None'}</Text>
@@ -294,6 +384,18 @@ export default function TaskDetailScreen() {
           setFormOpen(false);
         }}
       />
+
+      <LogWorkModal
+        visible={logModalOpen}
+        initialTask={task}
+        onClose={() => setLogModalOpen(false)}
+        onCreated={() => {
+          void load();
+        }}
+        onSaved={() => {
+          void load();
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -302,7 +404,18 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   pad: { padding: 16, gap: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  serial: { flex: 1, fontSize: 12, fontWeight: '500' },
+  serialGroup: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  serial: { fontSize: 12, fontWeight: '500' },
+  groupBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  groupBadgeText: { fontSize: 11, fontWeight: '700' },
   actions: { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 44,
@@ -326,6 +439,37 @@ const styles = StyleSheet.create({
   nextBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   label: { fontSize: 12, fontWeight: '500' },
   value: { fontSize: 15, fontWeight: '400', marginTop: 4 },
+  assigneesBlock: { gap: 8 },
+  assigneesHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  assigneeProgressText: { fontSize: 11, fontWeight: '600' },
+  peersList: { gap: 6 },
+  peerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  peerName: { fontSize: 13 },
+  peerCurrentBadge: { fontSize: 11, fontWeight: '600' },
+  peerSerial: { fontSize: 11, marginTop: 2 },
+  peerStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  peerStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  peerStatusText: { fontSize: 11, fontWeight: '700' },
   body: { fontSize: 14, lineHeight: 20, marginTop: 6, fontWeight: '400' },
   commentHead: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   emptyComments: { fontSize: 13, fontStyle: 'italic', marginBottom: 10 },

@@ -26,6 +26,7 @@ import {
   filterTaskList,
   listAllTasks,
   stageLabel,
+  stageTone,
   TASK_STAGES,
   type Task,
   type TaskStatus,
@@ -37,20 +38,12 @@ const FILTER_TABS: { key: string; label: string; scope?: string; stage?: string 
   ...TASK_STAGES.map((s) => ({ key: s.value, label: s.label, scope: 'all', stage: s.value })),
 ];
 
-function stageTone(status: string, theme: { isDark: boolean; text: string; textMuted: string }) {
-  if (status === 'completed') return { bg: '#ECFDF5', color: '#059669' };
-  if (status === 'review' || status === 'in_review') return { bg: '#FEF3C7', color: '#B45309' };
-  if (status === 'in_progress') return { bg: '#EEF2FF', color: '#4338CA' };
-  if (status === 'cancelled') return { bg: '#FFF1F2', color: '#E11D48' };
-  return { bg: theme.isDark ? '#27272a' : '#F1F5F9', color: theme.textMuted };
-}
-
 export default function TasksScreen() {
   const theme = useTheme();
   const router = useRouter();
   const { user } = useAuth();
   const tabOffset = useTabBarOffset();
-  const canCreate = canAccessTasks(user) && !user?.permissions?.view_only;
+  const canCreate = canAccessTasks(user) && (!user?.permissions?.view_only || user?.role === 'operations');
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -129,12 +122,20 @@ export default function TasksScreen() {
             {item.title}
           </Text>
           <View style={[styles.cardFooter, { borderTopColor: theme.border }]}>
-            <Text style={[styles.meta, { color: theme.textMuted }]} numberOfLines={1}>
-              {item.assignee_name || 'Unassigned'}
-              {item.client_name ? ` · ${item.client_name}` : ''}
-              {item.due_date ? ` · ${item.due_date}` : ''}
-              {item.priority ? ` · ${item.priority}` : ''}
-            </Text>
+            <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+              <Text style={[styles.meta, { color: theme.textMuted }]} numberOfLines={1}>
+                {item.assignee_name || 'Unassigned'}
+                {item.client_name ? ` · ${item.client_name}` : ''}
+                {item.due_date ? ` · ${item.due_date}` : ''}
+                {item.priority ? ` · ${item.priority}` : ''}
+              </Text>
+              {(item.logged_hours != null || item.estimate_hours != null) ? (
+                <Text style={[styles.hoursMeta, { color: theme.primary }]}>
+                  {item.logged_hours || 0}h
+                  {item.estimate_hours ? ` / ${item.estimate_hours}h` : ' logged'}
+                </Text>
+              ) : null}
+            </View>
             <View style={styles.viewRow}>
               <Text style={[styles.viewText, { color: theme.primary }]}>View</Text>
               <ChevronRight size={16} color={theme.primary} />
@@ -279,6 +280,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   meta: { flex: 1, fontSize: 12, fontWeight: '400' },
+  hoursMeta: { fontSize: 11, fontWeight: '700' },
   viewRow: { flexDirection: 'row', alignItems: 'center' },
   viewText: { fontSize: 13, fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 36, paddingHorizontal: 24 },

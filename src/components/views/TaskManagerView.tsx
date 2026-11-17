@@ -48,6 +48,7 @@ import { TaskCalendarView } from '@/components/task-manager/TaskCalendarView';
 import { TaskFollowUpView } from '@/components/task-manager/TaskFollowUpView';
 import { TaskOverviewTab } from '@/components/task-manager/TaskOverviewTab';
 import { TaskDialog } from '@/components/task-manager/TaskDialog';
+import { TaskLogTimeModal } from '@/components/task-manager/TaskLogTimeModal';
 import { TaskCompanyActivity } from '@/components/task-manager/TaskCompanyActivity';
 import {
   DropdownMenu,
@@ -60,6 +61,7 @@ import {
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
 import { canTransitionTo, isAdmin, stageChangeNeedsReason } from '@/utils/taskAccess';
+import { collapseAssignmentGroups, isSharedStageCard } from '@/utils/taskAssignmentGroup';
 import type { BoardDensity } from '@/components/task-manager/TaskPipelineCard';
 import {
   appendUniqueTasks,
@@ -178,6 +180,7 @@ export const TaskManagerView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
+  const [logTimeTask, setLogTimeTask] = useState<Task | null>(null);
   const [defaultDue, setDefaultDue] = useState<string | undefined>();
   const [defaultStage, setDefaultStage] = useState<TaskStatus | undefined>();
   const [boardDensity, setBoardDensity] = useState<BoardDensity>(() => {
@@ -394,6 +397,16 @@ export const TaskManagerView: React.FC = () => {
     return () => window.removeEventListener('reamarc-open-task', onOpen);
   }, []);
 
+  const boardTasks = useMemo(() => collapseAssignmentGroups(tasks, actor?.id), [tasks, actor?.id]);
+  const displayedStageCounts = useMemo(() => {
+    const next: Partial<Record<TaskStatus, number>> = { todo: 0, in_progress: 0, in_review: 0, completed: 0 };
+    for (const task of boardTasks) {
+      if (task.status === 'cancelled') continue;
+      next[task.status] = (next[task.status] || 0) + 1;
+    }
+    return next;
+  }, [boardTasks]);
+
   const departments = useMemo(() => {
     const set = new Set<string>();
     for (const t of tasks) if (t.department) set.add(t.department);
@@ -419,6 +432,10 @@ export const TaskManagerView: React.FC = () => {
 
   const applyStageChange = async (task: Task, to: TaskStatus, origin?: { x: number; y: number }) => {
     if (task.status === to) return;
+    if (isSharedStageCard(task) && task.assignee_id !== actor?.id) {
+      addToast('Open the task', 'Each person has their own stage. Open a copy to move it.', 'info');
+      return;
+    }
     const needsReason = stageChangeNeedsReason(task.status, to);
     if (!canTransitionTo(actor, task, to, needsReason ? 'x' : undefined)) {
       addToast('Cannot move task', 'That stage change is not allowed.', 'error');
@@ -446,6 +463,13 @@ export const TaskManagerView: React.FC = () => {
       setLeavingId(null);
     }
     setTasks((cur) => cur.map((t) => (t.id === task.id ? { ...t, status: to } : t)));
+    setStageCounts((cur) => {
+      const from = task.status;
+      const next = { ...cur };
+      if (typeof next[from] === 'number') next[from] = Math.max(0, (next[from] || 0) - 1);
+      next[to] = (next[to] || 0) + 1;
+      return next;
+    });
     if (!reduced) {
       setArrivingId(task.id);
       window.setTimeout(() => setArrivingId((current) => (current === task.id ? null : current)), 340);
@@ -462,6 +486,12 @@ export const TaskManagerView: React.FC = () => {
       pendingMoves.current.delete(task.id);
       motionBusy.current = Boolean(leavingId || arrivingId || pendingMoves.current.size);
       setTasks((cur) => cur.map((t) => (t.id === task.id ? task : t)));
+      setStageCounts((cur) => {
+        const next = { ...cur };
+        if (typeof next[to] === 'number') next[to] = Math.max(0, (next[to] || 0) - 1);
+        next[task.status] = (next[task.status] || 0) + 1;
+        return next;
+      });
       throw err;
     }
   };
@@ -788,13 +818,14 @@ export const TaskManagerView: React.FC = () => {
         </div>
       ) : viewMode === 'list' ? (
         <TaskListView
-          tasks={tasks}
+          tasks={boardTasks}
           actor={actor}
           onOpen={openTask}
+          onLogTime={(t) => setLogTimeTask(t)}
           onAction={handleAction}
           onViewAll={(stage) => setFilters((f) => ({ ...f, stage }))}
           focusedStage={filters.stage}
-          stageCounts={stageCounts}
+          stageCounts={displayedStageCounts}
           arrivingId={arrivingId}
           leavingId={leavingId}
           onDropTask={async (taskId, to) => {
@@ -809,11 +840,12 @@ export const TaskManagerView: React.FC = () => {
         />
       ) : viewMode === 'kanban' ? (
         <TaskKanbanView
-          tasks={tasks}
+          tasks={boardTasks}
           stageCounts={stageCounts}
           actor={actor}
           density={boardDensity}
           onOpen={openTask}
+          onLogTime={(t) => setLogTimeTask(t)}
           onStageChange={async (task, to) => {
             await applyStageChange(task, to);
           }}
@@ -862,6 +894,7 @@ export const TaskManagerView: React.FC = () => {
         defaultDue={defaultDue}
         defaultStage={defaultStage}
         focusAssignee={focusAssignee}
+        onOpenTask={(next) => setActiveTask(next)}
         onClose={() => {
           setDialogOpen(false);
           setActiveTask(null);
@@ -893,6 +926,15 @@ export const TaskManagerView: React.FC = () => {
             taskManagerViewCache.invalidateLists();
             void load();
           }
+        }}
+      />
+      <TaskLogTimeModal
+        task={logTimeTask}
+        isOpen={Boolean(logTimeTask)}
+        onClose={() => setLogTimeTask(null)}
+        onSuccess={() => {
+          taskManagerViewCache.invalidateLists();
+          void load();
         }}
       />
       <TaskImportModal

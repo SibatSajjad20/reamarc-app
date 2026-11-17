@@ -154,6 +154,7 @@ class TaskCreate(BaseModel):
     description: str = Field("", max_length=10000)
     priority: str = "medium"
     assignee_id: Optional[str] = None
+    assignee_ids: Optional[List[str]] = None
     watcher_ids: Optional[List[str]] = None
     start_date: Optional[str] = None
     due_date: Optional[str] = None
@@ -499,11 +500,15 @@ class TaskResponse(BaseModel):
     assignment_chain: List[Dict[str, Any]] = Field(default_factory=list)
     involved_ids: List[str] = Field(default_factory=list)
     watcher_ids: List[str] = Field(default_factory=list)
+    assignment_group_id: Optional[str] = None
+    assignment_group: Optional[Dict[str, Any]] = None
     start_date: Optional[str] = None
     due_date: Optional[str] = None
     due_time: Optional[str] = None
     reminder_offsets: List[int] = Field(default_factory=lambda: list(DEFAULT_REMINDER_OFFSETS))
     estimate_hours: Optional[float] = None
+    logged_hours: float = 0.0
+    logs_count: int = 0
     progress: int = 0
     checklist: List[Dict[str, Any]] = Field(default_factory=list)
     parent_id: Optional[str] = None

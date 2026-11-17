@@ -193,4 +193,30 @@ describe('TaskPipelineCard', () => {
     expect(dept.className).not.toMatch(/max-w-\[50%\]/);
     expect(screen.getByText('T-0001').className).toMatch(/font-numeric/);
   });
+
+  it('grouped assignment is not draggable and names the people count', () => {
+    renderCard(
+      <TaskPipelineCard
+        task={task({
+          assignment_group: {
+            id: 'tag1',
+            rollup_status: 'todo',
+            done_count: 0,
+            total_count: 3,
+            peers: [
+              { id: 'a', serial: 'T-1', status: 'todo' },
+              { id: 'b', serial: 'T-2', status: 'todo' },
+              { id: 'c', serial: 'T-3', status: 'todo' },
+            ],
+          },
+        })}
+        density="comfortable"
+        onOpen={vi.fn()}
+        onDragStart={vi.fn()}
+        onDragEnd={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('task-pipeline-assignee').textContent).toBe('3 people');
+    expect(screen.getByText('Pipeline card title that should clamp to two lines').closest('[draggable]')?.getAttribute('draggable')).toBe('false');
+  });
 });

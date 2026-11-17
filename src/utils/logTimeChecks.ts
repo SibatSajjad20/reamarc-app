@@ -9,6 +9,65 @@ export function parseTimeToMinutes(value?: string | null): number | null {
   return hours * 60 + minutes;
 }
 
+/**
+ * Normalizes flexible human time inputs into a standard decimal float (hours).
+ * Supported formats:
+ *   - "0:30" -> 0.5
+ *   - "1.5" or 1.5 -> 1.5
+ *   - "2 hrs" / "2h" / "2 hours" -> 2.0
+ *   - "45 mins" / "45m" / "45 min" -> 0.75
+ *   - "1h 30m" / "1hr 30min" -> 1.5
+ *   - "1:15" -> 1.25
+ * Returns null if input is negative, empty, or unparseable.
+ */
+export function parseDurationToHours(val: unknown): number | null {
+  if (val === null || val === undefined || val === '') return null;
+  if (typeof val === 'number') {
+    return Number.isFinite(val) && val >= 0 ? Math.round(val * 100) / 100 : null;
+  }
+  const str = String(val).trim().toLowerCase();
+  if (!str) return null;
+
+  // Pattern 1: HH:MM or H:MM (e.g., "0:30", "1:45", "02:15")
+  const colonMatch = str.match(/^(\d+):(\d{1,2})$/);
+  if (colonMatch) {
+    const h = parseInt(colonMatch[1], 10);
+    const m = parseInt(colonMatch[2], 10);
+    if (m >= 60) return null;
+    return Math.round((h + m / 60) * 100) / 100;
+  }
+
+  // Pattern 2: Combinations of hours and minutes (e.g., "1h 30m", "2 hrs", "45 mins", "30m")
+  let hours = 0;
+  let minutes = 0;
+  let hasMatch = false;
+
+  const hMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/);
+  if (hMatch) {
+    hours = parseFloat(hMatch[1]);
+    hasMatch = true;
+  }
+
+  const mMatch = str.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|min|m)\b/);
+  if (mMatch) {
+    minutes = parseFloat(mMatch[1]);
+    hasMatch = true;
+  }
+
+  if (hasMatch) {
+    const total = hours + minutes / 60;
+    return total >= 0 ? Math.round(total * 100) / 100 : null;
+  }
+
+  // Pattern 3: Simple decimal or integer string (e.g., "1.5", "2", "0.75")
+  const decVal = Number(str);
+  if (!isNaN(decVal) && Number.isFinite(decVal) && decVal >= 0) {
+    return Math.round(decVal * 100) / 100;
+  }
+
+  return null;
+}
+
 export function hoursFromStartEnd(start?: string | null, end?: string | null): number | null {
   const startM = parseTimeToMinutes(start);
   const endM = parseTimeToMinutes(end);
@@ -127,13 +186,13 @@ export function findDuplicate(
   existing: TimedLogSlice[],
 ): TimedLogSlice | null {
   const task = taskTextForCompare(candidate.task_description);
-  const hours = Number(candidate.hours_utilized || 0);
+  const hours = parseDurationToHours(candidate.hours_utilized) ?? 0;
   if (!task) return null;
   for (const row of existing) {
     if (candidate.id && row.id === candidate.id) continue;
     if (candidate.date && row.date && candidate.date !== row.date) continue;
     const otherTask = taskTextForCompare(row.task_description);
-    const otherHours = Number(row.hours_utilized || 0);
+    const otherHours = parseDurationToHours(row.hours_utilized) ?? 0;
     if (otherTask === task && Math.round(otherHours * 100) === Math.round(hours * 100)) {
       return row;
     }

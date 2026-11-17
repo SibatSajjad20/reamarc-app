@@ -18,6 +18,24 @@ export const TASK_PRIORITY_OPTIONS: { value: TaskPriority; label: string }[] = [
   { value: 'urgent', label: 'Urgent' },
 ];
 
+export interface TaskAssignmentPeer {
+  id: string;
+  serial: string;
+  assignee_id?: string | null;
+  assignee_name?: string;
+  status: TaskStatus;
+  blocked?: boolean;
+  department?: string;
+}
+
+export interface TaskAssignmentGroup {
+  id: string;
+  rollup_status: TaskStatus;
+  done_count: number;
+  total_count: number;
+  peers: TaskAssignmentPeer[];
+}
+
 export interface TaskAssignmentHop {
   from_id?: string | null;
   from_name?: string | null;
@@ -71,11 +89,15 @@ export interface Task {
   assignment_chain?: TaskAssignmentHop[];
   involved_ids?: string[];
   watcher_ids?: string[];
+  assignment_group_id?: string | null;
+  assignment_group?: TaskAssignmentGroup | null;
   start_date?: string | null;
   due_date?: string | null;
   due_time?: string | null;
   reminder_offsets?: number[];
   estimate_hours?: number | null;
+  logged_hours?: number;
+  logs_count?: number;
   progress?: number;
   checklist?: TaskChecklistItem[];
   parent_id?: string | null;
@@ -239,6 +261,7 @@ export type TaskActor = {
   role?: string;
   full_name?: string;
   name?: string;
+  email?: string;
   departments?: string[];
   primary_department?: string;
   department?: string;

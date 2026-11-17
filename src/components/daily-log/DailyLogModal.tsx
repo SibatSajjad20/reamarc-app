@@ -2,12 +2,14 @@ import React from 'react';
 import { FormDialog } from '../ui/FormDialogLayout';
 import { DailyLogForm } from './DailyLogForm';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
+import type { Task } from '../../types/task';
 
 export interface DailyLogModalProps {
   isOpen: boolean;
   mode: 'create' | 'edit';
   initialData?: DailyLogEntry | null;
   prefilledDate?: string;
+  prefilledTask?: Task | null;
   columns?: DailyLogColumn[];
   activeSheet: string;
   currentUser?: { name?: string; role?: string; full_name?: string; department?: string } | null;
@@ -23,6 +25,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   mode,
   initialData,
   prefilledDate,
+  prefilledTask,
   columns = [],
   activeSheet,
   currentUser,
@@ -48,6 +51,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
         mode={mode}
         initialData={initialData}
         prefilledDate={prefilledDate}
+        prefilledTask={prefilledTask}
         columns={columns}
         activeSheet={activeSheet}
         currentUser={currentUser}

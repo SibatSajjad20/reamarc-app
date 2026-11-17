@@ -32,6 +32,15 @@ const memberW = actor('member.web', 'team_member', 'Website');
 const leadSeo = actor('lead.seo', 'team_lead', 'SEO');
 const memberHr = actor('member.hr', 'team_member', 'HR');
 const hr = actor('hr', 'hr', 'HR');
+const ops = actor('ops', 'operations', '');
+const safeer: TaskActor = {
+  id: 'ops.safeer',
+  role: 'operations',
+  full_name: 'Safeer',
+  name: 'Safeer',
+  email: 'safeer@company.com',
+  is_active: true,
+};
 
 const task = (over: Partial<Task> = {}): Task => ({
   id: 'tsk1',
@@ -64,6 +73,45 @@ describe('taskAccess', () => {
     expect(canAssignTo(leadW, leadC)).toBe(true);
     expect(canAssignTo(leadW, memberC1)).toBe(false);
     expect(canAssignTo(admin, memberHr)).toBe(false);
+    expect(canViewTask(ops, task())).toBe(false);
+    expect(canAssignTo(leadC, ops)).toBe(false);
+    expect(canAssignTo(admin, safeer)).toBe(true);
+    expect(canAssignTo(leadC, safeer)).toBe(true);
+    expect(canAssignTo(leadW, safeer)).toBe(true);
+    expect(canAssignTo(memberC1, safeer)).toBe(false);
+    expect(canAssignTo(safeer, safeer)).toBe(true);
+  });
+
+  it('lets Safeer (operations) use Tasks as an employee and approve own or admin-assigned work', () => {
+    const own = task({
+      status: 'in_review',
+      creator_id: 'ops.safeer',
+      assigner_id: 'ops.safeer',
+      assigner_role: 'operations',
+      assignee_id: 'ops.safeer',
+      assignee_role: 'operations',
+      involved_ids: ['ops.safeer'],
+      department: '',
+    });
+    expect(canViewTask(safeer, own)).toBe(true);
+    expect(isApprover(safeer, own)).toBe(true);
+    expect(canTransitionTo(safeer, own, 'completed')).toBe(true);
+
+    const adminAssigned = task({
+      status: 'in_review',
+      creator_id: 'admin',
+      assigner_id: 'admin',
+      assigner_role: 'admin',
+      assignee_id: 'ops.safeer',
+      assignee_role: 'operations',
+      involved_ids: ['admin', 'ops.safeer'],
+      department: '',
+    });
+    expect(canViewTask(safeer, adminAssigned)).toBe(true);
+    expect(isApprover(safeer, adminAssigned)).toBe(true);
+    expect(canTransitionTo(safeer, adminAssigned, 'completed')).toBe(true);
+    expect(isApprover(safeer, task({ status: 'in_review' }))).toBe(false);
+    expect(canViewTask(safeer, task())).toBe(false);
   });
 
   it('mirrors reassign and approver rules', () => {

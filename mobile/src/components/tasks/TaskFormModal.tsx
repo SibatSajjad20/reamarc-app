@@ -13,11 +13,24 @@ import {
   View,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Calendar, ChevronLeft, ChevronRight, Clock, X } from 'lucide-react-native';
+import {
+  Calendar,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  Search,
+  Square,
+  Users,
+  X,
+} from 'lucide-react-native';
 import { useTheme } from '../../theme';
 import { SuccessBurst } from '../../ui/motion';
 import { SelectField } from '../../ui/SelectField';
 import { useAuth } from '../../context/AuthContext';
+import { getModuleCache, setModuleCache } from '../../lib/moduleCache';
 import {
   allowedTaskStages,
   createTask,
@@ -220,12 +233,24 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
   const isCreate = !task;
   const stageOptions = !isCreate && task ? allowedTaskStages(user, task) : [];
   const statusLocked = Boolean(task && task.status === 'completed') || stageOptions.length <= 1;
-  const [people, setPeople] = useState<TaskPerson[]>([]);
-  const [clients, setClients] = useState<TaskClientOption[]>([]);
+  const [people, setPeople] = useState<TaskPerson[]>(
+    () => getModuleCache<TaskPerson[]>('task-assignees') || [],
+  );
+  const [loadingAssignees, setLoadingAssignees] = useState(false);
+  const [clients, setClients] = useState<TaskClientOption[]>(
+    () => getModuleCache<TaskClientOption[]>('task-clients') || [],
+  );
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(task?.title || '');
   const [status, setStatus] = useState<TaskStatus>(task?.status || 'todo');
-  const [assigneeId, setAssigneeId] = useState(task?.assignee_id || '');
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(() => {
+    if (task?.assignment_group?.peers?.length) {
+      return task.assignment_group.peers.map((p) => p.assignee_id).filter(Boolean);
+    }
+    return task?.assignee_id ? [task.assignee_id] : [];
+  });
+  const [assigneePickerOpen, setAssigneePickerOpen] = useState(false);
+  const [assigneeQuery, setAssigneeQuery] = useState('');
   const [startDate, setStartDate] = useState(task?.start_date || '');
   const [dueDate, setDueDate] = useState(task?.due_date || '');
   const [dueTime, setDueTime] = useState(task?.due_time || '');
@@ -245,7 +270,11 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
     setEstimateError(null);
     setTitle(task?.title || '');
     setStatus(task?.status || 'todo');
-    setAssigneeId(task?.assignee_id || '');
+    if (task?.assignment_group?.peers?.length) {
+      setAssigneeIds(task.assignment_group.peers.map((p) => p.assignee_id).filter(Boolean));
+    } else {
+      setAssigneeIds(task?.assignee_id ? [task.assignee_id] : []);
+    }
     setStartDate(task?.start_date || '');
     setDueDate(task?.due_date || '');
     setDueTime(task?.due_time || '');
@@ -258,15 +287,36 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
   useEffect(() => {
     if (!visible) return;
     let cancelled = false;
+    if (!getModuleCache<TaskPerson[]>('task-assignees')?.length) {
+      setLoadingAssignees(true);
+    }
     Promise.allSettled([listTaskAssignees(), listTaskClients()]).then(([peopleRes, clientRes]) => {
       if (cancelled) return;
-      if (peopleRes.status === 'fulfilled') setPeople(peopleRes.value || []);
-      if (clientRes.status === 'fulfilled') setClients(clientRes.value || []);
+      setLoadingAssignees(false);
+      if (peopleRes.status === 'fulfilled' && peopleRes.value?.length) {
+        setPeople(peopleRes.value);
+        setModuleCache('task-assignees', peopleRes.value);
+      }
+      if (clientRes.status === 'fulfilled' && clientRes.value?.length) {
+        setClients(clientRes.value);
+        setModuleCache('task-clients', clientRes.value);
+      }
     });
     return () => {
       cancelled = true;
     };
   }, [visible]);
+
+  const filteredAssignees = useMemo(() => {
+    const q = assigneeQuery.trim().toLowerCase();
+    if (!q) return people;
+    return people.filter(
+      (p) =>
+        (p.full_name || p.name || '').toLowerCase().includes(q) ||
+        (p.department || '').toLowerCase().includes(q) ||
+        (p.role || '').toLowerCase().includes(q),
+    );
+  }, [people, assigneeQuery]);
 
   const handleSave = async () => {
     const errors = validateWorkTaskForm({ title, estimate });
@@ -282,7 +332,8 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
       description: description.trim() || null,
       ...(isCreate ? { status: 'todo' as const } : statusLocked ? {} : { status }),
       priority,
-      assignee_id: assigneeId || null,
+      assignee_id: assigneeIds[0] || null,
+      assignee_ids: isCreate && assigneeIds.length > 0 ? assigneeIds : undefined,
       start_date: startDate || null,
       due_date: dueDate || null,
       due_time: dueTime || null,
@@ -378,22 +429,64 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
             )
           ) : null}
 
-          <SelectField
-            label="Assigned Person"
-            value={assigneeId}
-            onChange={setAssigneeId}
-            placeholder="Assign an employee..."
-            searchable
-            emptyText="No employees found"
-            options={[
-              { value: '', label: 'Unassigned' },
-              ...people.map((p) => ({
-                value: p.id,
-                label: p.full_name || p.name,
-                hint: [p.department, p.role].filter(Boolean).join(' · '),
-              })),
-            ]}
-          />
+          {/* Assigned Person(s) */}
+          <View style={styles.field}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <Text style={[styles.label, { color: theme.textMuted }]}>
+                Assigned Person(s) {assigneeIds.length > 1 ? `(${assigneeIds.length})` : ''}
+              </Text>
+              {assigneeIds.length > 0 ? (
+                <Pressable onPress={() => setAssigneeIds([])} hitSlop={6}>
+                  <Text style={{ fontSize: 11, color: theme.rose, fontWeight: '600' }}>Clear all</Text>
+                </Pressable>
+              ) : null}
+            </View>
+
+            <Pressable
+              onPress={() => {
+                setAssigneeQuery('');
+                setAssigneePickerOpen(true);
+              }}
+              style={[
+                styles.control,
+                { backgroundColor: theme.surface, borderColor: theme.border, minHeight: 46, paddingVertical: 8 },
+              ]}
+            >
+              <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
+                {assigneeIds.length === 0 ? (
+                  <Text style={[styles.controlText, { color: theme.textMuted }]}>
+                    Unassigned · Tap to assign employee(s)
+                  </Text>
+                ) : (
+                  assigneeIds.map((id) => {
+                    const person = people.find((p) => p.id === id);
+                    const name = person?.full_name || person?.name || 'Employee';
+                    return (
+                      <View
+                        key={id}
+                        style={[
+                          styles.assigneeChip,
+                          { backgroundColor: theme.primaryLight, borderColor: theme.primary },
+                        ]}
+                      >
+                        <Text style={[styles.assigneeChipText, { color: theme.primary }]}>{name}</Text>
+                        <Pressable
+                          hitSlop={6}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            setAssigneeIds((prev) => prev.filter((x) => x !== id));
+                          }}
+                        >
+                          <X size={12} color={theme.primary} />
+                        </Pressable>
+                      </View>
+                    );
+                  })
+                )}
+              </View>
+              <ChevronDown size={16} color={theme.textMuted} />
+            </Pressable>
+          </View>
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: theme.textMuted }]}>Start Date</Text>
@@ -580,6 +673,99 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
         onClose={() => setCal(null)}
         onSelect={setDueDate}
       />
+
+      <Modal
+        visible={assigneePickerOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setAssigneePickerOpen(false)}
+      >
+        <View style={styles.sheetRoot}>
+          <Pressable style={styles.sheetFlex} onPress={() => setAssigneePickerOpen(false)} />
+          <View style={[styles.calSheet, { backgroundColor: theme.surface, borderColor: theme.border, maxHeight: '82%' }]}>
+            <View style={styles.calHead}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Users size={18} color={theme.primary} />
+                <Text style={[styles.calTitle, { color: theme.text }]}>Assign Employees</Text>
+              </View>
+              <Pressable onPress={() => setAssigneePickerOpen(false)} hitSlop={8}>
+                <X size={18} color={theme.textMuted} />
+              </Pressable>
+            </View>
+
+            <View style={[styles.searchBox, { backgroundColor: theme.bgSubtle, borderColor: theme.border }]}>
+              <Search size={16} color={theme.textMuted} />
+              <TextInput
+                value={assigneeQuery}
+                onChangeText={setAssigneeQuery}
+                placeholder="Search employees by name, role..."
+                placeholderTextColor={theme.textSubtle}
+                style={[styles.searchInput, { color: theme.text }]}
+                autoCapitalize="none"
+              />
+            </View>
+
+            <ScrollView style={{ maxHeight: 340 }} contentContainerStyle={{ padding: 12, gap: 6 }} keyboardShouldPersistTaps="handled">
+              {loadingAssignees ? (
+                <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={{ marginTop: 8, color: theme.textMuted, fontSize: 13 }}>Loading employees...</Text>
+                </View>
+              ) : filteredAssignees.length === 0 ? (
+                <Text style={{ textAlign: 'center', color: theme.textMuted, paddingVertical: 24, fontSize: 13 }}>
+                  No employees found
+                </Text>
+              ) : (
+                filteredAssignees.map((p) => {
+                  const selected = assigneeIds.includes(p.id);
+                  return (
+                    <Pressable
+                      key={p.id}
+                      onPress={() => {
+                        setAssigneeIds((prev) =>
+                          prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]
+                        );
+                      }}
+                      style={[
+                        styles.assigneeOptionRow,
+                        {
+                          backgroundColor: selected ? theme.primaryLight : 'transparent',
+                          borderColor: selected ? theme.primary : theme.border,
+                        },
+                      ]}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.assigneeOptionName, { color: selected ? theme.primary : theme.text }]}>
+                          {p.full_name || p.name}
+                        </Text>
+                        <Text style={[styles.assigneeOptionSub, { color: theme.textMuted }]}>
+                          {[p.department, p.role].filter(Boolean).join(' · ')}
+                        </Text>
+                      </View>
+                      {selected ? (
+                        <CheckSquare size={18} color={theme.primary} />
+                      ) : (
+                        <Square size={18} color={theme.textMuted} />
+                      )}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
+
+            <View style={{ padding: 12, borderTopWidth: 1, borderTopColor: theme.border }}>
+              <Pressable
+                onPress={() => setAssigneePickerOpen(false)}
+                style={{ backgroundColor: theme.primary, borderRadius: 12, paddingVertical: 12, alignItems: 'center' }}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700' }}>
+                  Done ({assigneeIds.length} selected)
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Modal>
   );
 }
@@ -687,5 +873,49 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     borderWidth: 1,
     borderBottomWidth: 0,
+  },
+  assigneeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  assigneeChipText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    height: 40,
+    marginBottom: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    paddingVertical: 0,
+  },
+  assigneeOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+  },
+  assigneeOptionName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  assigneeOptionSub: {
+    fontSize: 12,
+    marginTop: 2,
   },
 });

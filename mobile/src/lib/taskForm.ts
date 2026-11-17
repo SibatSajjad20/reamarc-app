@@ -23,6 +23,22 @@ export type TaskComment = {
   created_at: string;
 };
 
+export interface TaskAssignmentPeer {
+  id: string;
+  serial: string;
+  assignee_id: string;
+  assignee_name: string;
+  status: TaskStatus;
+}
+
+export interface TaskAssignmentGroup {
+  id: string;
+  rollup_status: TaskStatus;
+  done_count: number;
+  total_count: number;
+  peers: TaskAssignmentPeer[];
+}
+
 export type Task = {
   id: string;
   serial?: string;
@@ -39,10 +55,13 @@ export type Task = {
   assigner_role?: string | null;
   department?: string | null;
   involved_ids?: string[] | null;
+  assignment_group_id?: string | null;
+  assignment_group?: TaskAssignmentGroup | null;
   start_date?: string | null;
   due_date?: string | null;
   due_time?: string | null;
   estimate_hours?: number | null;
+  logged_hours?: number | null;
   client_id?: string | null;
   client_name?: string | null;
   creator_name?: string;
@@ -134,15 +153,29 @@ export type TaskWritePayload = {
   status?: TaskStatus;
   priority?: TaskPriority;
   assignee_id?: string | null;
+  assignee_ids?: string[] | null;
   start_date?: string | null;
   due_date?: string | null;
   due_time?: string | null;
   estimate_hours?: number | null;
+  logged_hours?: number | null;
   client_id?: string | null;
 };
 
 export function stageLabel(status?: string): string {
   return TASK_STAGES.find((s) => s.value === status)?.label || String(status || '—');
+}
+
+export function stageTone(
+  status?: string,
+  theme?: { isDark?: boolean; text?: string; textMuted?: string },
+): { bg: string; color: string } {
+  const s = String(status || '').toLowerCase();
+  if (s === 'completed') return { bg: '#ECFDF5', color: '#059669' };
+  if (s === 'review' || s === 'in_review') return { bg: '#FEF3C7', color: '#B45309' };
+  if (s === 'in_progress') return { bg: '#EEF2FF', color: '#4338CA' };
+  if (s === 'cancelled') return { bg: '#FFF1F2', color: '#E11D48' };
+  return { bg: theme?.isDark ? '#27272a' : '#F1F5F9', color: theme?.textMuted || '#6B7280' };
 }
 
 function normalizeStatus(raw: string | undefined): TaskStatus {
@@ -197,9 +230,21 @@ export function normalizeTask(row: any): Task {
     title: String(row?.title || row?.name || 'Untitled'),
     status: normalizeStatus(row?.status),
     priority: (row?.priority || 'medium') as TaskPriority,
+    estimate_hours: row?.estimate_hours != null ? Number(row.estimate_hours) : null,
+    logged_hours: row?.logged_hours != null ? Number(row.logged_hours) : 0,
+    assignment_group_id: row?.assignment_group_id || null,
+    assignment_group: row?.assignment_group || null,
     comments,
     comments_count: Number(row?.comments_count ?? comments.length),
   };
+}
+
+export function assignmentPeers(task?: Task | null): TaskAssignmentPeer[] {
+  return task?.assignment_group?.peers || [];
+}
+
+export function isGroupedAssignment(task?: Task | null): boolean {
+  return assignmentPeers(task).length > 1;
 }
 
 export function nextStage(status: TaskStatus): TaskStatus | null {

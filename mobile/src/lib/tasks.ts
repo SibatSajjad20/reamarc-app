@@ -110,7 +110,7 @@ async function firstClients(urls: string[]): Promise<TaskClientOption[]> {
 }
 
 export function listTaskAssignees(): Promise<TaskPerson[]> {
-  return firstPeople(['/admin/users', '/crm/assignees', '/tasks/options/assignees']);
+  return firstPeople(['/tasks/assignable-users', '/users', '/crm/assignees', '/admin/users']);
 }
 
 export function listTaskClients(): Promise<TaskClientOption[]> {

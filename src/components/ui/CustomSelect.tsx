@@ -7,6 +7,8 @@ export interface SelectOption {
   value: string;
   label: string;
   description?: string;
+  title?: string;
+  node?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string; size?: number }>;
 }
 
@@ -26,6 +28,8 @@ export interface CustomSelectProps {
   align?: 'left' | 'right';
   usePortal?: boolean;
   size?: 'default' | 'sm' | 'xs';
+  dropdownWidth?: 'trigger' | 'wide' | 'auto';
+  menuClassName?: string;
   autoOpen?: boolean;
   onClose?: () => void;
   searchable?: boolean;
@@ -88,6 +92,7 @@ const SelectMenu: React.FC<{
             <button
               key={option.value}
               type="button"
+              title={option.title || (option.description ? `${option.label} — ${option.description}` : option.label)}
               onClick={() => {
                 onChange(option.value);
                 onClose();
@@ -99,22 +104,28 @@ const SelectMenu: React.FC<{
                   : 'text-fg-2 hover:bg-hover hover:text-fg'
               )}
             >
-              <div className="flex items-center gap-2 min-w-0">
+              <div className="flex items-start gap-2 min-w-0 flex-1">
                 {OptionIcon && (
                   <OptionIcon
                     size={14}
-                    className={cn('shrink-0', isSelected ? 'text-accent-text' : 'text-fg-muted')}
+                    className={cn('shrink-0 mt-0.5', isSelected ? 'text-accent-text' : 'text-fg-muted')}
                   />
                 )}
-                <div className="min-w-0">
-                  <div className="truncate">{option.label}</div>
-                  {option.description && (
-                    <div className="text-micro text-fg-muted truncate">{option.description}</div>
+                <div className="min-w-0 flex-1">
+                  {option.node ? (
+                    option.node
+                  ) : (
+                    <>
+                      <div className="truncate">{option.label}</div>
+                      {option.description && (
+                        <div className="text-micro text-fg-muted truncate">{option.description}</div>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
-              {isSelected && <Check size={14} className="text-accent shrink-0 ml-1" />}
+              {isSelected && <Check size={14} className="text-accent shrink-0 ml-1 self-center" />}
             </button>
           );
         })
@@ -139,6 +150,8 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   align = 'left',
   usePortal = true,
   size = 'default',
+  dropdownWidth = 'trigger',
+  menuClassName = '',
   autoOpen = false,
   onClose,
   searchable = false,
@@ -175,7 +188,13 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       sideOffset={6}
       collisionPadding={8}
       avoidCollisions
-      className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+      className={cn(
+        'z-[var(--z-popover,100)] max-h-[340px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95',
+        dropdownWidth === 'wide'
+          ? 'w-[max(var(--radix-popover-trigger-width),460px)] max-w-[min(92vw,560px)]'
+          : 'w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)]',
+        menuClassName
+      )}
     >
       <SelectMenu
         options={options}

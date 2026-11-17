@@ -322,6 +322,14 @@ async def get_task(request: Request, task_id: str, current_user: dict = Depends(
     return await task_service.get_task(db, task_id, current_user)
 
 
+@router.get("/{task_id}/logs")
+@limiter.limit("120/minute")
+async def get_task_logs(request: Request, task_id: str, current_user: dict = Depends(require_tasks_user)):
+    db = _db()
+    logs = await task_service.get_task_logs(db, task_id, current_user)
+    return {"logs": logs}
+
+
 @router.patch("/{task_id}")
 @limiter.limit("60/minute")
 async def patch_task(

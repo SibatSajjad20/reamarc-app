@@ -13,6 +13,9 @@ export interface DailyLogEntry {
   task_description: string;
   task_type: string;
   task_status: TaskStatusOption | string;
+  task_id?: string | null;
+  task_serial?: string | null;
+  sync_task_status?: string | null;
   revisions_done?: string;
   deliverables?: string;
   hours_utilized: number | string;
@@ -34,16 +37,47 @@ export type TaskStatusTone = {
 };
 
 export function parseHours(value: number | string | null | undefined): number {
-  if (typeof value === 'number' && Number.isFinite(value)) return Math.max(0, value);
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value * 100) / 100);
+  }
   if (value == null) return 0;
   const raw = String(value).trim().toLowerCase();
   if (!raw) return 0;
+
+  // Colon format HH:MM (e.g. "0:30", "1:45")
   const colon = raw.match(/^(\d+):(\d{1,2})$/);
   if (colon) {
-    return Math.max(0, Number(colon[1]) + Number(colon[2]) / 60);
+    const h = parseInt(colon[1], 10);
+    const m = parseInt(colon[2], 10);
+    if (m < 60) {
+      return Math.max(0, Math.round((h + m / 60) * 100) / 100);
+    }
   }
-  const num = Number(raw.replace(/hrs?|hours?/g, '').trim());
-  return Number.isFinite(num) ? Math.max(0, num) : 0;
+
+  // Combinations like "1h 30m", "30m", "45 mins", "2 hrs"
+  let hours = 0;
+  let minutes = 0;
+  let hasMatch = false;
+
+  const hMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/);
+  if (hMatch) {
+    hours = parseFloat(hMatch[1]);
+    hasMatch = true;
+  }
+
+  const mMatch = raw.match(/(\d+(?:\.\d+)?)\s*(?:minutes?|mins?|m)\b/);
+  if (mMatch) {
+    minutes = parseFloat(mMatch[1]);
+    hasMatch = true;
+  }
+
+  if (hasMatch) {
+    return Math.max(0, Math.round((hours + minutes / 60) * 100) / 100);
+  }
+
+  // Pure numeric (e.g. "1.5")
+  const num = Number(raw);
+  return Number.isFinite(num) ? Math.max(0, Math.round(num * 100) / 100) : 0;
 }
 
 export function formatHoursShort(value: number | string | null | undefined): string {
@@ -233,5 +267,28 @@ export function groupEntriesByDate(entries: DailyLogEntry[]): DateLogGroup[] {
   }
   return Array.from(map.values()).sort((a, b) => b.date.localeCompare(a.date));
 }
+
+/**
+ * Returns the earliest selectable date (48 working hours / 2 working days back),
+ * skipping Sundays and first Saturdays.
+ */
+export function getEarliestLogDate(now: Date = new Date(), workingSaturdays: Set<string> = new Set()): Date {
+  const d = new Date(now);
+  let workingDaysFound = 0;
+  for (let i = 0; i < 7; i++) {
+    d.setDate(d.getDate() - 1);
+    const weekday = d.getDay();
+    const iso = toIsoLocal(d);
+    const isSunday = weekday === 0;
+    const isFirstSaturday = weekday === 6 && d.getDate() <= 7 && !workingSaturdays.has(iso);
+    if (!isSunday && !isFirstSaturday) {
+      workingDaysFound++;
+      if (workingDaysFound >= 2) break;
+    }
+  }
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 
 

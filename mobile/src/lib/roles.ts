@@ -196,6 +196,12 @@ export function canManageFinance(user?: RoleUserLike | null): boolean {
   return user.permissions?.summary?.finance === 'manage';
 }
 
+export function isTaskIncludedOperations(user?: RoleUserLike | null): boolean {
+  if (!user || normalizeRole(user.role) !== 'operations') return false;
+  const blob = `${user.full_name || ''} ${user.name || ''} ${user.email || ''}`.toLowerCase();
+  return blob.includes('safeer');
+}
+
 export function canAccessTasks(user?: RoleUserLike | null): boolean {
   if (!user) return false;
   if (!isCompanyModuleEnabled(user, 'tasks')) return false;
@@ -205,7 +211,8 @@ export function canAccessTasks(user?: RoleUserLike | null): boolean {
   if (flagged !== undefined) return flagged;
   if (role === 'admin' || role === 'super_admin') return true;
   // Backend default exclusion list is HR + operations unless an admin flips it.
-  if (role === 'hr' || role === 'operations') return false;
+  if (role === 'hr') return false;
+  if (role === 'operations') return isTaskIncludedOperations(user);
   return true;
 }
 

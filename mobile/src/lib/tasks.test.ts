@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   asCommentList,
+  assignmentPeers,
   filterTaskList,
   allowedTaskStages,
+  isGroupedAssignment,
   isTaskApprover,
   nextAllowedStage,
   nextStage,
@@ -11,6 +13,7 @@ import {
   normalizeClients,
   normalizePeople,
   normalizeTask,
+  stageTone,
   TASK_STAGES,
   toApiTaskStatus,
   validateWorkTaskForm,
@@ -141,5 +144,49 @@ describe('work task form options', () => {
       allowedTaskStages(shamir, task).map((s) => s.value),
       ['completed'],
     );
+  });
+
+  it('correctly identifies multi-assignee tasks and peers', () => {
+    const multiTask = normalizeTask({
+      id: 't-pair-1',
+      serial: 'T-0041',
+      title: 'Shared Project',
+      status: 'in_progress',
+      assignee_id: 'emp-1',
+      assignee_name: 'Safeer',
+      assignment_group_id: 'grp-1',
+      assignment_group: {
+        id: 'grp-1',
+        total_count: 2,
+        done_count: 1,
+        rollup_status: 'in_progress',
+        peers: [
+          { id: 't-pair-1', serial: 'T-0041', assignee_id: 'emp-1', assignee_name: 'Safeer', status: 'in_progress' },
+          { id: 't-pair-2', serial: 'T-0042', assignee_id: 'emp-2', assignee_name: 'Haris', status: 'completed' },
+        ],
+      },
+    });
+
+    assert.equal(isGroupedAssignment(multiTask), true);
+    const peers = assignmentPeers(multiTask);
+    assert.equal(peers.length, 2);
+    assert.equal(peers[0].assignee_name, 'Safeer');
+    assert.equal(peers[1].assignee_name, 'Haris');
+    assert.equal(peers[1].status, 'completed');
+
+    const singleTask = normalizeTask({
+      id: 't-solo',
+      serial: 'T-0043',
+      title: 'Solo Project',
+      status: 'todo',
+      assignee_id: 'emp-1',
+    });
+    assert.equal(isGroupedAssignment(singleTask), false);
+    assert.equal(assignmentPeers(singleTask).length, 0);
+
+    const toneDone = stageTone('completed');
+    assert.equal(toneDone.color, '#059669');
+    const toneProgress = stageTone('in_progress');
+    assert.equal(toneProgress.color, '#4338CA');
   });
 });

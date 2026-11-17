@@ -13,18 +13,31 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Check, ChevronDown, Search, X } from 'lucide-react-native';
+import {
+  Bold,
+  Check,
+  CheckSquare,
+  ChevronDown,
+  List,
+  ListOrdered,
+  Search,
+  Square,
+  X,
+} from 'lucide-react-native';
 import { api } from '../../lib/api';
 import { clearDailyLogCaches } from '../../lib/dailyLogCache';
 import { getModuleCache, setModuleCache } from '../../lib/moduleCache';
-import { DailyLogEntry } from '../../lib/dailyLog';
+import { DailyLogEntry, getEarliestLogDate, parseHours } from '../../lib/dailyLog';
 import { htmlToPlainText } from '../../lib/taskHtml';
+import { listAllTasks, stageLabel, stageTone, Task, TaskStatus } from '../../lib/tasks';
 import { useTheme } from '../../theme';
+import { DateField } from '../../ui/DateTimeField';
 import { SuccessBurst, useSheetMotion } from '../../ui/motion';
 
 interface LogWorkModalProps {
   visible: boolean;
   initialDate?: string;
+  initialTask?: Task | null;
   entry?: DailyLogEntry | null;
   onClose: () => void;
   onCreated?: (entry: DailyLogEntry) => void;
@@ -56,7 +69,7 @@ const HOUR_PRESETS = [0.5, 1, 1.5, 2, 4];
 const WORKSPACES_CACHE = 'log-workspaces';
 const COLUMNS_CACHE = 'log-columns';
 
-type PickerKey = 'client' | 'type' | 'status' | null;
+type PickerKey = 'client' | 'type' | 'status' | 'task' | null;
 
 function optionsFromNames(names: string[]): SelectOption[] {
   return names.filter(Boolean).map((name) => ({ value: name, label: name }));
@@ -65,6 +78,7 @@ function optionsFromNames(names: string[]): SelectOption[] {
 export const LogWorkModal: React.FC<LogWorkModalProps> = ({
   visible,
   initialDate,
+  initialTask,
   entry,
   onClose,
   onCreated,
@@ -76,6 +90,7 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
   const [flashSuccess, setFlashSuccess] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [loadingClients, setLoadingClients] = useState(false);
+  const [loadingTasks, setLoadingTasks] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [picker, setPicker] = useState<PickerKey>(null);
   const [pickerQuery, setPickerQuery] = useState('');
@@ -87,11 +102,20 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
   const [taskStatus, setTaskStatus] = useState('Incomplete');
   const [hours, setHours] = useState('1.0');
   const [remarks, setRemarks] = useState('');
+
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedTaskSerial, setSelectedTaskSerial] = useState<string | null>(null);
+  const [syncTaskStage, setSyncTaskStage] = useState(true);
+  const [myTasks, setMyTasks] = useState<Task[]>([]);
+
   const [clientOptions, setClientOptions] = useState<SelectOption[]>(
     () => getModuleCache<SelectOption[]>(WORKSPACES_CACHE) || FALLBACK_CLIENTS,
   );
   const [taskTypes, setTaskTypes] = useState<SelectOption[]>(DEFAULT_TASK_TYPES);
   const [taskStatuses, setTaskStatuses] = useState<SelectOption[]>(DEFAULT_TASK_STATUSES);
+
+  const earliestLogDate = useMemo(() => getEarliestLogDate(new Date()), []);
+  const maxLogDate = useMemo(() => new Date(), []);
 
   const loadLookups = useCallback(async () => {
     const cachedClients = getModuleCache<SelectOption[]>(WORKSPACES_CACHE);
@@ -121,7 +145,6 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
         : FALLBACK_CLIENTS;
       setModuleCache(WORKSPACES_CACHE, nextClients);
       setClientOptions(nextClients);
-      setClientProject((prev) => prev || '');
 
       const typeCol = columns.find((c) => c.key === 'task_type');
       const statusCol = columns.find((c) => c.key === 'task_status');
@@ -136,15 +159,22 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
       setModuleCache(COLUMNS_CACHE, { types: nextTypes, statuses: nextStatuses });
       setTaskTypes(nextTypes);
       setTaskStatuses(nextStatuses);
-      setTaskType((prev) => (nextTypes.some((t) => t.value === prev) ? prev : nextTypes[0]?.value || prev));
-      setTaskStatus((prev) => {
-        if (nextStatuses.some((s) => s.value === prev)) return prev;
-        return nextStatuses.find((s) => s.value === 'Incomplete')?.value || nextStatuses[0]?.value || prev;
-      });
     } catch {
       if (!cachedClients?.length) setClientOptions(FALLBACK_CLIENTS);
     } finally {
       setLoadingClients(false);
+    }
+  }, []);
+
+  const loadAssignedTasks = useCallback(async () => {
+    setLoadingTasks(true);
+    try {
+      const res = await listAllTasks({ scope: 'mine' });
+      setMyTasks((res.items || []).filter((t) => t.status !== 'completed'));
+    } catch {
+      // ignore
+    } finally {
+      setLoadingTasks(false);
     }
   }, []);
 
@@ -155,6 +185,9 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
       return;
     }
     setErrorMsg(null);
+    void loadLookups();
+    void loadAssignedTasks();
+
     if (entry) {
       setDate(entry.date || initialDate || new Date().toISOString().split('T')[0]);
       setClientProject(entry.client_project || '');
@@ -163,11 +196,29 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
       setTaskStatus(String(entry.task_status || 'Incomplete'));
       setHours(String(entry.hours_utilized ?? '1.0'));
       setRemarks(entry.remarks || '');
+      setSelectedTaskId(entry.task_id || null);
+      setSelectedTaskSerial(entry.task_serial || null);
+      setSyncTaskStage(false);
+    } else if (initialTask) {
+      setDate(initialDate || new Date().toISOString().split('T')[0]);
+      setSelectedTaskId(initialTask.id);
+      setSelectedTaskSerial(initialTask.serial || null);
+      if (initialTask.client_name) {
+        setClientProject(initialTask.client_name);
+      }
+      setTaskDescription(initialTask.title || '');
+      setTaskType('Scheduled Task');
+      setTaskStatus('Incomplete');
+      setHours('1.0');
+      setRemarks('');
+      setSyncTaskStage(initialTask.status !== 'completed');
     } else {
       setDate(initialDate || new Date().toISOString().split('T')[0]);
+      setSelectedTaskId(null);
+      setSelectedTaskSerial(null);
+      setSyncTaskStage(true);
     }
-    void loadLookups();
-  }, [visible, initialDate, entry, loadLookups]);
+  }, [visible, initialDate, initialTask, entry, loadLookups, loadAssignedTasks]);
 
   const resetForm = () => {
     setTaskDescription('');
@@ -177,6 +228,9 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
     setRemarks('');
     setErrorMsg(null);
     setClientProject('');
+    setSelectedTaskId(null);
+    setSelectedTaskSerial(null);
+    setSyncTaskStage(true);
     setPicker(null);
     setPickerQuery('');
   };
@@ -187,10 +241,20 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
     onClose();
   };
 
+  const handleInsertFormat = (type: 'bold' | 'bullet' | 'number') => {
+    if (type === 'bold') {
+      setTaskDescription((prev) => (prev ? `${prev} **bold text**` : '**bold text**'));
+    } else if (type === 'bullet') {
+      setTaskDescription((prev) => (prev ? `${prev}\n• ` : '• '));
+    } else if (type === 'number') {
+      setTaskDescription((prev) => (prev ? `${prev}\n1. ` : '1. '));
+    }
+  };
+
   const handleSubmit = async () => {
     const trimmedProject = clientProject.trim();
     const trimmedDesc = taskDescription.trim();
-    const parsedHours = parseFloat(hours);
+    const parsedHours = parseHours(hours);
 
     if (!trimmedProject) {
       setErrorMsg('Please select a client before submitting.');
@@ -201,8 +265,8 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
       setErrorMsg('Please provide a task description.');
       return;
     }
-    if (isNaN(parsedHours) || parsedHours <= 0) {
-      setErrorMsg('Hours must be greater than 0.');
+    if (!parsedHours || parsedHours <= 0) {
+      setErrorMsg('Please provide a valid time utilized (e.g. 1.5 or 0:30).');
       return;
     }
 
@@ -210,7 +274,7 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
     setErrorMsg(null);
 
     try {
-      const payload = {
+      const payload: any = {
         date,
         client_project: trimmedProject,
         task_description: trimmedDesc,
@@ -219,6 +283,14 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
         hours_utilized: parsedHours,
         remarks: remarks.trim() || undefined,
       };
+
+      if (selectedTaskId) {
+        payload.task_id = selectedTaskId;
+        payload.task_serial = selectedTaskSerial || undefined;
+        if (syncTaskStage) {
+          payload.sync_task_status = taskStatus.toLowerCase() === 'completed' ? 'completed' : 'in_progress';
+        }
+      }
 
       if (entry?.id) {
         const updated = await api<DailyLogEntry>(`/daily-log/entries/${encodeURIComponent(entry.id)}`, {
@@ -285,6 +357,7 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
   const selectedType = taskTypes.find((t) => t.value === taskType);
   const selectedStatus = taskStatuses.find((s) => s.value === taskStatus);
   const selectedClient = clientOptions.find((c) => c.value === clientProject);
+  const selectedTask = myTasks.find((t) => t.id === selectedTaskId);
 
   const togglePicker = (key: PickerKey) => {
     setPickerQuery('');
@@ -296,6 +369,166 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
     if (!q) return clientOptions;
     return clientOptions.filter((opt) => opt.label.toLowerCase().includes(q));
   }, [clientOptions, pickerQuery]);
+
+  const filteredTasks = useMemo(() => {
+    const q = pickerQuery.trim().toLowerCase();
+    if (!q) return myTasks;
+    return myTasks.filter((t) =>
+      (t.title || '').toLowerCase().includes(q) ||
+      (t.serial || '').toLowerCase().includes(q) ||
+      (t.client_name || '').toLowerCase().includes(q),
+    );
+  }, [myTasks, pickerQuery]);
+
+  const renderTaskPicker = () => {
+    const open = picker === 'task';
+    const displayTitle = selectedTask
+      ? `${selectedTask.serial ? `[${selectedTask.serial}] ` : ''}${selectedTask.title}`
+      : selectedTaskSerial
+      ? `Linked Task (${selectedTaskSerial})`
+      : 'None (General / Ad-hoc)';
+
+    return (
+      <View style={styles.field}>
+        <Text style={[styles.label, { color: theme.text }]}>Link to Task (Task Manager)</Text>
+        <Pressable
+          onPress={() => togglePicker('task')}
+          style={[
+            styles.selectBtn,
+            {
+              backgroundColor: theme.bgSubtle,
+              borderColor: open ? theme.primary : theme.border,
+            },
+          ]}
+        >
+          <View style={styles.selectValue}>
+            {selectedTaskId ? (
+              <View style={[styles.taskBadge, { backgroundColor: theme.primaryLight }]}>
+                <Text style={[styles.taskBadgeText, { color: theme.primary }]}>
+                  {selectedTaskSerial || 'TASK'}
+                </Text>
+              </View>
+            ) : null}
+            <Text
+              style={[
+                styles.selectText,
+                { color: selectedTaskId ? theme.text : theme.textMuted },
+              ]}
+              numberOfLines={1}
+            >
+              {displayTitle}
+            </Text>
+          </View>
+          <ChevronDown
+            size={18}
+            color={theme.textMuted}
+            style={{ transform: [{ rotate: open ? '180deg' : '0deg' }] }}
+          />
+        </Pressable>
+
+        {open ? (
+          <View style={[styles.dropdown, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+            <View style={[styles.searchBox, { backgroundColor: theme.bgSubtle, borderColor: theme.border }]}>
+              <Search size={16} color={theme.textMuted} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search assigned tasks..."
+                placeholderTextColor={theme.textSubtle}
+                value={pickerQuery}
+                onChangeText={setPickerQuery}
+                autoCapitalize="none"
+              />
+            </View>
+            <ScrollView
+              nestedScrollEnabled
+              keyboardShouldPersistTaps="handled"
+              style={styles.dropdownScroll}
+              contentContainerStyle={styles.dropdownList}
+            >
+              <Pressable
+                onPress={() => {
+                  setSelectedTaskId(null);
+                  setSelectedTaskSerial(null);
+                  setPicker(null);
+                  setPickerQuery('');
+                }}
+                style={[
+                  styles.taskOptionCard,
+                  {
+                    backgroundColor: !selectedTaskId ? theme.primaryLight : 'transparent',
+                    borderColor: !selectedTaskId ? theme.primary : theme.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.taskOptionTitle, { color: !selectedTaskId ? theme.primary : theme.text }]}>
+                  None (General / Ad-hoc)
+                </Text>
+              </Pressable>
+
+              {filteredTasks.map((t) => {
+                const active = t.id === selectedTaskId;
+                const tone = stageTone(t.status as TaskStatus, theme);
+                return (
+                  <Pressable
+                    key={t.id}
+                    onPress={() => {
+                      setSelectedTaskId(t.id);
+                      setSelectedTaskSerial(t.serial || null);
+                      if (t.client_name) {
+                        setClientProject(t.client_name);
+                      }
+                      if (!taskDescription.trim()) {
+                        setTaskDescription(t.title);
+                      }
+                      setSyncTaskStage(t.status !== 'completed');
+                      setPicker(null);
+                      setPickerQuery('');
+                      if (errorMsg) setErrorMsg(null);
+                    }}
+                    style={[
+                      styles.taskOptionCard,
+                      {
+                        backgroundColor: active ? theme.primaryLight : 'transparent',
+                        borderColor: active ? theme.primary : theme.border,
+                      },
+                    ]}
+                  >
+                    <View style={styles.taskOptionHeader}>
+                      <View style={[styles.taskBadge, { backgroundColor: theme.primaryLight }]}>
+                        <Text style={[styles.taskBadgeText, { color: theme.primary }]}>
+                          {t.serial || 'TASK'}
+                        </Text>
+                      </View>
+                      {t.client_name ? (
+                        <Text style={[styles.taskOptionClient, { color: theme.textMuted }]} numberOfLines={1}>
+                          {t.client_name}
+                        </Text>
+                      ) : null}
+                      <View style={[styles.stageChip, { backgroundColor: tone.bg }]}>
+                        <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
+                        <Text style={[styles.stageChipText, { color: tone.color }]}>
+                          {stageLabel(t.status as TaskStatus)}
+                        </Text>
+                      </View>
+                    </View>
+                    <Text
+                      style={[styles.taskOptionTitle, { color: active ? theme.primary : theme.text }]}
+                      numberOfLines={2}
+                    >
+                      {t.title}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+              {loadingTasks && myTasks.length === 0 ? (
+                <ActivityIndicator style={{ marginVertical: 12 }} size="small" color={theme.primary} />
+              ) : null}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+    );
+  };
 
   const renderOptions = (
     options: SelectOption[],
@@ -426,7 +659,9 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
               <Text style={[styles.title, { color: theme.text }]}>
                 {entry ? 'Edit log entry' : 'Log Daily Work'}
               </Text>
-              <Text style={[styles.subtitle, { color: theme.textMuted }]}>{date}</Text>
+              <Text style={[styles.subtitle, { color: theme.textMuted }]}>
+                Record what you worked on · 48h submission window
+              </Text>
             </View>
             <Pressable
               hitSlop={8}
@@ -449,22 +684,62 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
               </View>
             )}
 
-            {renderSelect(
-              'client',
-              'Client / project *',
-              selectedClient?.label || '',
-              filteredClientOptions,
-              clientProject,
-              setClientProject,
-              {
-                loading: loadingClients && !clientOptions.length,
-                searchable: true,
-                placeholder: 'Select a client',
-              },
-            )}
+            {renderTaskPicker()}
+
+            <View style={styles.rowTwo}>
+              <View style={{ flex: 1 }}>
+                <DateField
+                  label="Date *"
+                  value={date}
+                  onChange={setDate}
+                  minimumDate={earliestLogDate}
+                  maximumDate={maxLogDate}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                {renderSelect(
+                  'client',
+                  'Client / project *',
+                  selectedClient?.label || '',
+                  filteredClientOptions,
+                  clientProject,
+                  setClientProject,
+                  {
+                    loading: loadingClients && !clientOptions.length,
+                    searchable: true,
+                    placeholder: 'Select a client',
+                  },
+                )}
+              </View>
+            </View>
 
             <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Task description *</Text>
+              <View style={styles.descLabelRow}>
+                <Text style={[styles.label, { color: theme.text }]}>Work Done / Details *</Text>
+                <View style={styles.formatToolbar}>
+                  <Pressable
+                    hitSlop={6}
+                    onPress={() => handleInsertFormat('bold')}
+                    style={[styles.formatBtn, { backgroundColor: theme.bgSubtle, borderColor: theme.border }]}
+                  >
+                    <Bold size={13} color={theme.text} strokeWidth={2.5} />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={6}
+                    onPress={() => handleInsertFormat('bullet')}
+                    style={[styles.formatBtn, { backgroundColor: theme.bgSubtle, borderColor: theme.border }]}
+                  >
+                    <List size={13} color={theme.text} strokeWidth={2.5} />
+                  </Pressable>
+                  <Pressable
+                    hitSlop={6}
+                    onPress={() => handleInsertFormat('number')}
+                    style={[styles.formatBtn, { backgroundColor: theme.bgSubtle, borderColor: theme.border }]}
+                  >
+                    <ListOrdered size={13} color={theme.text} strokeWidth={2.5} />
+                  </Pressable>
+                </View>
+              </View>
               <TextInput
                 style={[
                   styles.textArea,
@@ -483,26 +758,54 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
               />
             </View>
 
-            {renderSelect('type', 'Task type', selectedType?.label || taskType, taskTypes, taskType, setTaskType)}
-            {renderSelect(
-              'status',
-              'Task status',
-              selectedStatus?.label || taskStatus,
-              taskStatuses,
-              taskStatus,
-              setTaskStatus,
-              { dot: selectedStatus?.dot },
-            )}
+            <View style={styles.rowTwo}>
+              <View style={{ flex: 1 }}>
+                {renderSelect('type', 'Task type', selectedType?.label || taskType, taskTypes, taskType, setTaskType)}
+              </View>
+              <View style={{ flex: 1 }}>
+                {renderSelect(
+                  'status',
+                  'Task status',
+                  selectedStatus?.label || taskStatus,
+                  taskStatuses,
+                  taskStatus,
+                  setTaskStatus,
+                  { dot: selectedStatus?.dot },
+                )}
+              </View>
+            </View>
+
+            {selectedTaskId ? (
+              <Pressable
+                onPress={() => setSyncTaskStage(!syncTaskStage)}
+                style={[
+                  styles.syncRow,
+                  { backgroundColor: theme.bgSubtle, borderColor: theme.border },
+                ]}
+              >
+                {syncTaskStage ? (
+                  <CheckSquare size={18} color={theme.primary} />
+                ) : (
+                  <Square size={18} color={theme.textMuted} />
+                )}
+                <Text style={[styles.syncText, { color: theme.text }]}>
+                  Update Task Manager status to{' '}
+                  <Text style={{ fontWeight: '700', color: theme.primary }}>
+                    {taskStatus.toLowerCase() === 'completed' ? 'Completed' : 'In Progress'}
+                  </Text>
+                </Text>
+              </Pressable>
+            ) : null}
 
             <View style={styles.field}>
-              <Text style={[styles.label, { color: theme.text }]}>Hours utilized</Text>
+              <Text style={[styles.label, { color: theme.text }]}>Time Utilized</Text>
               <View style={styles.hoursRow}>
                 {HOUR_PRESETS.map((h) => {
-                  const active = parseFloat(hours) === h;
+                  const active = parseHours(hours) === h;
                   return (
                     <Pressable
                       key={h}
-                      onPress={() => setHours(String(h))}
+                      onPress={() => setHours(h === 0.5 ? '30m' : `${h}h`)}
                       style={[
                         styles.hourPresetBtn,
                         {
@@ -533,8 +836,7 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
                     color: theme.text,
                   },
                 ]}
-                keyboardType="decimal-pad"
-                placeholder="Custom hours (e.g. 2.5)"
+                placeholder="e.g. 1.5, 30m, 0:30"
                 placeholderTextColor={theme.textSubtle}
                 value={hours}
                 onChangeText={setHours}
@@ -605,7 +907,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     borderTopWidth: 1,
-    maxHeight: '90%',
+    maxHeight: '92%',
   },
   header: {
     flexDirection: 'row',
@@ -635,12 +937,33 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 16,
   },
+  rowTwo: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   field: {
     gap: 6,
   },
   label: {
     fontSize: 13,
     fontWeight: '600',
+  },
+  descLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  formatToolbar: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  formatBtn: {
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     borderWidth: 1,
@@ -676,7 +999,7 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   selectText: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     flexShrink: 1,
   },
@@ -698,6 +1021,60 @@ const styles = StyleSheet.create({
   },
   hourPresetText: {
     fontSize: 13,
+    fontWeight: '700',
+  },
+  syncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  syncText: {
+    fontSize: 13,
+    flex: 1,
+  },
+  taskBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  taskBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  taskOptionCard: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    gap: 6,
+  },
+  taskOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  taskOptionClient: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  taskOptionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  stageChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  stageChipText: {
+    fontSize: 11,
     fontWeight: '700',
   },
   errorBox: {
@@ -756,7 +1133,7 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    fontSize: 15,
+    fontSize: 14,
     paddingVertical: 0,
   },
   dropdown: {

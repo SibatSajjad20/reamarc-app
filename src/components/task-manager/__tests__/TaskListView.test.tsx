@@ -243,4 +243,53 @@ describe('TaskListView', () => {
     });
     expect(onDropTask).toHaveBeenCalledWith('tsk1', 'in_progress');
   });
+
+  it('drops the progress bar and shows assigner or every assignee', () => {
+    const { rerender } = render(
+      <TaskListView
+        tasks={[
+          task({
+            assignee_name: 'Sibat Sajjad',
+            assigner_id: 'admin',
+            assigner_name: 'AI Reamarc',
+            logged_hours: 1.5,
+          }),
+        ]}
+        actor={{ id: 'admin', role: 'admin' }}
+        onOpen={vi.fn()}
+        onAction={vi.fn()}
+        onViewAll={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText('Progress')).toBeNull();
+    expect(screen.queryByText('40%')).toBeNull();
+    expect(screen.getByText('from AI Reamarc')).toBeTruthy();
+    expect(screen.getByText('1.5h logged')).toBeTruthy();
+
+    rerender(
+      <TaskListView
+        tasks={[
+          task({
+            assignee_name: 'Sibat Sajjad',
+            assignment_group: {
+              id: 'tag1',
+              rollup_status: 'todo',
+              done_count: 0,
+              total_count: 2,
+              peers: [
+                { id: 'a', serial: 'T-1', assignee_name: 'Sibat Sajjad', status: 'todo' },
+                { id: 'b', serial: 'T-2', assignee_name: 'test', status: 'todo' },
+              ],
+            },
+          }),
+        ]}
+        actor={{ id: 'admin', role: 'admin' }}
+        onOpen={vi.fn()}
+        onAction={vi.fn()}
+        onViewAll={vi.fn()}
+      />,
+    );
+    expect(screen.getByText('Sibat Sajjad, test')).toBeTruthy();
+    expect(screen.queryByText('from AI Reamarc')).toBeNull();
+  });
 });

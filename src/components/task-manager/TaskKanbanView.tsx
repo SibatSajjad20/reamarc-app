@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { useToast } from '@/context/ToastContext';
 import { TASK_STAGES, type Task, type TaskActor, type TaskStatus } from '@/types/task';
 import { canTransitionTo, stageChangeNeedsReason } from '@/utils/taskAccess';
+import { isSharedStageCard } from '@/utils/taskAssignmentGroup';
 import { cn } from '@/lib/utils';
 import { stageBarClass } from './TaskPriorityPill';
 import { TaskPipelineCard, type BoardDensity } from './TaskPipelineCard';
@@ -17,6 +18,7 @@ interface Props {
   actor: TaskActor | null;
   density?: BoardDensity;
   onOpen: (task: Task) => void;
+  onLogTime?: (task: Task) => void;
   onStageChange: (task: Task, to: TaskStatus) => Promise<void> | void;
   onAddToStage?: (stage: TaskStatus) => void;
 }
@@ -53,6 +55,7 @@ export const TaskKanbanView: React.FC<Props> = ({
   actor,
   density = 'comfortable',
   onOpen,
+  onLogTime,
   onStageChange,
   onAddToStage,
 }) => {
@@ -216,6 +219,10 @@ export const TaskKanbanView: React.FC<Props> = ({
                   setDraggingId(null);
                   const task = tasks.find((t) => t.id === id);
                   if (!task || task.status === stage.value) return;
+                  if (isSharedStageCard(task) && task.assignee_id !== actor?.id) {
+                    addToast('Open the task', 'Each person has their own stage. Open a copy to move it.', 'info');
+                    return;
+                  }
                   const needsReason = stageChangeNeedsReason(task.status, stage.value);
                   if (!canTransitionTo(actor, task, stage.value, needsReason ? 'x' : undefined)) {
                     addToast('Cannot move task', 'That stage change is not allowed.', 'error');
@@ -247,6 +254,7 @@ export const TaskKanbanView: React.FC<Props> = ({
                       density={density}
                       isDragging={draggingId === task.id}
                       onOpen={onOpen}
+                      onLogTime={onLogTime}
                       onDragStart={(e, t) => {
                         e.dataTransfer.setData('text/plain', t.id);
                         e.dataTransfer.effectAllowed = 'move';

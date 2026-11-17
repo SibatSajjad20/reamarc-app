@@ -14,6 +14,14 @@ function roleOf(user?: TaskActor | null): string {
   return raw || 'team_member';
 }
 
+const TASK_INCLUDED_OPS_MARKERS = ['safeer'];
+
+export function isTaskIncludedOperations(user?: TaskActor | null): boolean {
+  if (!user || roleOf(user) !== 'operations') return false;
+  const blob = [user.full_name, user.name, user.email].filter(Boolean).join(' ').toLowerCase();
+  return TASK_INCLUDED_OPS_MARKERS.some((marker) => blob.includes(marker));
+}
+
 export function isAdmin(user?: TaskActor | null): boolean {
   return roleOf(user) === 'admin';
 }
@@ -40,7 +48,7 @@ function involved(user: TaskActor | null | undefined, task: Task): boolean {
 export function canViewTask(user: TaskActor | null | undefined, task: Task): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user);
-  if (role === 'client' || role === 'hr' || role === 'operations') return false;
+  if (role === 'client' || role === 'hr' || (role === 'operations' && !isTaskIncludedOperations(user))) return false;
   if (isAdmin(user)) return true;
   if (involved(user, task)) return true;
   if (role === 'team_lead' && task.department && deptSet(user).has(task.department)) return true;
@@ -79,6 +87,9 @@ export function isApprover(user: TaskActor | null | undefined, task: Task): bool
   const role = roleOf(user);
   // Team lead: own task, or a task admin assigned to them.
   if (role === 'team_lead' && id === task.assignee_id && (isSelfAssigned(task) || assignerIsAdmin(task))) {
+    return true;
+  }
+  if (isTaskIncludedOperations(user) && id === task.assignee_id && (isSelfAssigned(task) || assignerIsAdmin(task))) {
     return true;
   }
   // Members (and a lead assigned by another lead) cannot approve their own work.
@@ -207,9 +218,13 @@ export function canAssignTo(
   const aRole = roleOf(actor);
   const tRole = roleOf(target);
   if (aRole === 'client' || tRole === 'client') return false;
-  if (tRole === 'hr' || tRole === 'operations') return false;
+  if (tRole === 'hr') return false;
+  if (tRole === 'operations' && !isTaskIncludedOperations(target)) return false;
   const targetDept = String(target.primary_department || target.department || '').toLowerCase();
   if (targetDept === 'hr' || targetDept === 'human resources') return false;
+  if (isTaskIncludedOperations(target)) {
+    return isAdmin(actor) || aRole === 'team_lead' || uid(actor) === uid(target);
+  }
   if (isAdmin(actor)) return true;
   if (uid(actor) === uid(target)) return true;
   const shared = [...deptSet(actor)].some((d) => deptSet(target).has(d));
@@ -218,6 +233,9 @@ export function canAssignTo(
     return tRole === 'team_lead';
   }
   if (aRole === 'team_member') {
+    return shared && (tRole === 'team_member' || tRole === 'team_lead');
+  }
+  if (isTaskIncludedOperations(actor)) {
     return shared && (tRole === 'team_member' || tRole === 'team_lead');
   }
   return false;

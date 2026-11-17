@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AlertDialog as AlertDialogPrimitive } from 'radix-ui';
-import { Info, MoreHorizontal, Plus, X } from 'lucide-react';
+import { Clock, Info, MoreHorizontal, Plus, Users, X } from 'lucide-react';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '@/components/ui/FormDialogLayout';
 import { FormFooter } from '@/components/ui/FormFooter';
 import { FormField } from '@/components/ui/FormField';
@@ -9,8 +9,9 @@ import { CustomSelect } from '@/components/ui/CustomSelect';
 import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
 import { CustomDateTimePicker } from '@/components/ui/CustomDateTimePicker';
 import { NumberStepper } from '@/components/ui/NumberStepper';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { TaskDescriptionEditor } from '@/components/daily-log/TaskDescriptionEditor';
+import { TaskDescriptionHtml } from '@/components/daily-log/TaskDescriptionHtml';
 import { StatusPill } from '@/components/ui/StatusPill';
 import {
   DropdownMenu,
@@ -23,6 +24,8 @@ import { useUnsavedChangesGuard } from '@/hooks/useUnsavedChangesGuard';
 import { useToast } from '@/context/ToastContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { taskService } from '@/services/taskService';
+import { TaskLogTimeModal } from './TaskLogTimeModal';
+import type { DailyLogEntry } from '@/types/dailyLog';
 import {
   TASK_PRIORITY_OPTIONS,
   TASK_STAGES,
@@ -48,6 +51,7 @@ import {
   stageChangeNeedsReason,
 } from '@/utils/taskAccess';
 import { TaskStagePill } from './TaskPriorityPill';
+import { assignmentPeers, isGroupedAssignment } from '@/utils/taskAssignmentGroup';
 import { TaskChecklist } from './TaskChecklist';
 import { TaskDiscussion } from './TaskDiscussion';
 import { TaskAttachments } from './TaskAttachments';
@@ -59,6 +63,7 @@ interface Draft {
   status: TaskStatus;
   priority: string;
   assignee_id: string;
+  assignee_ids: string[];
   start_date: string;
   due_date: string;
   due_time: string;
@@ -77,6 +82,7 @@ function draftFrom(task?: Task | null, defaults?: Partial<Draft>): Draft {
     status: task?.status || defaults?.status || 'todo',
     priority: task?.priority || 'medium',
     assignee_id: task?.assignee_id || '',
+    assignee_ids: task?.assignee_id ? [task.assignee_id] : [],
     start_date: task?.start_date || '',
     due_date: task?.due_date || defaults?.due_date || '',
     due_time: task?.due_time || '',
@@ -101,6 +107,7 @@ interface Props {
   onClose: () => void;
   onSaved: (task: Task, opts?: { refreshList?: boolean }) => void;
   onDeleted?: (task: Task) => void;
+  onOpenTask?: (task: Task) => void;
 }
 
 export const TaskDialog: React.FC<Props> = ({
@@ -115,6 +122,7 @@ export const TaskDialog: React.FC<Props> = ({
   onClose,
   onSaved,
   onDeleted,
+  onOpenTask,
 }) => {
   const { addToast } = useToast();
   const confirm = useConfirm();
@@ -136,8 +144,14 @@ export const TaskDialog: React.FC<Props> = ({
   const [subtasks, setSubtasks] = useState<Task[]>(task?.subtasks || []);
   const [pickerUsers, setPickerUsers] = useState<TaskAssignableUser[]>(assignable);
   const [mentionable, setMentionable] = useState<TaskAssignableUser[]>(assignable);
+  const [taskLogs, setTaskLogs] = useState<DailyLogEntry[]>([]);
+  const [logTimeOpen, setLogTimeOpen] = useState(false);
+  const [loggedHours, setLoggedHours] = useState<number>(task?.logged_hours || 0);
   const [clientError, setClientError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
+  const checklistGen = useRef(0);
+  const pendingTempDeletes = useRef(new Set<string>());
+  const tempToReal = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!open) return;
@@ -150,6 +164,9 @@ export const TaskDialog: React.FC<Props> = ({
     setComments([]);
     setAttachments([]);
     setActivity([]);
+    checklistGen.current = 0;
+    pendingTempDeletes.current.clear();
+    tempToReal.current.clear();
     setChecklist(task?.checklist || []);
     setWatchers(task?.watcher_ids || []);
     setWatchersBaseline(task?.watcher_ids || []);
@@ -181,18 +198,24 @@ export const TaskDialog: React.FC<Props> = ({
       setActivity(act.items || []);
       return;
     }
-    const [c, a, act, full] = await Promise.all([
+    const sideGen = checklistGen.current;
+    const [c, a, act, full, logs] = await Promise.all([
       settle(taskService.getComments(id), { items: [] as TaskComment[], total: 0 }),
       settle(taskService.getAttachments(id), { items: [] as TaskAttachment[] }),
       settle(taskService.getActivity(id), { items: [] as Activity[] }),
       settle(taskService.getTask(id), null as Task | null),
+      settle(typeof taskService.getTaskLogs === 'function' ? taskService.getTaskLogs(id) : Promise.resolve([]), [] as DailyLogEntry[]),
     ]);
     setComments(c.items || []);
     setAttachments(a.items || []);
     setActivity(act.items || []);
+    setTaskLogs(logs || []);
     if (full) {
-      setChecklist(full.checklist || []);
+      if (checklistGen.current === sideGen) {
+        setChecklist(full.checklist || []);
+      }
       setSubtasks(full.subtasks || []);
+      setLoggedHours(full.logged_hours || 0);
       const nextWatchers = full.watcher_ids || [];
       setWatchers(nextWatchers);
       setWatchersBaseline(nextWatchers);
@@ -209,7 +232,7 @@ export const TaskDialog: React.FC<Props> = ({
   const { confirmDiscard } = useUnsavedChangesGuard(dirty && open);
   const showFieldSave = Boolean(!isCreate && dirty && !viewOnly);
 
-  const selectedAssignee = pickerUsers.find((u) => u.id === draft.assignee_id);
+  const selectedAssignee = pickerUsers.find((u) => u.id === (isCreate ? draft.assignee_ids[0] : draft.assignee_id));
   const departmentHint = selectedAssignee?.department || task?.department || actor?.primary_department || actor?.department || '';
 
   const statusOptions = useMemo(() => {
@@ -239,7 +262,8 @@ export const TaskDialog: React.FC<Props> = ({
       title: draft.title.trim(),
       description: draft.description,
       priority: draft.priority,
-      assignee_id: draft.assignee_id || undefined,
+      assignee_id: (isCreate ? draft.assignee_ids[0] : draft.assignee_id) || undefined,
+      assignee_ids: isCreate ? draft.assignee_ids : undefined,
       start_date: draft.start_date || null,
       due_date: draft.due_date || null,
       due_time: draft.due_time || null,
@@ -286,7 +310,7 @@ export const TaskDialog: React.FC<Props> = ({
   const validateClient = (): string | null => {
     const title = draft.title.trim();
     if (!title) return 'Title is required';
-    if (isCreate && !draft.assignee_id) return 'Assigned person is required';
+    if (isCreate && !(draft.assignee_ids || []).length) return 'Assigned person is required';
     if (title.length > 200) return 'Title must be 1–200 characters';
     if ((draft.description || '').length > 10000) return 'Description must be 10,000 characters or fewer';
     if (draft.due_time && !draft.due_date) return 'Due time requires a due date';
@@ -311,10 +335,13 @@ export const TaskDialog: React.FC<Props> = ({
     try {
       if (isCreate) {
         const created = await taskService.createTask(payloadFromDraft());
+        const peerIds = (created.assignment_group?.peers || []).map((p) => p.id).filter((id) => id && id !== created.id);
         if (defaultStage && defaultStage !== 'todo') {
           try {
             const updated = await taskService.changeStage(created.id, defaultStage);
-            addToast('Task created', updated.serial, 'success');
+            await Promise.all(peerIds.map((id) => taskService.changeStage(id, defaultStage).catch(() => null)));
+            const people = (updated.assignment_group?.total_count || peerIds.length + 1);
+            addToast(people > 1 ? `Task created for ${people} people` : 'Task created', updated.serial, 'success');
             onSaved(updated);
             return updated;
           } catch (err: any) {
@@ -323,7 +350,8 @@ export const TaskDialog: React.FC<Props> = ({
             return created;
           }
         }
-        addToast('Task created', created.serial, 'success');
+        const people = created.assignment_group?.total_count || 1;
+        addToast(people > 1 ? `Task created for ${people} people` : 'Task created', created.serial, 'success');
         onSaved(created);
         return created;
       }
@@ -450,6 +478,15 @@ export const TaskDialog: React.FC<Props> = ({
               </span>
             )}
             {task?.blocked && <StatusPill variant="danger" label="Blocked" hasDot={false} />}
+            {task && isGroupedAssignment(task) && (
+              <span
+                data-testid="task-header-assignees-badge"
+                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-50 text-brand-600 dark:bg-brand-950/60 dark:text-brand-400 border border-brand-200 dark:border-brand-800/50"
+              >
+                <Users className="w-3.5 h-3.5" />
+                {task.assignment_group?.total_count || 2} Assignees
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
           {task && (
@@ -576,29 +613,114 @@ export const TaskDialog: React.FC<Props> = ({
                 options={TASK_PRIORITY_OPTIONS}
               />
             </div>
-            <CustomSelect
-              label="Assigned person"
-              required={isCreate}
-              id="task-assignee-picker"
-              searchable
-              autoOpen={Boolean(focusAssignee && open)}
-              value={draft.assignee_id}
-              disabled={!canChangeAssignee}
-              onChange={(v) => set({ assignee_id: v })}
-              error={isCreate && !draft.assignee_id && serverError ? 'Assigned person is required' : undefined}
-              options={pickerUsers.map((u) => ({
-                value: u.id,
-                label: u.name,
-                description: [u.department, u.role].filter(Boolean).join(' · '),
-              }))}
-            />
-            <FormField label="Department" hint="From assignee">
+            {isCreate ? (
+              <div className="space-y-1.5">
+                <CustomSelect
+                  label="Assigned people"
+                  required
+                  id="task-assignee-picker"
+                  searchable
+                  autoOpen={Boolean(focusAssignee && open)}
+                  value=""
+                  onChange={(v) => {
+                    if (!v || draft.assignee_ids.includes(v)) return;
+                    set({ assignee_ids: [...draft.assignee_ids, v], assignee_id: draft.assignee_ids[0] || v });
+                  }}
+                  error={!draft.assignee_ids.length && serverError ? 'Assigned person is required' : undefined}
+                  options={pickerUsers
+                    .filter((u) => !draft.assignee_ids.includes(u.id))
+                    .map((u) => ({
+                      value: u.id,
+                      label: u.name,
+                      description: [u.department, u.role].filter(Boolean).join(' · '),
+                    }))}
+                />
+                {draft.assignee_ids.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {draft.assignee_ids.map((id) => {
+                      const u = pickerUsers.find((x) => x.id === id);
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => {
+                            const next = draft.assignee_ids.filter((x) => x !== id);
+                            set({ assignee_ids: next, assignee_id: next[0] || '' });
+                          }}
+                          className="h-6 px-2 rounded-full text-micro bg-subtle text-fg-muted"
+                        >
+                          {u?.name || id} ×
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {draft.assignee_ids.length > 1 && (
+                  <p className="text-micro text-fg-muted">Each person gets their own copy and stage.</p>
+                )}
+              </div>
+            ) : (
+              <CustomSelect
+                label="Assigned person"
+                required
+                id="task-assignee-picker"
+                searchable
+                autoOpen={Boolean(focusAssignee && open)}
+                value={draft.assignee_id}
+                disabled={!canChangeAssignee}
+                onChange={(v) => set({ assignee_id: v })}
+                options={pickerUsers.map((u) => ({
+                  value: u.id,
+                  label: u.name,
+                  description: [u.department, u.role].filter(Boolean).join(' · '),
+                }))}
+              />
+            )}
+            <FormField label="Department" hint={isCreate && draft.assignee_ids.length > 1 ? 'Set per person' : 'From assignee'}>
               <input
                 readOnly
-                value={departmentHint || '—'}
+                value={
+                  isCreate && draft.assignee_ids.length > 1
+                    ? 'Per assignee'
+                    : departmentHint || '—'
+                }
                 className="w-full h-9 px-3 rounded-md bg-subtle border border-border text-sm text-fg-muted"
               />
             </FormField>
+            {task && isGroupedAssignment(task) && (
+              <div className="rounded-md border border-border bg-subtle p-2.5 space-y-1.5" data-testid="task-assignment-group">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium text-fg-muted">People on this assignment</span>
+                  <span className="text-micro text-fg-muted">
+                    {task.assignment_group?.done_count}/{task.assignment_group?.total_count} done
+                  </span>
+                </div>
+                <ul className="space-y-1">
+                  {assignmentPeers(task).map((peer) => (
+                    <li key={peer.id}>
+                      <button
+                        type="button"
+                        className={`w-full flex items-center justify-between gap-2 rounded-sm px-1.5 py-1 text-left text-xs ${
+                          peer.id === task.id ? 'bg-surface border border-border' : 'hover:bg-hover'
+                        }`}
+                        onClick={async () => {
+                          if (peer.id === task.id || !onOpenTask) return;
+                          try {
+                            const full = await taskService.getTask(peer.id);
+                            onOpenTask(full);
+                          } catch (err: any) {
+                            addToast('Could not open copy', err?.message || 'Try again', 'error');
+                          }
+                        }}
+                      >
+                        <span className="text-fg truncate">{peer.assignee_name || peer.serial}</span>
+                        <TaskStagePill status={peer.status} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <CustomDatePicker label="Start date" value={draft.start_date} onChange={(iso) => set({ start_date: iso })} disabled={!canEdit} clearable />
               <div>
@@ -619,6 +741,31 @@ export const TaskDialog: React.FC<Props> = ({
               </div>
             </div>
             <NumberStepper label="Estimate (hours)" value={draft.estimate_hours} onChange={(v) => set({ estimate_hours: v })} min={0} max={1000} step={0.5} disabled={!canEdit} />
+            {task && (
+              <div className="flex items-center justify-between p-2.5 bg-subtle border border-border rounded-md text-xs">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-accent" />
+                  <div>
+                    <span className="font-medium text-fg">{loggedHours}h logged</span>
+                    {draft.estimate_hours > 0 ? (
+                      <span className="text-fg-muted"> of {draft.estimate_hours}h estimated</span>
+                    ) : null}
+                  </div>
+                </div>
+                {task.status !== 'cancelled' && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => setLogTimeOpen(true)}
+                    className="h-7 text-xs"
+                  >
+                    <Clock className="w-3.5 h-3.5 mr-1" />
+                    Log Time
+                  </Button>
+                )}
+              </div>
+            )}
             <CustomSelect
               label="Related client"
               searchable
@@ -672,17 +819,49 @@ export const TaskDialog: React.FC<Props> = ({
                 <CustomDatePicker label="Until" value={draft.recurrence_until} onChange={(iso) => set({ recurrence_until: iso })} disabled={!canEdit} clearable />
               )}
             </div>
-            <Textarea label="Description" value={draft.description} onChange={(e) => set({ description: e.target.value })} disabled={!canEdit} rows={4} />
+            <FormField label="Description">
+              {({ id }) =>
+                canEdit ? (
+                  <TaskDescriptionEditor
+                    id={id}
+                    value={draft.description}
+                    onChange={(html) => set({ description: html })}
+                    placeholder="Describe the work, use bold and lists…"
+                    minRows={4}
+                  />
+                ) : (
+                  <div className="rounded-md border border-border bg-subtle px-3 py-2 text-ui">
+                    <TaskDescriptionHtml html={draft.description} />
+                  </div>
+                )
+              }
+            </FormField>
             <TaskChecklist
               items={checklist}
               disabled={!canCheck || isCreate}
               onAdd={async (text) => {
                 if (!task) return;
+                checklistGen.current += 1;
                 const temp: TaskChecklistItem = { id: `tmp_${Date.now()}`, text, done: false };
                 setChecklist((cur) => [...cur, temp]);
                 try {
                   const updated = await taskService.addChecklist(task.id, text);
-                  setChecklist(updated.checklist || []);
+                  const serverItems = updated.checklist || [];
+                  const knownReal = new Set(tempToReal.current.values());
+                  const created =
+                    serverItems.find((row) => row.text === text && !knownReal.has(row.id)) ||
+                    serverItems[serverItems.length - 1];
+                  if (created?.id) tempToReal.current.set(temp.id, created.id);
+                  if (pendingTempDeletes.current.has(temp.id)) {
+                    pendingTempDeletes.current.delete(temp.id);
+                    if (created?.id) {
+                      const removed = await taskService.deleteChecklist(task.id, created.id);
+                      setChecklist(removed.checklist || []);
+                      onSaved(removed, { refreshList: false });
+                      return;
+                    }
+                  }
+                  setChecklist(serverItems);
                   onSaved(updated, { refreshList: false });
                 } catch (err: any) {
                   setChecklist((cur) => cur.filter((item) => item.id !== temp.id));
@@ -691,28 +870,69 @@ export const TaskDialog: React.FC<Props> = ({
               }}
               onToggle={(item, done) => {
                 if (!task) return;
-                setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, done } : row)));
+                const realId = item.id.startsWith('tmp_') ? tempToReal.current.get(item.id) : item.id;
+                if (!realId || realId.startsWith('tmp_')) {
+                  setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, done } : row)));
+                  return;
+                }
+                checklistGen.current += 1;
+                setChecklist((cur) => cur.map((row) => (row.id === item.id || row.id === realId ? { ...row, done } : row)));
                 void taskService
-                  .patchChecklist(task.id, item.id, { done })
+                  .patchChecklist(task.id, realId, { done })
                   .then((updated) => {
                     setChecklist(updated.checklist || []);
                     onSaved(updated, { refreshList: false });
                   })
                   .catch((err: any) => {
-                    setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, done: !done } : row)));
+                    setChecklist((cur) => cur.map((row) => (row.id === item.id || row.id === realId ? { ...row, done: !done } : row)));
                     addToast('Could not update checklist', err?.message || 'Try again', 'error');
                   });
               }}
+              onRename={async (item, text) => {
+                if (!task) return;
+                const realId = item.id.startsWith('tmp_') ? tempToReal.current.get(item.id) : item.id;
+                if (!realId || realId.startsWith('tmp_')) {
+                  setChecklist((cur) => cur.map((row) => (row.id === item.id ? { ...row, text } : row)));
+                  return;
+                }
+                checklistGen.current += 1;
+                const prev = item.text;
+                setChecklist((cur) => cur.map((row) => (row.id === item.id || row.id === realId ? { ...row, text } : row)));
+                try {
+                  const updated = await taskService.patchChecklist(task.id, realId, { text });
+                  setChecklist(updated.checklist || []);
+                  onSaved(updated, { refreshList: false });
+                } catch (err: any) {
+                  setChecklist((cur) => cur.map((row) => (row.id === item.id || row.id === realId ? { ...row, text: prev } : row)));
+                  addToast('Could not update checklist', err?.message || 'Try again', 'error');
+                }
+              }}
               onRemove={async (item) => {
                 if (!task) return;
-                const prev = checklist;
+                checklistGen.current += 1;
                 setChecklist((cur) => cur.filter((row) => row.id !== item.id));
+                if (item.id.startsWith('tmp_')) {
+                  pendingTempDeletes.current.add(item.id);
+                  const realId = tempToReal.current.get(item.id);
+                  if (!realId) return;
+                  try {
+                    const updated = await taskService.deleteChecklist(task.id, realId);
+                    setChecklist(updated.checklist || []);
+                    onSaved(updated, { refreshList: false });
+                  } catch (err: any) {
+                    addToast('Could not remove item', err?.message || 'Try again', 'error');
+                  }
+                  return;
+                }
                 try {
                   const updated = await taskService.deleteChecklist(task.id, item.id);
                   setChecklist(updated.checklist || []);
                   onSaved(updated, { refreshList: false });
                 } catch (err: any) {
-                  setChecklist(prev);
+                  setChecklist((cur) => {
+                    if (cur.some((row) => row.id === item.id)) return cur;
+                    return [...cur, item];
+                  });
                   addToast('Could not remove item', err?.message || 'Try again', 'error');
                 }
               }}
@@ -784,6 +1004,7 @@ export const TaskDialog: React.FC<Props> = ({
               <TabsList className="shrink-0 bg-surface">
                 <TabsTrigger value="discussion" count={comments.length || undefined}>Discussion</TabsTrigger>
                 <TabsTrigger value="files" count={attachments.length || undefined}>Files</TabsTrigger>
+                <TabsTrigger value="logs" count={taskLogs.length || undefined}>Logs</TabsTrigger>
                 <TabsTrigger value="activity">Activity</TabsTrigger>
               </TabsList>
               <TabsContent value="discussion" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
@@ -818,6 +1039,54 @@ export const TaskDialog: React.FC<Props> = ({
                   <p className="text-sm text-fg-muted">Save the task to attach files.</p>
                 )}
               </TabsContent>
+              <TabsContent value="logs" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto p-4 space-y-3">
+                {task ? (
+                  <>
+                    <div className="flex items-center justify-between pb-2 border-b border-border">
+                      <div className="text-xs text-fg-muted">
+                        Total logged: <strong className="text-fg">{loggedHours}h</strong>
+                      </div>
+                      {task.status !== 'cancelled' && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => setLogTimeOpen(true)}
+                          className="h-7 text-xs"
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" />
+                          Log Time
+                        </Button>
+                      )}
+                    </div>
+                    {taskLogs.length === 0 ? (
+                      <p className="text-sm text-fg-muted text-center py-6">No time logged against this task yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {taskLogs.map((log) => (
+                          <div key={log.id} className="p-2.5 bg-subtle border border-border rounded-md text-xs space-y-1">
+                            <div className="flex items-center justify-between font-medium">
+                              <span className="text-fg">{log.resource_name || 'Team Member'}</span>
+                              <span className="font-numeric text-accent">{log.hours_utilized}h</span>
+                            </div>
+                            <div className="text-fg-muted flex items-center justify-between">
+                              <span>{log.date}</span>
+                              <span className="capitalize text-micro px-1.5 py-0.5 rounded bg-surface border border-border">
+                                {log.task_status}
+                              </span>
+                            </div>
+                            {log.task_description && (
+                              <TaskDescriptionHtml html={log.task_description} clamp className="text-micro pt-1" />
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm text-fg-muted">Save the task to log time.</p>
+                )}
+              </TabsContent>
               <TabsContent value="activity" className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
                 <TaskActivity items={activity} />
               </TabsContent>
@@ -847,7 +1116,7 @@ export const TaskDialog: React.FC<Props> = ({
               variant="primary"
               loading={busy && !deleting}
               loadingText={busy && !deleting ? primaryBusyLabel : undefined}
-              disabled={busy || deleting || ((isCreate || showFieldSave) && !draft.title.trim()) || (isCreate && !draft.assignee_id)}
+              disabled={busy || deleting || ((isCreate || showFieldSave) && !draft.title.trim()) || (isCreate && !draft.assignee_ids.length)}
               data-testid={showFieldSave ? 'task-dialog-save' : 'task-dialog-primary'}
             >
               {primaryLabel}
@@ -856,6 +1125,18 @@ export const TaskDialog: React.FC<Props> = ({
         </FormFooter>
       </form>
     </FormDialog>
+    {task && (
+      <TaskLogTimeModal
+        task={task}
+        isOpen={logTimeOpen}
+        onClose={() => setLogTimeOpen(false)}
+        onSuccess={async () => {
+          if (task?.id) {
+            await loadSide(task.id);
+          }
+        }}
+      />
+    )}
     <UnsavedChangesDialog
       open={unsavedOpen}
       busy={busy}

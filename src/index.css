@@ -276,6 +276,11 @@
   }
 }
 
+.task-desc-html b,
+.task-desc-html strong {
+  font-weight: 700;
+}
+
 @layer base {
   *, ::before, ::after { border-color: var(--border); box-sizing: border-box; }
   html {

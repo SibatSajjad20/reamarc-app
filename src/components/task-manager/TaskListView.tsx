@@ -8,6 +8,7 @@ interface Props {
   tasks: Task[];
   actor: TaskActor | null;
   onOpen: (task: Task) => void;
+  onLogTime?: (task: Task) => void;
   onAction: (task: Task, action: string, origin?: { x: number; y: number }) => void;
   onViewAll: (stage: TaskStatus) => void;
   focusedStage?: TaskStatus | 'all';
@@ -21,6 +22,7 @@ export const TaskListView: React.FC<Props> = ({
   tasks,
   actor,
   onOpen,
+  onLogTime,
   onAction,
   onViewAll,
   focusedStage,
@@ -67,6 +69,7 @@ export const TaskListView: React.FC<Props> = ({
           onToggle={() => setCollapsed((c) => ({ ...c, [stage.value]: !c[stage.value] }))}
           onViewAll={() => onViewAll(stage.value)}
           onOpen={onOpen}
+          onLogTime={onLogTime}
           onAction={onAction}
           actor={actor}
           limitRows={focusedStage !== stage.value}
