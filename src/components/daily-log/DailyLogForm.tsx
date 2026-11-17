@@ -208,10 +208,23 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     if (mode !== 'create') return;
     let cancelled = false;
     taskService
-      .getTasks({ scope: 'mine', limit: 50 })
+      .getTasks({ scope: 'mine', limit: 100 })
       .then((res) => {
         if (!cancelled && res.items) {
-          setAssignedTasks(res.items.filter((t) => t.status !== 'completed' && t.status !== 'cancelled'));
+          const stageOrder: Record<string, number> = {
+            in_progress: 1,
+            todo: 2,
+            review: 3,
+            completed: 4,
+          };
+          const valid = res.items.filter((t) => t.status !== 'cancelled');
+          const sorted = [...valid].sort((a, b) => {
+            const orderA = stageOrder[a.status] ?? 99;
+            const orderB = stageOrder[b.status] ?? 99;
+            if (orderA !== orderB) return orderA - orderB;
+            return (b.serial || '').localeCompare(a.serial || '');
+          });
+          setAssignedTasks(sorted);
         }
       })
       .catch(() => {});
@@ -700,6 +713,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
                 if (found.title) {
                   setTaskDescription(found.title);
                 }
+                setSyncTaskStage(found.status !== 'completed');
               } else {
                 setSelectedTaskId('');
                 setSelectedTaskSerial('');

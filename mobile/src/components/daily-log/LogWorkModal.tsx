@@ -170,7 +170,20 @@ export const LogWorkModal: React.FC<LogWorkModalProps> = ({
     setLoadingTasks(true);
     try {
       const res = await listAllTasks({ scope: 'mine' });
-      setMyTasks((res.items || []).filter((t) => t.status !== 'completed'));
+      const stageOrder: Record<string, number> = {
+        in_progress: 1,
+        todo: 2,
+        review: 3,
+        completed: 4,
+      };
+      const valid = (res.items || []).filter((t) => (t.status as string) !== 'cancelled');
+      valid.sort((a, b) => {
+        const orderA = stageOrder[a.status] ?? 99;
+        const orderB = stageOrder[b.status] ?? 99;
+        if (orderA !== orderB) return orderA - orderB;
+        return (b.serial || '').localeCompare(a.serial || '');
+      });
+      setMyTasks(valid);
     } catch {
       // ignore
     } finally {
