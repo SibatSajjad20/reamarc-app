@@ -319,9 +319,9 @@ describe('TaskDialog', () => {
   });
 
   it('does not restore a deleted checklist item when a stale task fetch returns', async () => {
-    let finishGet!: (value: Task | null) => void;
+    let finishGet!: (value: Task) => void;
     vi.mocked(taskService.getTask).mockImplementation(
-      () => new Promise((resolve) => {
+      () => new Promise<Task>((resolve) => {
         finishGet = resolve;
       }),
     );

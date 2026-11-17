@@ -21,9 +21,7 @@ import {
   Columns3,
   Rows3,
   User,
-  Briefcase,
 } from 'lucide-react';
-import { taskService } from '../../services/taskService';
 import type { Task } from '../../types/task';
 import {
   DropdownMenu,

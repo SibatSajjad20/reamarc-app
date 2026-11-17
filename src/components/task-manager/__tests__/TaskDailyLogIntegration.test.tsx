@@ -1,4 +1,3 @@
-import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
@@ -67,11 +66,11 @@ const mockTask: Task = {
 describe('Task Daily Log Integration', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    global.ResizeObserver = class {
+    (globalThis as any).ResizeObserver = class {
       observe() {}
       unobserve() {}
       disconnect() {}
-    } as any;
+    };
   });
 
   describe('TaskLogTimeModal', () => {

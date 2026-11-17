@@ -721,7 +721,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
                 const statusDotColor =
                   t.status === 'completed'
                     ? 'bg-success-fg'
-                    : t.status === 'blocked'
+                    : t.blocked || (t.status as string) === 'blocked'
                       ? 'bg-danger-fg'
                       : 'bg-warning-fg';
 
