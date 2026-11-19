@@ -535,6 +535,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     }
   };
 
+  const activePlaceholder =
+    activeAsset && (activeAsset.kind === 'image' || activeAsset.kind === 'video')
+      ? activeAsset.thumbnail_url || ''
+      : '';
+
   const showCreativeLoader = (() => {
     if (!activeAsset || (activeAsset.kind !== 'image' && activeAsset.kind !== 'video')) return false;
     const key = reviewAssetCacheKey(activeAsset);
@@ -646,11 +651,31 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       showCreativeLoader && 'min-h-[min(70vh,28rem)]',
                     )}
                   >
+                    {showCreativeLoader && activePlaceholder && (
+                      // Cached small preview (same file as the strip) shows at once while the
+                      // full-quality original downloads; on a phone that can take many seconds.
+                      <img
+                        data-testid="creative-placeholder"
+                        src={activePlaceholder}
+                        alt=""
+                        aria-hidden="true"
+                        decoding="async"
+                        fetchPriority="high"
+                        className="absolute inset-0 w-full h-full object-contain"
+                      />
+                    )}
                     {showCreativeLoader && (
-                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
-                        <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
-                        <p className="text-xs font-medium text-white/80">Loading creative…</p>
-                      </div>
+                      activePlaceholder ? (
+                        <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10 inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1.5">
+                          <div className="w-3.5 h-3.5 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs font-medium text-white/90">Loading full quality…</p>
+                        </div>
+                      ) : (
+                        <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
+                          <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+                          <p className="text-xs font-medium text-white/80">Loading creative…</p>
+                        </div>
+                      )
                     )}
                     {assets.map((asset) => {
                       if (asset.kind !== 'video' && asset.kind !== 'image') return null;

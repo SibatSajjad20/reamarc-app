@@ -66,8 +66,42 @@ describe('client portal approvals', () => {
     getItems.mockResolvedValue({ items: [reel], total: 1, stages_count: {} });
     render(<ContentCalendarClientReviews />);
     const img = (await screen.findByTestId('video-card-still')) as HTMLImageElement;
-    expect(img.getAttribute('src')).toMatch(/\/thumbs\/gdrive\/DRIVEVID\/Reel\.mp4\?w=800$/);
+    expect(img.getAttribute('src')).toMatch(/\/thumbs\/gdrive\/DRIVEVID\/Reel\.mp4\?w=400$/);
     expect(screen.queryByTestId('video-placeholder')).toBeNull();
+  });
+
+  it('cards use the shared 400px cached thumb; first cards load eagerly, the rest lazily', async () => {
+    const pics = [0, 1, 2, 3].map((n) =>
+      item({
+        id: `img${n}`,
+        serial: `CSB-01${n}`,
+        attachments: [
+          {
+            id: `ast_${n}`,
+            kind: 'image',
+            content_type: 'image/jpeg',
+            filename: `p${n}.jpg`,
+            url: `/uploads/content_calendar/img${n}/p${n}.jpg`,
+            thumbnail_url: null,
+            role: 'primary',
+            order: 0,
+            size_bytes: 4_000_000,
+            uploaded_at: '2026-10-23T00:00:00Z',
+          },
+        ] as unknown as ContentCalendarItem['attachments'],
+      }),
+    );
+    getItems.mockResolvedValue({ items: pics, total: 4, stages_count: {} });
+    render(<ContentCalendarClientReviews />);
+    const imgs = (await screen.findAllByTestId('card-thumb')) as HTMLImageElement[];
+    expect(imgs).toHaveLength(4);
+    for (const img of imgs) {
+      expect(img.getAttribute('src')).toMatch(/\/thumbs\/content_calendar\/img\d\/p\d\.jpg\?w=400$/);
+      // Never the original upload in a card.
+      expect(img.getAttribute('src')).not.toMatch(/\/uploads\//);
+    }
+    expect(imgs.map((i) => i.getAttribute('loading'))).toEqual(['eager', 'eager', 'lazy', 'lazy']);
+    expect(imgs[0].getAttribute('fetchpriority')).toBe('high');
   });
 
   it('always loads fresh data and refreshes when the client comes back to the tab', async () => {

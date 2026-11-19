@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   RotateCcw,
@@ -36,11 +36,20 @@ import {
 } from '../ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import { InstagramIcon, FacebookIcon, GoogleIcon, TikTokIcon, LinkedInIcon, MetaIcon } from '../ui/brand-icons';
-import { ContentCalendarPipelineView } from './ContentCalendarPipelineView';
-import { ContentCalendarDrawer } from './ContentCalendarDrawer';
-import { CreativeAssetGallery } from './CreativeAssetGallery';
+// Only needed after a tap (pipeline toggle, detail dialog, specs drawer). Loading them
+// up front put ~250 KB in front of the first thumbnails on a phone.
+const ContentCalendarPipelineView = lazy(() =>
+  import('./ContentCalendarPipelineView').then((m) => ({ default: m.ContentCalendarPipelineView })),
+);
+const ContentCalendarDrawer = lazy(() =>
+  import('./ContentCalendarDrawer').then((m) => ({ default: m.ContentCalendarDrawer })),
+);
+const CreativeAssetGallery = lazy(() =>
+  import('./CreativeAssetGallery').then((m) => ({ default: m.CreativeAssetGallery })),
+);
 import type { StageAction } from '../../utils/contentCalendarWorkflow';
 import { cn } from '../../lib/utils';
+import { isConstrainedNetwork } from '../../routes/lazyViews';
 
 type ViewMode = 'approvals' | 'pipeline';
 type ReviewFilter = 'pending' | 'approved' | 'revision';
@@ -56,22 +65,40 @@ function pickPreviewAsset(attachments?: CreativeAsset[]): CreativeAsset | null {
   );
 }
 
-function resolveAssetSrc(asset: CreativeAsset | null | undefined): string {
+/**
+ * Card previews use the same 400px WebP the staff pipeline and review links use,
+ * so the server and browser caches are already warm (800px was a separate, cold
+ * cache entry and ~3x the bytes on a phone).
+ */
+export const CARD_THUMB_WIDTH = 400;
+/** Cards above the fold on a phone load at once; the rest load as they scroll in. */
+export const EAGER_CARD_COUNT = 2;
+
+export function resolveAssetSrc(asset: CreativeAsset | null | undefined): string {
   if (!asset) return '';
   const thumb = isRealThumbnailUrl(asset.thumbnail_url) ? asset.thumbnail_url : null;
   if (!thumb && asset.kind === 'video') {
     // Never put a video file in an <img>; use a server-made still frame.
-    return getVideoStillUrl(asset.url, 800);
+    return getVideoStillUrl(asset.url, CARD_THUMB_WIDTH);
   }
   const candidates = [thumb, asset.url, asset.google_drive_url].filter(
     (value): value is string => Boolean(value && value.trim()),
   );
   for (const candidate of candidates) {
-    // Cards show an 800px WebP preview, not the original upload.
-    const backend = getThumbUrl(candidate, 800) || getBackendFileUrl(candidate);
+    // Cards show a small cached WebP preview, not the original upload.
+    const backend = getThumbUrl(candidate, CARD_THUMB_WIDTH) || getBackendFileUrl(candidate);
     if (backend) return backend;
   }
   return candidates[0] || '';
+}
+
+function cardImageLoading(index: number) {
+  const eager = index < EAGER_CARD_COUNT;
+  return {
+    loading: eager ? ('eager' as const) : ('lazy' as const),
+    decoding: 'async' as const,
+    fetchPriority: eager ? ('high' as const) : ('auto' as const),
+  };
 }
 
 export function renderChannelIcons(channels?: string[]) {
@@ -149,6 +176,16 @@ export const ContentCalendarClientReviews: React.FC = () => {
   useEffect(() => {
     void loadData();
   }, [loadData]);
+
+  // Once the list is on screen, warm the detail viewer in the background so the
+  // first tap opens instantly (skipped on Save-Data / 2G / 3G).
+  useEffect(() => {
+    if (isLoading || items.length === 0 || isConstrainedNetwork()) return;
+    const t = window.setTimeout(() => {
+      void import('./CreativeAssetGallery');
+    }, 2500);
+    return () => window.clearTimeout(t);
+  }, [isLoading, items.length]);
 
   // Coming back to this tab (e.g. after using the WhatsApp review link) refreshes the tabs.
   useEffect(() => {
@@ -446,7 +483,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
             {/* Review Cards Grid (3 columns matching mock 13) */}
             {!isLoading && filteredItems.length > 0 && (
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                {filteredItems.map((item) => {
+                {filteredItems.map((item, index) => {
                   const previewAsset = pickPreviewAsset(item.attachments);
                   const previewSrc = resolveAssetSrc(previewAsset);
                   const previewFailed = Boolean(previewAsset && failedPreviewIds[previewAsset.id]);
@@ -476,6 +513,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                               <img
                                 data-testid="video-card-still"
                                 src={previewSrc}
+                                {...cardImageLoading(index)}
                                 alt={item.content_concept || 'Campaign asset'}
                                 className="w-full h-full object-cover"
                                 onError={() =>
@@ -498,7 +536,9 @@ export const ContentCalendarClientReviews: React.FC = () => {
                           </div>
                         ) : showMedia && previewSrc ? (
                           <img
+                            data-testid="card-thumb"
                             src={previewSrc}
+                            {...cardImageLoading(index)}
                             alt={item.content_concept || 'Campaign asset'}
                             className="w-full h-full min-h-[200px] object-cover group-hover:scale-[1.02] transition-transform duration-200"
                             onError={() =>
@@ -716,17 +756,19 @@ export const ContentCalendarClientReviews: React.FC = () => {
             </div>
 
             <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-              <ContentCalendarPipelineView
-                items={items}
-                stages={[...PIPELINE_STAGES]}
-                actor={user}
-                isLoading={isLoading}
-                onSelectItem={(item) => {
-                  setDrawerItem(item);
-                  setIsDrawerOpen(true);
-                }}
-                onTransition={handlePipelineTransition}
-              />
+              <Suspense fallback={<div className="flex-1 p-6"><div className="h-40 rounded-xl bg-subtle animate-pulse" /></div>}>
+                <ContentCalendarPipelineView
+                  items={items}
+                  stages={[...PIPELINE_STAGES]}
+                  actor={user}
+                  isLoading={isLoading}
+                  onSelectItem={(item) => {
+                    setDrawerItem(item);
+                    setIsDrawerOpen(true);
+                  }}
+                  onTransition={handlePipelineTransition}
+                />
+              </Suspense>
             </div>
           </div>
         )}
@@ -770,12 +812,14 @@ export const ContentCalendarClientReviews: React.FC = () => {
                       Creative Deliverables
                     </span>
                     {detailItem.attachments && detailItem.attachments.length > 0 ? (
-                      <CreativeAssetGallery
-                        itemId={detailItem.id}
-                        attachments={detailItem.attachments}
-                        readOnly={true}
-                        compact={false}
-                      />
+                      <Suspense fallback={<div className="aspect-[4/5] w-full rounded-lg bg-subtle animate-pulse" />}>
+                        <CreativeAssetGallery
+                          itemId={detailItem.id}
+                          attachments={detailItem.attachments}
+                          readOnly={true}
+                          compact={false}
+                        />
+                      </Suspense>
                     ) : (
                       <div className="aspect-video w-full rounded-lg bg-subtle border border-border flex flex-col items-center justify-center text-fg-muted p-6 text-center">
                         <ImageIcon className="w-10 h-10 text-fg-faint mb-2" />
@@ -949,18 +993,22 @@ export const ContentCalendarClientReviews: React.FC = () => {
         </DialogContent>
       </Dialog>
 
-      {/* Campaign Details Drawer (Specs inspection) */}
-      <ContentCalendarDrawer
-        item={drawerItem}
-        isOpen={isDrawerOpen}
-        onClose={() => setIsDrawerOpen(false)}
-        actor={user}
-        onTransition={handlePipelineTransition}
-        onItemUpdated={(updated) => {
-          setDrawerItem(updated);
-          setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
-        }}
-      />
+      {/* Campaign Details Drawer (Specs inspection): loaded on first open */}
+      {drawerItem && (
+        <Suspense fallback={null}>
+          <ContentCalendarDrawer
+            item={drawerItem}
+            isOpen={isDrawerOpen}
+            onClose={() => setIsDrawerOpen(false)}
+            actor={user}
+            onTransition={handlePipelineTransition}
+            onItemUpdated={(updated) => {
+              setDrawerItem(updated);
+              setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+            }}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

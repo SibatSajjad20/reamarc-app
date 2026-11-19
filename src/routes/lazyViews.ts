@@ -83,8 +83,19 @@ export function prefetchView(view: ViewType): void {
   void PRIMARY_LOADERS[view]?.();
 }
 
-export function prefetchPrimaryViews(): void {
-  for (const load of Object.values(PRIMARY_LOADERS)) {
-    void load();
+/** Save-Data or a 2G/3G connection: background prefetch would compete with what is on screen. */
+export function isConstrainedNetwork(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  const conn = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+  if (!conn) return false;
+  return Boolean(conn.saveData) || ['slow-2g', '2g', '3g'].includes(String(conn.effectiveType || ''));
+}
+
+/** Prefetch the given views (default: all primary views). Skipped on constrained networks. */
+export function prefetchPrimaryViews(views?: ViewType[]): void {
+  if (isConstrainedNetwork()) return;
+  const keys = views ?? (Object.keys(PRIMARY_LOADERS) as ViewType[]);
+  for (const view of keys) {
+    void PRIMARY_LOADERS[view]?.();
   }
 }

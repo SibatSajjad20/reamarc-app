@@ -396,7 +396,11 @@ async def add_security_headers(request: Request, call_next):
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Content-Security-Policy"] = "default-src 'self' blob: data:; media-src 'self' blob: data:; img-src 'self' blob: data:;"
         # Keep the route's own caching (thumbs: 30 days, Drive originals: 7 days, downloads: no-store).
-        if "cache-control" not in response.headers:
+        # Errors (401 before a session refresh, 404, 5xx) must never be cached, or a
+        # thumbnail stays broken in the browser after the session recovers.
+        if response.status_code >= 400:
+            response.headers["Cache-Control"] = "private, no-store"
+        elif "cache-control" not in response.headers:
             response.headers["Cache-Control"] = "private, max-age=3600"
 
     if is_upload or "/public/review/" in request.url.path:

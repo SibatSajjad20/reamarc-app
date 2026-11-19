@@ -103,17 +103,6 @@ function AppInner() {
     return () => window.clearTimeout(cap);
   }, [isAuthLoading, hasUser]);
 
-  useEffect(() => {
-    if (!user || isAuthLoading) return;
-    const ric = window.requestIdleCallback?.bind(window);
-    if (typeof ric === 'function') {
-      const id = ric(() => prefetchPrimaryViews(), { timeout: 2500 });
-      return () => window.cancelIdleCallback?.(id);
-    }
-    const t = window.setTimeout(() => prefetchPrimaryViews(), 400);
-    return () => window.clearTimeout(t);
-  }, [user, isAuthLoading]);
-
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
@@ -213,6 +202,34 @@ function AppInner() {
   const canSeeAttendance = !isClient && (isAdmin || (eff ? !!eff.attendance : perms.canAccessAttendance)) && isCompanyModuleEnabled(user, 'attendance');
   const canSeeDailyLog = !isClient && (isAdmin || (eff ? !!eff.daily_log : perms.canAccessDailyLog)) && isCompanyModuleEnabled(user, 'daily_log');
   const canSeeDashboard = !isClient && isCompanyModuleEnabled(user, 'dashboard');
+
+  // Warm the chunks of the modules this user can open. Clients only use the portal,
+  // so they prefetch nothing: on a phone those ~1.5 MB of staff screens used to
+  // download in the background and delay the portal list and its thumbnails by 10 s+.
+  const prefetchKey = [
+    canSeeDashboard && 'dashboard',
+    canSeeAttendance && 'attendance',
+    canSeeCrm && 'crm',
+    canSeeDailyLog && 'daily-log',
+    !isClient && 'settings',
+    canSeeFinance && 'finance',
+    canSeeContentCalendar && !isClient && 'content-calendar',
+    canSeeWebsitePipeline && !isClient && 'website-pipeline',
+    canSeeTasks && 'tasks',
+  ]
+    .filter(Boolean)
+    .join(',');
+  useEffect(() => {
+    if (!user || isAuthLoading || !prefetchKey) return;
+    const views = prefetchKey.split(',') as ViewType[];
+    const ric = window.requestIdleCallback?.bind(window);
+    if (typeof ric === 'function') {
+      const id = ric(() => prefetchPrimaryViews(views), { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(() => prefetchPrimaryViews(views), 400);
+    return () => window.clearTimeout(t);
+  }, [user, isAuthLoading, prefetchKey]);
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

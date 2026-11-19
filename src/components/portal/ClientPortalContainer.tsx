@@ -1,8 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { ContentCalendarClientReviews } from '../content-calendar/ContentCalendarClientReviews';
-import { WebsiteClientPortalSection } from './WebsiteClientPortalSection';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
+
+// Website tab is a separate download: most clients open the content tab first.
+const WebsiteClientPortalSection = lazy(() =>
+  import('./WebsiteClientPortalSection').then((m) => ({ default: m.WebsiteClientPortalSection })),
+);
 
 interface ClientPortalContainerProps {
   activeTab?: 'content' | 'website';
@@ -50,7 +54,9 @@ export const ClientPortalContainer: React.FC<ClientPortalContainerProps> = ({
         {activeTab === 'content' ? (
           <ContentCalendarClientReviews />
         ) : (
-          <WebsiteClientPortalSection />
+          <Suspense fallback={<div className="flex-1 p-6"><div className="h-40 rounded-xl bg-subtle animate-pulse" /></div>}>
+            <WebsiteClientPortalSection />
+          </Suspense>
         )}
       </div>
     </div>
