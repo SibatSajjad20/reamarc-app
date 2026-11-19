@@ -17,6 +17,7 @@ export interface AdminMember {
   probation_end_date?: string | null;
   is_active: boolean;
   deactivation_date?: string | null;
+  archived_email?: string | null;
   created_at?: string;
   workspace_ids?: string[];
   avatar_url?: string | null;
@@ -47,6 +48,7 @@ export interface CreateMemberPayload {
   send_invite_email?: boolean;
   is_active?: boolean;
   workspace_ids?: string[];
+  reused_email_action?: 'archive_and_create' | 'reactivate';
 }
 
 export type AdminCreateUserPayload = CreateMemberPayload;

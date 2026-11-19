@@ -49,7 +49,10 @@ class MemberCreate(BaseModel):
     full_name: str = Field(..., min_length=2, description="Member's full name")
     email: EmailStr = Field(..., description="Corporate or work email address")
     role: UserRole = UserRole.TEAM_MEMBER
-    phone: str = Field(..., min_length=5, description="Member's contact phone number")
+    phone: Optional[str] = Field(
+        None,
+        description="Member's contact phone number (required for staff roles; not collected for client logins)",
+    )
     department: Optional[str] = None
     departments: Optional[List[str]] = Field(default=None, description="All departments assigned to the member")
     primary_department: Optional[str] = Field(default=None, description="Primary department for permissions and scoping")
@@ -65,14 +68,27 @@ class MemberCreate(BaseModel):
     send_invite_email: bool = True
     is_active: bool = True
     workspace_ids: List[str] = Field(default_factory=list, description="Active clients this login can review")
+    reused_email_action: Optional[str] = Field(
+        None,
+        description="Action to take when email was previously used by a deactivated member: 'archive_and_create' (or 'create_new') or 'reactivate'",
+    )
 
     @field_validator("phone")
     @classmethod
-    def validate_phone(cls, v: str) -> str:
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or not str(v).strip():
+            return None
         formatted = format_member_phone(v)
         if not formatted:
             raise ValueError("Enter a valid phone number, not an email address")
         return formatted
+
+    @model_validator(mode="after")
+    def require_phone_for_staff(self) -> "MemberCreate":
+        # Client logins don't collect a phone number; every staff role still requires one.
+        if self.role != UserRole.CLIENT and not self.phone:
+            raise ValueError("Phone number is required for team accounts.")
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -194,6 +210,7 @@ class MemberResponse(BaseModel):
     id: str
     full_name: str
     email: str
+    archived_email: Optional[str] = None
     role: UserRole
     phone: Optional[str] = None
     department: Optional[str] = None

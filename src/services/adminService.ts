@@ -38,8 +38,8 @@ export const adminService = {
     return res;
   },
 
-  async createMember(payload: CreateMemberPayload): Promise<AdminMember> {
-    const res = await apiClient.post<AdminMember>('/admin/members', payload);
+  async createMember(payload: CreateMemberPayload): Promise<AdminMember | { created?: false; code?: string; message: string }> {
+    const res = await apiClient.post<AdminMember | { created?: false; code?: string; message: string }>('/admin/members', payload);
     adminMembersCache.clear();
     emitInvalidation(['admin.members', 'dashboard', 'attendance']);
     return res;
@@ -134,7 +134,7 @@ export const adminService = {
     return this.getMembers();
   },
 
-  async createUser(payload: CreateMemberPayload): Promise<AdminUser> {
+  async createUser(payload: CreateMemberPayload): Promise<AdminUser | { created?: false; code?: string; message: string }> {
     return this.createMember(payload);
   },
 

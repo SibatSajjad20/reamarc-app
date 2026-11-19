@@ -143,6 +143,8 @@ def _overlay_membership(user: Dict[str, Any], membership: Dict[str, Any], compan
         merged["crm_enabled"] = membership.get("crm_enabled")
     if "crm_paused" in membership:
         merged["crm_paused"] = membership.get("crm_paused")
+    if user.get("archived_email"):
+        merged["email"] = user["archived_email"]
     return merged
 
 
@@ -178,6 +180,8 @@ async def _flags_off_find(db, query, projection, sort, limit) -> list[dict]:
                 for doc in docs:
                     if isinstance(doc, dict):
                         doc.pop("hashed_password", None)
+                        if doc.get("archived_email"):
+                            doc["email"] = doc["archived_email"]
                 return docs
     find_one = getattr(db.users, "find_one", None)
     if callable(find_one):
@@ -186,6 +190,8 @@ async def _flags_off_find(db, query, projection, sort, limit) -> list[dict]:
         if doc:
             if isinstance(doc, dict):
                 doc.pop("hashed_password", None)
+                if doc.get("archived_email"):
+                    doc["email"] = doc["archived_email"]
             return [doc]
     return []
 
@@ -292,6 +298,8 @@ async def company_member_user(user_id: Any, db=None, *, include_inactive: bool =
             doc = await db.users.find_one({"$or": [{"id": uid}, {"_id": uid}]}, {"hashed_password": 0})
         if doc:
             doc.pop("hashed_password", None)
+            if doc.get("archived_email"):
+                doc["email"] = doc["archived_email"]
         return doc
 
     from app.core.tenant import get_global_db, get_tenant_context
@@ -305,6 +313,8 @@ async def company_member_user(user_id: Any, db=None, *, include_inactive: bool =
         doc = await db.users.find_one({"$or": [{"id": uid}, {"_id": uid}]}, {"hashed_password": 0})
         if doc:
             doc.pop("hashed_password", None)
+            if doc.get("archived_email"):
+                doc["email"] = doc["archived_email"]
         return doc
 
     mem = await gdb.company_memberships.find_one({"company_id": cid, "user_id": uid})
