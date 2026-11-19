@@ -1,5 +1,6 @@
 import type { ContentCalendarItem, PipelineStage } from '../types/contentCalendar';
 import { getContentCalendarBucket } from './contentCalendarWorkflow';
+import { normalizeCreativeType } from './contentCalendarExpectations';
 
 export interface OverviewMetrics {
   totalItems: number;
@@ -29,6 +30,12 @@ export interface UpcomingDayGroup {
   items: ContentCalendarItem[];
 }
 
+export interface ClientCreativeTypeCount {
+  type: string;
+  total: number;
+  posted: number;
+}
+
 export interface ClientHealthItem {
   clientName: string;
   workspaceId?: string;
@@ -42,6 +49,7 @@ export interface ClientHealthItem {
   overdueCount: number;
   revisionCount: number;
   nextScheduledDate: string | null;
+  creativeTypes: ClientCreativeTypeCount[];
 }
 
 export interface FunnelPhaseItem {
@@ -294,6 +302,25 @@ export function getUpcomingItemsByDay(
   };
 }
 
+const CANONICAL_CREATIVE_LABELS: Record<string, string> = {
+  static: 'Static',
+  reel: 'Reel',
+  carousel: 'Carousel',
+  'animated post': 'Animated Post',
+  'cover image': 'Cover Image',
+  story: 'Story',
+  ugc: 'UGC',
+  video: 'Video',
+  gif: 'GIF',
+};
+
+function canonicalCreativeTypeLabel(value?: string | null): string {
+  const raw = (value || '').replace(/\s+/g, ' ').trim();
+  if (!raw) return 'Unspecified';
+  const normalized = normalizeCreativeType(raw);
+  return CANONICAL_CREATIVE_LABELS[normalized] || raw;
+}
+
 /**
  * Calculates client-by-client health metrics matrix.
  */
@@ -350,10 +377,19 @@ export function calculateClientHealthMatrix(
     let revisionCount = 0;
     let nextScheduledDate: string | null = null;
     let minUpcomingTimestamp = Infinity;
+    const creativeTypeMap = new Map<string, { total: number; posted: number }>();
 
     const todayMid = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
     for (const it of list) {
+      const typeLabel = canonicalCreativeTypeLabel(it.creative_type);
+      const typeEntry = creativeTypeMap.get(typeLabel) || { total: 0, posted: 0 };
+      typeEntry.total++;
+      if (it.stage === 'Posted') {
+        typeEntry.posted++;
+      }
+      creativeTypeMap.set(typeLabel, typeEntry);
+
       if (it.stage === 'Content' || it.stage === 'Content Internal Review') {
         contentPhase++;
       } else if (it.stage === 'Creative Production' || it.stage === 'Creative Internal Review') {
@@ -385,6 +421,13 @@ export function calculateClientHealthMatrix(
     }
 
     const completionRate = total > 0 ? Math.round((posted / total) * 100) : 0;
+    const creativeTypes: ClientCreativeTypeCount[] = Array.from(creativeTypeMap.entries())
+      .map(([type, counts]) => ({
+        type,
+        total: counts.total,
+        posted: counts.posted,
+      }))
+      .sort((a, b) => (b.total !== a.total ? b.total - a.total : a.type.localeCompare(b.type)));
 
     result.push({
       clientName: entry.clientName,
@@ -399,6 +442,7 @@ export function calculateClientHealthMatrix(
       overdueCount,
       revisionCount,
       nextScheduledDate,
+      creativeTypes,
     });
   }
 

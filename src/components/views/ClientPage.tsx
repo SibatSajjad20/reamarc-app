@@ -146,6 +146,7 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
     { id: 'logo', label: 'Logo & colour', errorKeys: [] as string[] },
     { id: 'contacts', label: 'Contacts', errorKeys: [] as string[] },
     { id: 'proposal', label: 'Proposal', errorKeys: [] as string[] },
+    { id: 'expectations', label: 'Expectations', errorKeys: [] as string[] },
     ...(page.mode === 'edit' ? [{ id: 'danger', label: 'Danger zone', errorKeys: [] as string[] }] : []),
   ], [page.mode]);
 

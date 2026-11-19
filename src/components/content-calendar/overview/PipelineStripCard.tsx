@@ -19,11 +19,14 @@ export const PipelineStripCard: React.FC<Props> = ({
     let clientReviewCount = 0;
     let revisionCount = 0;
     let readyCount = 0;
+    let postedCount = 0;
 
     for (const it of items) {
-      if (it.stage === 'Posted' || it.stage === 'Rejected') continue;
+      if (it.stage === 'Rejected') continue;
 
-      if (it.stage === 'Content' || it.stage === 'Content Internal Review') {
+      if (it.stage === 'Posted') {
+        postedCount++;
+      } else if (it.stage === 'Content' || it.stage === 'Content Internal Review') {
         contentCount++;
       } else if (it.stage === 'Creative Production' || it.stage === 'Creative Internal Review') {
         creativeCount++;
@@ -37,29 +40,30 @@ export const PipelineStripCard: React.FC<Props> = ({
     }
 
     const activeTotal = contentCount + creativeCount + clientReviewCount + revisionCount + readyCount;
+    const totalTracked = activeTotal + postedCount;
 
     const stages = [
       {
         key: 'content',
         label: 'Content',
         count: contentCount,
-        pct: activeTotal > 0 ? Math.round((contentCount / activeTotal) * 100) : 0,
-        colorClass: 'bg-accent',
-        dotClass: 'bg-accent',
+        pct: totalTracked > 0 ? Math.round((contentCount / totalTracked) * 100) : 0,
+        colorClass: 'bg-neutral-dot',
+        dotClass: 'bg-neutral-dot',
       },
       {
         key: 'creative',
         label: 'Creative',
         count: creativeCount,
-        pct: activeTotal > 0 ? Math.round((creativeCount / activeTotal) * 100) : 0,
-        colorClass: 'bg-info-dot',
-        dotClass: 'bg-info-dot',
+        pct: totalTracked > 0 ? Math.round((creativeCount / totalTracked) * 100) : 0,
+        colorClass: 'bg-accent',
+        dotClass: 'bg-accent',
       },
       {
         key: 'client_review',
         label: 'Client review',
         count: clientReviewCount,
-        pct: activeTotal > 0 ? Math.round((clientReviewCount / activeTotal) * 100) : 0,
+        pct: totalTracked > 0 ? Math.round((clientReviewCount / totalTracked) * 100) : 0,
         colorClass: 'bg-warning-dot',
         dotClass: 'bg-warning-dot',
       },
@@ -67,7 +71,7 @@ export const PipelineStripCard: React.FC<Props> = ({
         key: 'revisions',
         label: 'Revisions',
         count: revisionCount,
-        pct: activeTotal > 0 ? Math.round((revisionCount / activeTotal) * 100) : 0,
+        pct: totalTracked > 0 ? Math.round((revisionCount / totalTracked) * 100) : 0,
         colorClass: 'bg-danger-dot',
         dotClass: 'bg-danger-dot',
       },
@@ -75,13 +79,21 @@ export const PipelineStripCard: React.FC<Props> = ({
         key: 'ready',
         label: 'Ready to post',
         count: readyCount,
-        pct: activeTotal > 0 ? Math.round((readyCount / activeTotal) * 100) : 0,
+        pct: totalTracked > 0 ? Math.round((readyCount / totalTracked) * 100) : 0,
+        colorClass: 'bg-info-dot',
+        dotClass: 'bg-info-dot',
+      },
+      {
+        key: 'posted',
+        label: 'Posted',
+        count: postedCount,
+        pct: totalTracked > 0 ? Math.round((postedCount / totalTracked) * 100) : 0,
         colorClass: 'bg-success-dot',
         dotClass: 'bg-success-dot',
       },
     ];
 
-    return { activeTotal, stages };
+    return { activeTotal, postedCount, totalTracked, stages };
   }, [items]);
 
   return (
@@ -96,7 +108,7 @@ export const PipelineStripCard: React.FC<Props> = ({
             </h3>
           </div>
           <p className="text-caption text-fg-muted mt-0.5 font-numeric">
-            {stageData.activeTotal} active · Posted and Rejected excluded
+            {stageData.activeTotal} active · {stageData.postedCount} posted · Rejected excluded
           </p>
         </div>
         <button
@@ -111,8 +123,8 @@ export const PipelineStripCard: React.FC<Props> = ({
 
       {/* Content */}
       {isLoading ? (
-        <div className="pt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 animate-pulse">
-          {Array.from({ length: 5 }).map((_, i) => (
+        <div className="pt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 animate-pulse">
+          {Array.from({ length: 6 }).map((_, i) => (
             <div key={i} className="p-3 rounded-lg bg-subtle/50 border border-border/40 space-y-2">
               <div className="h-3 w-16 bg-skel rounded" />
               <div className="h-6 w-12 bg-skel rounded" />
@@ -121,7 +133,7 @@ export const PipelineStripCard: React.FC<Props> = ({
           ))}
         </div>
       ) : (
-        <div className="pt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div className="pt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           {stageData.stages.map((st) => (
             <div
               key={st.key}

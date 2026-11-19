@@ -59,6 +59,7 @@ def normalize_workspace(doc: dict) -> dict:
         "brandGuidelines": str(doc.get("brandGuidelines") or doc.get("brand_guidelines") or ""),
         "isDefault": bool(doc.get("isDefault", False)),
         "updated_at": doc.get("updated_at") or doc.get("created_at"),
+        "content_expectations": doc.get("content_expectations"),
     }
 
 
@@ -163,6 +164,9 @@ async def create_workspace(
         "billing_phone": ws_in.billing_phone,
         "brandGuidelines": ws_in.brandGuidelines or "",
         "brand_guidelines": ws_in.brandGuidelines or "",
+        "content_expectations": (
+            ws_in.content_expectations.model_dump() if ws_in.content_expectations else None
+        ),
         "isDefault": False,
         "user_id": current_user["id"],
         "created_at": now_iso,

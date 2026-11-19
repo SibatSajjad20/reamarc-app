@@ -2,7 +2,7 @@ import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
 import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import { contentCalendarService } from './contentCalendarService';
-import type { Workspace } from '../types';
+import type { ContentExpectations, Workspace } from '../types';
 
 const workspacesCache = new BoundedCache<Workspace[]>(2);
 
@@ -26,6 +26,7 @@ export interface WorkspaceCreatePayload {
   billing_name?: string | null;
   billing_email?: string | null;
   billing_phone?: string | null;
+  content_expectations?: ContentExpectations | null;
 }
 
 export interface WorkspaceUpdatePayload {
@@ -48,6 +49,7 @@ export interface WorkspaceUpdatePayload {
   billing_name?: string | null;
   billing_email?: string | null;
   billing_phone?: string | null;
+  content_expectations?: ContentExpectations | null;
 }
 
 export const workspaceService = {

@@ -165,6 +165,107 @@ export const ClientForm: React.FC<Props> = ({ form, workspace, canManage, onWork
           </>
         )}
       </section>
+
+      <section ref={setSection('expectations')} id="section-expectations" className="bg-surface border border-border rounded-xl p-[18px] space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-fg">Content expectations</h2>
+          <p className="text-xs text-fg-muted">Monthly creative quotas for the content calendar.</p>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Static posts min / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="e.g. 5"
+              value={values.expectStatic}
+              onChange={(e) => patch({ expectStatic: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Static posts max / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="optional, e.g. 10"
+              value={values.expectStaticMax}
+              onChange={(e) => patch({ expectStaticMax: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Reels / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="e.g. 8"
+              value={values.expectReels}
+              onChange={(e) => patch({ expectReels: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Carousel / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="e.g. 1"
+              value={values.expectCarousel}
+              onChange={(e) => patch({ expectCarousel: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Carousel layout</label>
+            <input
+              className={inputClass}
+              placeholder="e.g. 3x3"
+              value={values.expectCarouselLayout}
+              onChange={(e) => patch({ expectCarouselLayout: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Animated posts / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="e.g. 2"
+              value={values.expectAnimated}
+              onChange={(e) => patch({ expectAnimated: e.target.value })}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-fg mb-1.5">Cover images / month</label>
+            <input
+              type="number"
+              min={0}
+              inputMode="numeric"
+              className={inputClass}
+              placeholder="e.g. 1"
+              value={values.expectCover}
+              onChange={(e) => patch({ expectCover: e.target.value })}
+            />
+          </div>
+          <div className="flex items-end sm:col-span-2">
+            <label className="flex items-center gap-2 text-xs font-medium text-fg cursor-pointer pb-2.5">
+              <input
+                type="checkbox"
+                className="rounded border-border"
+                checked={values.expectAnimatedPauseThisMonth}
+                onChange={(e) => patch({ expectAnimatedPauseThisMonth: e.target.checked })}
+              />
+              Pause animated posts this month only
+            </label>
+          </div>
+        </div>
+      </section>
     </div>
   );
 };

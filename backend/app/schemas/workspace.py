@@ -1,6 +1,21 @@
 from pydantic import BaseModel, Field
 from typing import Optional, List
 
+
+class ContentExpectationLine(BaseModel):
+    creative_type: str
+    expected: Optional[int] = None
+    expected_max: Optional[int] = None
+    included: Optional[bool] = False
+    layout: Optional[str] = None
+    skip_months: Optional[List[str]] = None
+
+
+class ContentExpectations(BaseModel):
+    period: str = "month"
+    lines: List[ContentExpectationLine] = Field(default_factory=list)
+
+
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., example="Nova Luxury Living")
     initials: Optional[str] = Field(None, example="NL")
@@ -22,6 +37,7 @@ class WorkspaceCreate(BaseModel):
     billing_email: Optional[str] = None
     billing_phone: Optional[str] = None
     brandGuidelines: Optional[str] = None
+    content_expectations: Optional[ContentExpectations] = None
 
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
@@ -44,6 +60,7 @@ class WorkspaceUpdate(BaseModel):
     billing_email: Optional[str] = None
     billing_phone: Optional[str] = None
     brandGuidelines: Optional[str] = None
+    content_expectations: Optional[ContentExpectations] = None
 
 class GuidelinesUpdate(BaseModel):
     guidelines_text: str = Field(..., example="Brand voice, tone, guidelines...")
@@ -73,6 +90,7 @@ class WorkspaceResponse(BaseModel):
     isDefault: bool = False
     logo_url: Optional[str] = None
     updated_at: Optional[str] = None
+    content_expectations: Optional[ContentExpectations] = None
 
     class Config:
         populate_by_name = True

@@ -31,10 +31,47 @@ import { Avatar } from '../ui/Avatar';
 import { ClientAvatar } from '../ui/ClientAvatar';
 import { useResolvedClient } from '../../hooks/useClientLookup';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
-function parseDateScore(dateStr?: string | null): number {
-  if (!dateStr || !dateStr.trim()) return Infinity;
+function parseDateScore(dateStr?: string | null, missingScore: number = Infinity): number {
+  if (!dateStr || !dateStr.trim()) return missingScore;
   const time = new Date(dateStr.trim()).getTime();
-  return Number.isNaN(time) ? Infinity : time;
+  return Number.isNaN(time) ? missingScore : time;
+}
+
+export function comparePipelineStageItems(
+  a: ContentCalendarItem,
+  b: ContentCalendarItem,
+  stage: PipelineStage | string,
+): number {
+  if (stage === 'Posted') {
+    const scoreA = parseDateScore(a.publish_date, -Infinity);
+    const scoreB = parseDateScore(b.publish_date, -Infinity);
+    if (scoreA !== scoreB) return scoreB - scoreA;
+    const updatedA = parseDateScore(a.updated_at, -Infinity);
+    const updatedB = parseDateScore(b.updated_at, -Infinity);
+    if (updatedA !== updatedB) return updatedB - updatedA;
+    const fallbackA = parseDateScore(a.design_due, -Infinity);
+    const fallbackB = parseDateScore(b.design_due, -Infinity);
+    if (fallbackA !== fallbackB) return fallbackB - fallbackA;
+    return (b.serial || '').localeCompare(a.serial || '');
+  }
+
+  if (stage === 'Ready to Post') {
+    const scoreA = parseDateScore(a.publish_date, Infinity);
+    const scoreB = parseDateScore(b.publish_date, Infinity);
+    if (scoreA !== scoreB) return scoreA - scoreB;
+    const fallbackA = parseDateScore(a.design_due, Infinity);
+    const fallbackB = parseDateScore(b.design_due, Infinity);
+    if (fallbackA !== fallbackB) return fallbackA - fallbackB;
+    return (a.serial || '').localeCompare(b.serial || '');
+  }
+
+  const scoreA = parseDateScore(a.design_due, Infinity);
+  const scoreB = parseDateScore(b.design_due, Infinity);
+  if (scoreA !== scoreB) return scoreA - scoreB;
+  const fallbackA = parseDateScore(a.publish_date, Infinity);
+  const fallbackB = parseDateScore(b.publish_date, Infinity);
+  if (fallbackA !== fallbackB) return fallbackA - fallbackB;
+  return (a.serial || '').localeCompare(b.serial || '');
 }
 
 interface Props {
@@ -76,28 +113,12 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
       }
     }
     // Sort cards in pipeline view:
-    // In ready to post: show cards whose publish date is due in order
-    // In other stages: show content whose design date is most due in order
+    // - Posted: latest posted first (publish_date desc, undated at bottom)
+    // - Ready to Post: soonest publish_date first (asc)
+    // - Other active stages: soonest design_due first (asc)
     for (const stage of stages) {
       if (!map[stage]) continue;
-      map[stage].sort((a, b) => {
-        if (stage === 'Ready to Post' || stage === 'Posted') {
-          const scoreA = parseDateScore(a.publish_date);
-          const scoreB = parseDateScore(b.publish_date);
-          if (scoreA !== scoreB) return scoreA - scoreB;
-          const fallbackA = parseDateScore(a.design_due);
-          const fallbackB = parseDateScore(b.design_due);
-          if (fallbackA !== fallbackB) return fallbackA - fallbackB;
-        } else {
-          const scoreA = parseDateScore(a.design_due);
-          const scoreB = parseDateScore(b.design_due);
-          if (scoreA !== scoreB) return scoreA - scoreB;
-          const fallbackA = parseDateScore(a.publish_date);
-          const fallbackB = parseDateScore(b.publish_date);
-          if (fallbackA !== fallbackB) return fallbackA - fallbackB;
-        }
-        return (a.serial || '').localeCompare(b.serial || '');
-      });
+      map[stage].sort((a, b) => comparePipelineStageItems(a, b, stage));
     }
     return map;
   }, [items, stages]);

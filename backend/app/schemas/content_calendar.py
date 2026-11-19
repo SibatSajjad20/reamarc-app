@@ -114,6 +114,8 @@ CREATIVE_TYPE_OPTIONS = [
     "Carousel",
     "Static",
     "Story",
+    "Animated Post",
+    "Cover Image",
     "UGC",
     "Testimonial",
     "GIF",
@@ -122,6 +124,59 @@ CREATIVE_TYPE_OPTIONS = [
     "Email",
     "Lead Magnet",
 ]
+
+
+def canonicalize_creative_type(value: Any) -> str:
+    """Map messy spreadsheet/UI labels onto one canonical creative type.
+
+    Stored rows are free text, so imports and typos (Animated posts, aimated post,
+    Friday Static) otherwise never match dropdown options or expectation quotas.
+    Unknown labels are returned trimmed, not discarded.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return text
+    collapsed = re.sub(r"\s+", " ", text.lower())
+    exact = {
+        "video": "Video",
+        "reel": "Reel",
+        "reels": "Reel",
+        "carousel": "Carousel",
+        "grid": "Carousel",
+        "grid/carousel": "Carousel",
+        "static": "Static",
+        "static post": "Static",
+        "static posts": "Static",
+        "static image": "Static",
+        "static images": "Static",
+        "story": "Story",
+        "stories": "Story",
+        "animated": "Animated Post",
+        "animated post": "Animated Post",
+        "animated posts": "Animated Post",
+        "cover": "Cover Image",
+        "cover image": "Cover Image",
+        "cover images": "Cover Image",
+        "ugc": "UGC",
+        "gif": "GIF",
+    }
+    if collapsed in exact:
+        return exact[collapsed]
+    if re.search(r"\breels?\b", collapsed):
+        return "Reel"
+    if re.search(r"\b(carousel|grid)\b", collapsed):
+        return "Carousel"
+    if re.search(r"\bstor(y|ies)\b", collapsed):
+        return "Story"
+    if re.search(r"\bcover\b", collapsed):
+        return "Cover Image"
+    if re.search(r"animat|aimat", collapsed):
+        return "Animated Post"
+    if re.search(r"\bstatic\b", collapsed):
+        return "Static"
+    if re.search(r"\bugc\b", collapsed):
+        return "UGC"
+    return text
 
 CONTENT_TYPE_OPTIONS = [
     "Scheduled",
@@ -298,6 +353,11 @@ class ContentCalendarItemBase(BaseModel):
     channels: Optional[List[str]] = Field(default_factory=list, max_length=12)
     workspace_id: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["workspace_id"])
 
+    @field_validator("creative_type")
+    @classmethod
+    def validate_creative_type(cls, v: Any) -> str:
+        return canonicalize_creative_type(v) or "Video"
+
     @field_validator("content_type")
     @classmethod
     def validate_content_type(cls, v: Any) -> str:
@@ -384,6 +444,14 @@ class ContentCalendarItemUpdate(BaseModel):
     @classmethod
     def validate_links(cls, v: Optional[str]) -> Optional[str]:
         return clean_http_link(v)
+
+    @field_validator("creative_type")
+    @classmethod
+    def validate_creative_type_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        text = canonicalize_creative_type(v)
+        return text or None
 
     @field_validator("content_type")
     @classmethod

@@ -32,6 +32,11 @@ import { ContentCalendarDrawer } from '../content-calendar/ContentCalendarDrawer
 import { ContentCalendarModal } from '../content-calendar/ContentCalendarModal';
 import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarImportModal';
 import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
+import { ClientExpectationsBanner } from '../content-calendar/overview/ClientExpectationsCards';
+import {
+  calculateClientExpectationSummary,
+  findClientForFilter,
+} from '../../utils/contentCalendarExpectations';
 import { ContentCalendarDisplayPopover } from '../content-calendar/ContentCalendarDisplayPopover';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { ClientLookupContext, useClientLookup } from '../../hooks/useClientLookup';
@@ -75,7 +80,11 @@ export const ContentCalendarView: React.FC = () => {
   const activeClients = React.useMemo(() => {
     return workspaces
       .filter((w) => w.status !== 'inactive')
-      .map((w) => ({ id: w.id, name: w.name }));
+      .map((w) => ({
+        id: w.id,
+        name: w.name,
+        content_expectations: w.content_expectations,
+      }));
   }, [workspaces]);
 
   const initialFilterKey = JSON.stringify({
@@ -182,6 +191,13 @@ export const ContentCalendarView: React.FC = () => {
       return true;
     });
   }, [items, clientFilter, assigneeFilter]);
+
+  const sheetExpectationSummary = React.useMemo(() => {
+    if (viewMode !== 'table') return null;
+    const client = findClientForFilter(activeClients, clientFilter);
+    if (!client) return null;
+    return calculateClientExpectationSummary(items, client);
+  }, [viewMode, activeClients, clientFilter, items]);
 
   const overdueCount = React.useMemo(
     () => scopedItems.filter((it) => getContentCalendarBucket(it) === 'overdue').length,
@@ -768,23 +784,28 @@ export const ContentCalendarView: React.FC = () => {
         )}
 
         {viewMode === 'table' && (
-          <ContentCalendarTableView
-            items={displayItems}
-            isLoading={isLoading}
-            error={error}
-            onSelectItem={(it) => {
-              setSelectedItem(it);
-              setIsDrawerOpen(true);
-            }}
-            zoomLevel={zoomLevel}
-            defaultRowHeight={defaultRowHeight}
-            rowHeightsResetKey={rowHeightsResetKey}
-            onUpdateItemLocal={handleUpdateItemLocal}
-            onFilteredItemsChange={setFilteredItemsForExport}
-            onSelectionMetaChange={handleSelectionMetaChange}
-            constants={constants}
-            activeClients={activeClients}
-          />
+          <div className="flex-1 flex flex-col min-h-0 min-w-0">
+            {sheetExpectationSummary ? (
+              <ClientExpectationsBanner summary={sheetExpectationSummary} />
+            ) : null}
+            <ContentCalendarTableView
+              items={displayItems}
+              isLoading={isLoading}
+              error={error}
+              onSelectItem={(it) => {
+                setSelectedItem(it);
+                setIsDrawerOpen(true);
+              }}
+              zoomLevel={zoomLevel}
+              defaultRowHeight={defaultRowHeight}
+              rowHeightsResetKey={rowHeightsResetKey}
+              onUpdateItemLocal={handleUpdateItemLocal}
+              onFilteredItemsChange={setFilteredItemsForExport}
+              onSelectionMetaChange={handleSelectionMetaChange}
+              constants={constants}
+              activeClients={activeClients}
+            />
+          </div>
         )}
 
         {viewMode === 'pipeline' && (

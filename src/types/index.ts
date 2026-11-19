@@ -38,6 +38,21 @@ export interface Workspace {
   industry?: string;
   isDefault?: boolean;
   updated_at?: string;
+  content_expectations?: ContentExpectations | null;
+}
+
+export interface ContentExpectationLine {
+  creative_type: string;
+  expected?: number | null;
+  expected_max?: number | null;
+  included?: boolean;
+  layout?: string | null;
+  skip_months?: string[] | null;
+}
+
+export interface ContentExpectations {
+  period?: 'month' | string;
+  lines: ContentExpectationLine[];
 }
 
 import type { AdAccount } from './admin';

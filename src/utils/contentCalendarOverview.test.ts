@@ -136,11 +136,21 @@ assert(apex?.readyToPost === 1, 'Apex readyToPost should be 1');
 assert(apex?.revisionCount === 1, 'Apex revisions should be 1');
 assert(apex?.overdueCount === 1, 'Apex overdue should be 1');
 assert(apex?.nextScheduledDate === '2026-10-10', 'Apex next date should be 2026-10-10');
+assert(apex?.creativeTypes.length === 3, 'Apex should have 3 canonical creative types');
+assert(
+  apex?.creativeTypes.some((ct) => ct.type === 'Static' && ct.total === 1 && ct.posted === 0),
+  'Static Image should canonicalize to Static in client creative type distribution'
+);
+assert(
+  apex?.creativeTypes.some((ct) => ct.type === 'Reel' && ct.total === 1 && ct.posted === 1),
+  'Reel should track posted count in client creative type distribution'
+);
 
 const emptyClient = matrix.find((c) => c.clientName === 'Empty Client');
 assert(emptyClient !== undefined, 'Empty client should exist');
 assert(emptyClient?.total === 0, 'Empty client total should be 0');
 assert(emptyClient?.completionRate === 0, 'Empty client completion should be 0');
+assert(emptyClient?.creativeTypes.length === 0, 'Empty client should have no creative types');
 
 // 3. Department Funnel
 const funnel = calculateDepartmentFunnel(sampleItems);

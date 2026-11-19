@@ -19,10 +19,13 @@ import { UrgentWatchlistCard } from './UrgentWatchlistCard';
 import { ClientHealthMatrix } from './ClientHealthMatrix';
 import { TeamWorkloadCard } from './TeamWorkloadCard';
 import { CustomSelect } from '../../ui/CustomSelect';
+import type { ContentExpectations } from '../../../types';
+import { calculateExpectationSummaries } from '../../../utils/contentCalendarExpectations';
+import { ClientExpectationsCards } from './ClientExpectationsCards';
 
 interface Props {
   items: ContentCalendarItem[];
-  activeClients: Array<{ id: string; name: string }>;
+  activeClients: Array<{ id: string; name: string; content_expectations?: ContentExpectations | null }>;
   isLoading: boolean;
   activeClientFilter: string;
   onSelectClientFilter: (clientName: string) => void;
@@ -110,6 +113,15 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
   );
   const urgentWatchlist = useMemo(() => calculateUrgentWatchlist(scopedItems), [scopedItems]);
   const teamWorkload = useMemo(() => calculateTeamWorkload(scopedItems), [scopedItems]);
+  const expectationSummaries = useMemo(() => {
+    const scopedClients =
+      activeClientFilter === 'all'
+        ? activeClients
+        : activeClients.filter(
+            (c) => (c.name || '').replace(/\s+/g, ' ').trim().toLowerCase() === activeClientFilter.replace(/\s+/g, ' ').trim().toLowerCase()
+          );
+    return calculateExpectationSummaries(items, scopedClients);
+  }, [items, activeClients, activeClientFilter]);
 
   const handleOpenClient = (clientName: string, viewMode: 'table' | 'pipeline') => {
     onSelectClientFilter(clientName);
@@ -196,6 +208,10 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
         </div>
       </div>
 
+      {expectationSummaries.length > 0 ? (
+        <ClientExpectationsCards summaries={expectationSummaries} isLoading={isLoading} />
+      ) : null}
+
       {items.length === 0 && !isLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center p-8 rounded-xl bg-surface border border-dashed border-border text-center my-auto min-h-[360px]">
           <div className="w-12 h-12 rounded-xl bg-accent-soft text-accent flex items-center justify-center mb-3">
@@ -226,7 +242,7 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
         </div>
       ) : (
         <>
-          {/* 2. KPI row (5 equal stat cards, no badges) */}
+          {/* 2. KPI row (6 equal stat cards) */}
           <OverviewKpiCards
             metrics={overviewMetrics}
             clientCount={clientCount}
@@ -257,7 +273,7 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
             />
           </div>
 
-          {/* 5. Clients table, full width (7 fixed columns) */}
+          {/* 5. Clients table, full width (8 fixed columns with posted & creative mix) */}
           <ClientHealthMatrix
             matrix={clientHealthMatrix}
             isLoading={isLoading}

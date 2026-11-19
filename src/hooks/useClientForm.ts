@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { Workspace } from '../types';
+import type { ContentExpectationLine, ContentExpectations, Workspace } from '../types';
 import { workspaceService, type WorkspaceCreatePayload, type WorkspaceUpdatePayload } from '../services/workspaceService';
 import { dailyLogService } from '../services/dailyLogService';
 import { clientInitials } from '../utils/clientInitials';
@@ -94,6 +94,96 @@ export interface ClientFormValues {
   billingName: string;
   billingEmail: string;
   billingPhone: string;
+  expectStatic: string;
+  expectStaticMax: string;
+  expectReels: string;
+  expectCarousel: string;
+  expectCarouselLayout: string;
+  expectAnimated: string;
+  expectAnimatedPauseThisMonth: boolean;
+  expectAnimatedSkipMonths: string[];
+  expectCover: string;
+}
+
+function lineByType(lines: ContentExpectationLine[] | undefined, type: string): ContentExpectationLine | undefined {
+  const needle = type.trim().toLowerCase();
+  return (lines || []).find((line) => (line.creative_type || '').trim().toLowerCase() === needle);
+}
+
+function countToInput(value?: number | null): string {
+  return value == null || Number.isNaN(value) ? '' : String(value);
+}
+
+function currentMonthKey(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function expectationFieldsFromWorkspace(ws?: Workspace | null) {
+  const lines = ws?.content_expectations?.lines;
+  const staticLine = lineByType(lines, 'Static');
+  const animated = lineByType(lines, 'Animated Post');
+  const skipMonths = animated?.skip_months || [];
+  const thisMonth = currentMonthKey();
+  return {
+    expectStatic: countToInput(staticLine?.expected),
+    expectStaticMax: countToInput(staticLine?.expected_max),
+    expectReels: countToInput(lineByType(lines, 'Reel')?.expected),
+    expectCarousel: countToInput(lineByType(lines, 'Carousel')?.expected),
+    expectCarouselLayout: lineByType(lines, 'Carousel')?.layout || '',
+    expectAnimated: countToInput(animated?.expected),
+    expectAnimatedPauseThisMonth: skipMonths.includes(thisMonth),
+    expectAnimatedSkipMonths: skipMonths,
+    expectCover: countToInput(lineByType(lines, 'Cover Image')?.expected),
+  };
+}
+
+function parseCountInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
+export function contentExpectationsFromForm(values: ClientFormValues): ContentExpectations | null {
+  const lines: ContentExpectationLine[] = [];
+  const staticN = parseCountInput(values.expectStatic);
+  const staticMax = parseCountInput(values.expectStaticMax);
+  if (staticN != null || staticMax != null) {
+    lines.push({
+      creative_type: 'Static',
+      expected: staticN ?? staticMax,
+      expected_max: staticMax,
+    });
+  }
+  const reelsN = parseCountInput(values.expectReels);
+  if (reelsN != null) lines.push({ creative_type: 'Reel', expected: reelsN });
+  const carouselN = parseCountInput(values.expectCarousel);
+  const layout = values.expectCarouselLayout.trim();
+  if (carouselN != null || layout) {
+    lines.push({
+      creative_type: 'Carousel',
+      expected: carouselN,
+      included: carouselN == null ? true : false,
+      layout: layout || null,
+    });
+  }
+  const animatedN = parseCountInput(values.expectAnimated);
+  const thisMonth = currentMonthKey();
+  const skipMonths = (values.expectAnimatedSkipMonths || []).filter((m) => m !== thisMonth);
+  if (values.expectAnimatedPauseThisMonth) skipMonths.push(thisMonth);
+  if (animatedN != null || skipMonths.length) {
+    lines.push({
+      creative_type: 'Animated Post',
+      expected: animatedN,
+      skip_months: skipMonths.length ? skipMonths : null,
+    });
+  }
+  const coverN = parseCountInput(values.expectCover);
+  if (coverN != null) lines.push({ creative_type: 'Cover Image', expected: coverN });
+  if (!lines.length) return null;
+  return { period: 'month', lines };
 }
 
 function valuesFromWorkspace(ws?: Workspace | null, seed?: WorkspaceFormSeed | null): ClientFormValues {
@@ -106,6 +196,7 @@ function valuesFromWorkspace(ws?: Workspace | null, seed?: WorkspaceFormSeed | n
       selectedServices: ws.services || [], proposalUrl: ws.proposal_url || '', proposalName: ws.proposal_name || '',
       proposalSize: ws.proposal_size, pocName: ws.poc_name || '', pocEmail: ws.poc_email || '', pocPhone: ws.poc_phone || '',
       billingName: ws.billing_name || '', billingEmail: ws.billing_email || '', billingPhone: ws.billing_phone || '',
+      ...expectationFieldsFromWorkspace(ws),
     };
   }
   return {
@@ -115,6 +206,8 @@ function valuesFromWorkspace(ws?: Workspace | null, seed?: WorkspaceFormSeed | n
     proposalUrl: '', proposalName: '', proposalSize: undefined,
     pocName: seed?.poc_name || '', pocEmail: seed?.poc_email || '', pocPhone: seed?.poc_phone || '',
     billingName: seed?.billing_name || '', billingEmail: seed?.billing_email || '', billingPhone: seed?.billing_phone || '',
+    expectStatic: '', expectStaticMax: '', expectReels: '', expectCarousel: '', expectCarouselLayout: '',
+    expectAnimated: '', expectAnimatedPauseThisMonth: false, expectAnimatedSkipMonths: [], expectCover: '',
   };
 }
 
@@ -135,6 +228,7 @@ export function buildWorkspacePayload(values: ClientFormValues): WorkspaceCreate
     services: values.selectedServices,
     poc_name: values.pocName.trim() || null, poc_email: values.pocEmail.trim() || null, poc_phone: values.pocPhone.trim() || null,
     billing_name: values.billingName.trim() || null, billing_email: values.billingEmail.trim() || null, billing_phone: values.billingPhone.trim() || null,
+    content_expectations: contentExpectationsFromForm(values),
   };
 }
 
