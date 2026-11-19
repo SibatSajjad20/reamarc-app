@@ -123,7 +123,8 @@ def _format_member_resp(doc: dict) -> dict:
 
     return {
         "id": doc.get("id") or str(doc.get("_id")),
-        "email": doc["email"],
+        "email": doc.get("archived_email") or doc.get("email"),
+        "archived_email": doc.get("archived_email"),
         "full_name": doc.get("full_name") or doc.get("name", "User"),
         "role": role_val,
         "phone": member_phone_from_doc(doc),
@@ -343,7 +344,8 @@ async def list_members(
                 s_lower = search.strip().lower()
                 full_name = str(merged.get("full_name") or merged.get("name") or "").lower()
                 email = str(merged.get("email") or "").lower()
-                if s_lower not in full_name and s_lower not in email:
+                archived_email = str(merged.get("archived_email") or "").lower()
+                if s_lower not in full_name and s_lower not in email and s_lower not in archived_email:
                     continue
 
             extras_count = 1 if m["user_id"] in extra_ids else 0
@@ -375,6 +377,7 @@ async def list_members(
             {"full_name": contains_ci(search)},
             {"name": contains_ci(search)},
             {"email": contains_ci(search)},
+            {"archived_email": contains_ci(search)},
         ]
 
     cursor = db.users.find(query).sort("created_at", -1)
@@ -675,23 +678,192 @@ async def create_member(
 
     from fastapi.responses import JSONResponse
     from app.core.tenant import get_global_db
+    from app.services.identity_guard import (
+        assert_super_admin_protected,
+        invalidate_global_login,
+    )
 
-    email_clean = member_in.email.lower()
+    email_clean = member_in.email.lower().strip()
+    multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    caller_cid = current_user.get("company_id")
     gdb = get_global_db()
+
     existing = None
     if gdb is not None:
         existing = await gdb.users.find_one({"email": email_clean})
     if existing is None:
         existing = await db.users.find_one({"email": email_clean})
+
+    archived_prior = None
+
     if existing:
-        if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        existing_uid = existing.get("id") or str(existing.get("_id"))
+        target_mem = None
+        is_same_company = True
+        if multi_enabled and gdb is not None:
+            target_mem = await gdb.company_memberships.find_one({
+                "user_id": existing_uid,
+                "company_id": caller_cid,
+            })
+            is_same_company = bool(target_mem or existing.get("company_id") == caller_cid)
+
+        # 3. Email belonging to another company: keep a neutral, non-revealing response, create nothing, and never let company A's HR read or change company B's user.
+        if not is_same_company:
             return JSONResponse(
                 status_code=status.HTTP_201_CREATED,
                 content={"message": "If this person can be added, they'll get an email"},
             )
-        raise HTTPException(
-            status_code=400, detail="Could not add this person with that email."
+
+        # Determine if existing member in the same company is active or deactivated
+        if target_mem is not None:
+            is_active_in_company = (target_mem.get("status") == "active") and (existing.get("is_active", True) is not False)
+            target_role = target_mem.get("role") or existing.get("role") or "team_member"
+        else:
+            is_active_in_company = existing.get("is_active", True) is not False
+            target_role = existing.get("role") or "team_member"
+
+        # 2. Same-company active email: return a clear "already a member" error.
+        if is_active_in_company:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A member with this email is already a member of your company.",
+            )
+
+        # 1. Same-company deactivated email:
+        action = (member_in.reused_email_action or "").strip().lower()
+        prev_name = existing.get("full_name") or existing.get("name") or "Previous Member"
+
+        if action not in ("archive_and_create", "create_new", "reactivate"):
+            # Do not fake success. Return a clear error the frontend can recognise and offer two choices:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "DEACTIVATED_MEMBER_EMAIL_REUSED",
+                    "message": f"This email belongs to deactivated member {prev_name}. Choose whether to add as a new person or reactivate the previous person.",
+                    "previous_user_id": existing_uid,
+                    "previous_name": prev_name,
+                    "email": email_clean,
+                    "role": target_role,
+                },
+            )
+
+        # Check privileged roles / super admin protections
+        is_target_privileged = target_role in (UserRole.ADMIN.value, "admin", UserRole.OPERATIONS.value, "operations")
+        if is_target_privileged and not is_caller_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an administrator can modify or reactivate an Admin or Operations account.",
+            )
+        assert_super_admin_protected(current_user, existing)
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        # b) Reactivate previous person: only for the same person returning; keeps their history.
+        if action == "reactivate":
+            user_set = {
+                "is_active": True,
+                "deactivated_at": None,
+                "deactivation_date": None,
+                "updated_at": now_iso,
+            }
+            if multi_enabled and gdb is not None:
+                await gdb.users.update_one(
+                    {"$or": [{"id": existing_uid}, {"_id": existing_uid}]},
+                    {"$set": user_set},
+                )
+                if target_mem:
+                    await gdb.company_memberships.update_one(
+                        {"id": target_mem["id"]},
+                        {"$set": {"status": "active", "deactivated_at": None, "deactivation_date": None, "updated_at": now_iso}},
+                    )
+                    from app.core.security import invalidate_auth_cache
+                    invalidate_auth_cache(user_id=existing_uid, membership_id=target_mem["id"])
+                else:
+                    mem_id = f"mem_{uuid.uuid4().hex[:12]}"
+                    await gdb.company_memberships.insert_one({
+                        "_id": mem_id,
+                        "id": mem_id,
+                        "user_id": existing_uid,
+                        "company_id": caller_cid,
+                        "role": target_role,
+                        "primary_department": existing.get("primary_department"),
+                        "departments": existing.get("departments") or [],
+                        "status": "active",
+                        "needs_setup": False,
+                        "token_version": 0,
+                        "granted_by": current_user["id"],
+                        "granted_at": now_iso,
+                        "created_at": now_iso,
+                        "updated_at": now_iso,
+                    })
+            else:
+                await db.users.update_one(
+                    {"$or": [{"id": existing_uid}, {"_id": existing_uid}]},
+                    {"$set": user_set},
+                )
+
+            audit_entry = {
+                "id": str(uuid.uuid4()),
+                "at": now_iso,
+                "actor_id": current_user.get("id"),
+                "actor_name": current_user.get("full_name") or current_user.get("name") or "HR/Admin",
+                "target_type": "user",
+                "target_id": existing_uid,
+                "target_name": prev_name,
+                "action": "reactivate_member",
+                "reason": f"Reactivated previous member {prev_name} ({existing_uid})",
+                "company_id": caller_cid,
+            }
+            await db.permission_audit.insert_one(audit_entry)
+            if gdb is not None and gdb is not db:
+                try:
+                    await gdb.permission_audit.insert_one(dict(audit_entry))
+                except Exception:
+                    pass
+
+            updated_user = None
+            if gdb is not None:
+                updated_user = await gdb.users.find_one({"$or": [{"id": existing_uid}, {"_id": existing_uid}]})
+            if updated_user is None:
+                updated_user = await db.users.find_one({"$or": [{"id": existing_uid}, {"_id": existing_uid}]})
+            merged_user = dict(updated_user or existing)
+            merged_user["is_active"] = True
+            merged_user["role"] = target_role
+            if caller_cid:
+                merged_user["company_id"] = caller_cid
+            return _format_member_resp(merged_user)
+
+        # a) Add as a new person (primary/default): keep the old deactivated account and all its history under the previous person's name.
+        # Release the email from it (e.g. rename its login email to hr+archived-<user_id>@domain and keep the original in archived_email).
+        orig_email = existing.get("email") or email_clean
+        if "@" in orig_email:
+            local_part, domain_part = orig_email.split("@", 1)
+            archived_email_val = f"{local_part}+archived-{existing_uid}@{domain_part}"
+        else:
+            archived_email_val = f"{orig_email}+archived-{existing_uid}@archived.local"
+
+        archive_set = {
+            "email": archived_email_val,
+            "archived_email": existing.get("archived_email") or orig_email,
+            "is_active": False,
+            "archived": True,
+            "updated_at": now_iso,
+        }
+        if gdb is not None:
+            await gdb.users.update_one(
+                {"$or": [{"id": existing_uid}, {"_id": existing_uid}]},
+                {"$set": archive_set},
+            )
+        await db.users.update_one(
+            {"$or": [{"id": existing_uid}, {"_id": existing_uid}]},
+            {"$set": archive_set},
         )
+        await invalidate_global_login(existing_uid)
+        archived_prior = {
+            "user_id": existing_uid,
+            "name": prev_name,
+            "archived_email": archived_email_val,
+        }
 
     user_id = f"usr_{uuid.uuid4().hex[:10]}"
     raw_pwd = (
@@ -730,7 +902,7 @@ async def create_member(
     user_doc = {
         "_id": user_id,
         "id": user_id,
-        "email": member_in.email.lower(),
+        "email": email_clean,
         "full_name": member_in.full_name.strip(),
         "name": member_in.full_name.strip(),
         "hashed_password": hashed_pwd,
@@ -770,13 +942,38 @@ async def create_member(
             "created_at": now_iso,
             "updated_at": now_iso,
         })
-        return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
-            content={"message": "If this person can be added, they'll get an email"},
-        )
     else:
         await db.users.insert_one(user_doc)
-        return _format_member_resp(user_doc)
+
+    if archived_prior:
+        audit_entry = {
+            "id": str(uuid.uuid4()),
+            "at": now_iso,
+            "actor_id": current_user.get("id"),
+            "actor_name": current_user.get("full_name") or current_user.get("name") or "HR/Admin",
+            "target_type": "user",
+            "target_id": user_id,
+            "target_name": member_in.full_name.strip(),
+            "action": "reused_email_archived_and_created",
+            "reason": f"Archived previous member {archived_prior['name']} ({archived_prior['user_id']}) to assign {email_clean} to new member {member_in.full_name.strip()}",
+            "details": {
+                "reused_email": email_clean,
+                "archived_user_id": archived_prior["user_id"],
+                "archived_user_name": archived_prior["name"],
+                "archived_email": archived_prior["archived_email"],
+                "new_user_id": user_id,
+                "new_user_name": member_in.full_name.strip(),
+            },
+            "company_id": current_user.get("company_id"),
+        }
+        await db.permission_audit.insert_one(audit_entry)
+        if gdb is not None and gdb is not db:
+            try:
+                await gdb.permission_audit.insert_one(dict(audit_entry))
+            except Exception:
+                pass
+
+    return _format_member_resp(user_doc)
 
 
 @router.patch("/members/{user_id}", response_model=MemberResponse)

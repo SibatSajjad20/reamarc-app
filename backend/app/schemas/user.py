@@ -65,6 +65,10 @@ class MemberCreate(BaseModel):
     send_invite_email: bool = True
     is_active: bool = True
     workspace_ids: List[str] = Field(default_factory=list, description="Active clients this login can review")
+    reused_email_action: Optional[str] = Field(
+        None,
+        description="Action to take when email was previously used by a deactivated member: 'archive_and_create' (or 'create_new') or 'reactivate'",
+    )
 
     @field_validator("phone")
     @classmethod
@@ -194,6 +198,7 @@ class MemberResponse(BaseModel):
     id: str
     full_name: str
     email: str
+    archived_email: Optional[str] = None
     role: UserRole
     phone: Optional[str] = None
     department: Optional[str] = None

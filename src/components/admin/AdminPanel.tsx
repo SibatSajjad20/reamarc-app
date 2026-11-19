@@ -157,17 +157,17 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [fetchMembers, fetchActivities, fetchAdAccounts, hasCached]);
 
   // --- Member Handlers ---
-  const handleCreateMember = async (payload: CreateMemberPayload) => {
-    try {
-      const created = await adminService.createMember(payload);
+  const handleCreateMember = async (payload: CreateMemberPayload): Promise<void> => {
+    const res = await adminService.createMember(payload);
+    if (res && 'id' in res && res.id) {
       addToast('Member Added', `${payload.full_name} was invited successfully.`, 'success');
       setIsAddModalOpen(false);
-      if (created) {
-        setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id)]);
-      }
+      const created = res as AdminMember;
+      setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id)]);
       await fetchMembers();
-    } catch (err: any) {
-      addToast('Failed to Add Member', err.message || 'Please check the details.', 'error');
+    } else if (res && 'message' in res && (res as any).message) {
+      addToast('Invitation Request', (res as any).message, 'info');
+      setIsAddModalOpen(false);
     }
   };
 

@@ -31,7 +31,7 @@ export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (payload: CreateMemberPayload) => Promise<void>;
+  onSubmit: (payload: CreateMemberPayload) => Promise<any>;
   defaultRole?: UserRole;
 }
 
@@ -71,6 +71,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
 
   const isClientForm = role === 'client' || defaultRole === 'client';
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reusedEmailConflict, setReusedEmailConflict] = useState<{
+    previous_name: string;
+    previous_user_id: string;
+    email: string;
+  } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -91,6 +96,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setCopied(false);
       setFieldErrors({});
       setServerError(null);
+      setReusedEmailConflict(null);
       setHasSubmitted(false);
     }
   }, [isOpen, defaultRole]);
@@ -156,21 +162,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     return errs;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setHasSubmitted(true);
-    setServerError(null);
-
-    const errs = validate();
-    setFieldErrors(errs);
-
-    if (Object.keys(errs).length > 0) {
-      setTimeout(() => {
-        if (formRef.current) focusFirstError(formRef.current);
-      }, 50);
-      return;
-    }
-
+  const buildPayload = (action?: 'archive_and_create' | 'reactivate'): CreateMemberPayload => {
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
 
@@ -191,30 +183,78 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       deptsList = selectedDepartments;
     }
 
+    return {
+      full_name: fullName.trim(),
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      role: isClientForm ? 'client' : role,
+      department: deptValue,
+      departments: deptsList,
+      primary_department: isClientForm ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
+      joining_date: isClientForm ? null : joiningDate.trim() || null,
+      employment_type: isClientForm ? 'contract' : employmentType,
+      probation_start_date:
+        !isClientForm && employmentType === 'probation' ? joiningDate.trim() || null : null,
+      probation_end_date:
+        !isClientForm && employmentType === 'probation' ? probationEndDate.trim() || null : null,
+      temporary_password: temporaryPassword,
+      send_invite_email: true,
+      is_active: true,
+      workspace_ids: isClientForm ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
+      reused_email_action: action,
+    };
+  };
+
+  const handleConfirmChoice = async (action: 'archive_and_create' | 'reactivate') => {
     try {
       setIsSubmitting(true);
-      await onSubmit({
-        full_name: fullName.trim(),
-        email: normalizedEmail,
-        phone: normalizedPhone,
-        role: isClientForm ? 'client' : role,
-        department: deptValue,
-        departments: deptsList,
-        primary_department: isClientForm ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
-        joining_date: isClientForm ? null : joiningDate.trim() || null,
-        employment_type: isClientForm ? 'contract' : employmentType,
-        probation_start_date:
-          !isClientForm && employmentType === 'probation' ? joiningDate.trim() || null : null,
-        probation_end_date:
-          !isClientForm && employmentType === 'probation' ? probationEndDate.trim() || null : null,
-        temporary_password: temporaryPassword,
-        send_invite_email: true,
-        is_active: true,
-        workspace_ids: isClientForm ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
-      });
+      setServerError(null);
+      await onSubmit(buildPayload(action));
+      setReusedEmailConflict(null);
       onClose();
     } catch (err: any) {
-      setServerError(err.message || 'Failed to create team member');
+      setServerError(err.message || 'Failed to process member');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setHasSubmitted(true);
+    setServerError(null);
+
+    const errs = validate();
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      await onSubmit(buildPayload());
+      setReusedEmailConflict(null);
+      onClose();
+    } catch (err: any) {
+      const detail = err.details?.detail || err.details || {};
+      const isDeactivatedReused =
+        detail.code === 'DEACTIVATED_MEMBER_EMAIL_REUSED' ||
+        (err.status === 409 && detail.code === 'DEACTIVATED_MEMBER_EMAIL_REUSED');
+
+      if (isDeactivatedReused) {
+        setReusedEmailConflict({
+          previous_name: detail.previous_name || 'Previous Member',
+          previous_user_id: detail.previous_user_id || '',
+          email: detail.email || email.trim(),
+        });
+        setServerError(null);
+      } else {
+        setServerError(err.message || 'Failed to create team member');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -234,6 +274,77 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     >
       <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
         <FormDialogBody className="space-y-4">
+          {/* Reused Email Conflict Banner */}
+          {reusedEmailConflict && (
+            <div
+              data-testid="reused-email-conflict-banner"
+              className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 space-y-3"
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="text-sm font-semibold text-fg">
+                    Email Previously Used by Deactivated Member
+                  </h4>
+                  <p className="text-xs text-muted-fg mt-1">
+                    <strong className="text-fg">{reusedEmailConflict.email}</strong> belonged to{' '}
+                    <strong className="text-fg">{reusedEmailConflict.previous_name}</strong>, who is currently deactivated.
+                    Each person must have their own account and history. Choose how to proceed:
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 gap-2 pt-1">
+                {/* Choice A: Add as a new person (Primary / Default) */}
+                <div className="p-3 rounded-md border border-accent/40 bg-surface flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-fg flex items-center gap-1.5">
+                      <span>Add as a new person</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-accent/20 text-accent-text font-medium">
+                        Recommended
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-fg">
+                      Preserves {reusedEmailConflict.previous_name}&apos;s previous account and history under an archived record. Creates a fresh account for {fullName.trim() || 'the new member'} starting with empty history.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={isSubmitting}
+                    onClick={() => handleConfirmChoice('archive_and_create')}
+                    className="shrink-0"
+                  >
+                    {isSubmitting ? 'Adding...' : 'Add as New Person'}
+                  </Button>
+                </div>
+
+                {/* Choice B: Reactivate previous person */}
+                <div className="p-3 rounded-md border border-border bg-surface/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-semibold text-fg">
+                      Reactivate previous person
+                    </div>
+                    <p className="text-[11px] text-muted-fg">
+                      Reactivates {reusedEmailConflict.previous_name}&apos;s existing account and keeps their past attendance and logs. Only use this if the same person is returning.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isSubmitting}
+                    onClick={() => handleConfirmChoice('reactivate')}
+                    className="shrink-0"
+                  >
+                    {isSubmitting ? 'Reactivating...' : 'Reactivate Person'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Row 1: Full name + Work email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -279,6 +390,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
+                  if (reusedEmailConflict) setReusedEmailConflict(null);
                   if (hasSubmitted) {
                     const norm = e.target.value.trim().toLowerCase();
                     if (norm && looksLikeEmail(norm)) {
