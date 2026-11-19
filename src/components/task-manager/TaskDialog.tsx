@@ -1015,8 +1015,12 @@ export const TaskDialog: React.FC<Props> = ({
                     disabled={viewOnly}
                     canAddWatchers={canAddWatcher(actor, task)}
                     onSubmit={async (text, opts) => {
-                      await taskService.addComment(task.id, text, opts);
-                      await loadSide(task.id);
+                      const created = await taskService.addComment(task.id, text, opts);
+                      // Show the new comment right away; refresh the rest in the background.
+                      if (created?.id && typeof created.text === 'string') {
+                        setComments((cur) => (cur.some((c) => c.id === created.id) ? cur : [...cur, created]));
+                      }
+                      void loadSide(task.id).catch(() => undefined);
                     }}
                   />
                 ) : (

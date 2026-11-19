@@ -225,6 +225,13 @@ async def lifespan(app: FastAPI):
     if run_schedulers:
         from app.services.attendance_scheduler import shutdown_attendance_scheduler
         shutdown_attendance_scheduler()
+    try:
+        from app.services.task_notifications import drain_background_notifications
+
+        # Give in-flight task pushes a few seconds to finish before Mongo closes.
+        await drain_background_notifications(timeout=5)
+    except Exception:
+        pass
     await close_mongo_connection()
 
 _docs = None if settings.IS_PRODUCTION else "/docs"

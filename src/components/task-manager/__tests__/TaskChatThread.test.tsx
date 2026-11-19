@@ -81,4 +81,21 @@ describe('TaskChatThread', () => {
     await Promise.resolve();
     expect(getComments.mock.calls.length).toBe(afterIdless);
   });
+  it('shows a sent comment immediately, before the background refresh returns', async () => {
+    let releaseRefresh: (v: unknown) => void = () => undefined;
+    getComments.mockReset();
+    getComments.mockResolvedValueOnce({ items: [], total: 0 });
+    getComments.mockImplementation(() => new Promise((resolve) => { releaseRefresh = resolve; }));
+    addComment.mockResolvedValueOnce({
+      id: 'c_new', task_id: 'tsk1', user_id: 'me', user_name: 'Me', text: 'just sent', created_at: '2026-11-19T10:00:00Z',
+    });
+    render(<TaskChatThread conversation={conv} onBack={vi.fn()} onOpenTask={vi.fn()} />);
+    await waitFor(() => expect(getComments).toHaveBeenCalledTimes(1));
+    fireEvent.change(screen.getByPlaceholderText('Reply. Type @ to mention.'), { target: { value: 'just sent' } });
+    fireEvent.click(screen.getByText('Send'));
+    await waitFor(() => expect(screen.getByText('just sent')).toBeTruthy());
+    expect(addComment).toHaveBeenCalledWith('tsk1', 'just sent', { question: false, add_watchers: undefined });
+    releaseRefresh({ items: [{ id: 'c_new', user_id: 'me', user_name: 'Me', text: 'just sent', created_at: '2026-11-19T10:00:00Z' }], total: 1 });
+    await waitFor(() => expect(screen.getAllByText('just sent')).toHaveLength(1));
+  });
 });

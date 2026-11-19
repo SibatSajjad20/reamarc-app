@@ -149,10 +149,14 @@ export const TaskChatThread: React.FC<Props> = ({ conversation, onBack, onOpenTa
                   });
                   if (ok) add_watchers = watchers;
                 }
-                await taskService.addComment(conversation.task_id, text.trim(), { question, add_watchers });
+                const created = await taskService.addComment(conversation.task_id, text.trim(), { question, add_watchers });
                 setText('');
                 setQuestion(false);
-                await loadLatest();
+                // Show the new comment right away; resync with the server in the background.
+                if (created?.id && typeof created.text === 'string') {
+                  setComments((cur) => (cur.some((c) => c.id === created.id) ? cur : [...cur, created]));
+                }
+                void loadLatest().catch(() => undefined);
                 onSent?.();
               } finally {
                 setBusy(false);

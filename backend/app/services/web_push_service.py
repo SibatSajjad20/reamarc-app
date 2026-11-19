@@ -21,6 +21,7 @@ from app.database import get_database
 logger = logging.getLogger("app.web_push")
 
 MAX_SUBSCRIPTIONS_PER_USER = 8
+WEB_PUSH_CONCURRENCY = 8
 _INDEX_READY = False
 
 # Only these push-service hosts may be contacted. Anything else is treated as SSRF.
@@ -377,9 +378,12 @@ async def send_web_push(
     multi_ids = await _multi_company_user_ids([sub.get("user_id") for sub in subs if sub.get("user_id")])
     path = notification_path(kind, data)
     company_id = str((data or {}).get("company_id") or "")[:80]
-    sent = 0
     raw_db = db.raw() if callable(getattr(db, "raw", None)) else None
-    for sub in subs:
+    # Deliver concurrently: each pywebpush call can block for up to 10s, and
+    # one slow endpoint must not delay every other subscription.
+    gate = asyncio.Semaphore(WEB_PUSH_CONCURRENCY)
+
+    async def _send(sub: dict) -> int:
         uid = sub.get("user_id")
         display_title = company_prefixed_title(
             title or fallback_title, brand, multi_company=uid in multi_ids
@@ -396,18 +400,25 @@ async def send_web_push(
             separators=(",", ":"),
         )
         try:
-            outcome = await asyncio.to_thread(_deliver_one, sub, payload)
+            async with gate:
+                outcome = await asyncio.to_thread(_deliver_one, sub, payload)
         except Exception:
             logger.warning("Web push worker failed")
-            continue
+            return 0
         if outcome == "gone":
             endpoint = sub.get("endpoint")
-            if raw_db is not None and endpoint:
-                await raw_db.web_push_subscriptions.delete_many({"endpoint": endpoint})
-            else:
-                await db.web_push_subscriptions.delete_one(
-                    {"user_id": uid, "endpoint": endpoint}
-                )
-        elif outcome == "ok":
-            sent += 1
+            try:
+                if raw_db is not None and endpoint:
+                    await raw_db.web_push_subscriptions.delete_many({"endpoint": endpoint})
+                else:
+                    await db.web_push_subscriptions.delete_one(
+                        {"user_id": uid, "endpoint": endpoint}
+                    )
+            except Exception:
+                logger.warning("Could not remove expired web push subscription")
+            return 0
+        return 1 if outcome == "ok" else 0
+
+    results = await asyncio.gather(*(_send(sub) for sub in subs))
+    sent = sum(results)
     return sent

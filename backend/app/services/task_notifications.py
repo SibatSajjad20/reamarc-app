@@ -1,6 +1,8 @@
 """Task Manager notifications: event → recipients → dispatch_to_users."""
 from __future__ import annotations
 
+import asyncio
+import copy
 import logging
 import re
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
@@ -156,6 +158,72 @@ async def dispatch_task_event(
         logger.warning("Failed to dispatch %s: %s", kind, exc)
 
 
+# Strong references so fire-and-forget sends are not garbage-collected mid-flight.
+_BACKGROUND_SENDS: Set["asyncio.Task[None]"] = set()
+
+
+def _snapshot(value: Any) -> Any:
+    if value is None:
+        return None
+    try:
+        return copy.deepcopy(value)
+    except Exception:
+        return dict(value) if isinstance(value, dict) else value
+
+
+def _on_send_done(done: "asyncio.Task[None]") -> None:
+    _BACKGROUND_SENDS.discard(done)
+    if done.cancelled():
+        return
+    err = done.exception()
+    if err is not None:
+        # dispatch_task_event already swallows push errors; this only catches bugs.
+        logger.warning("Background task notification failed: %s", type(err).__name__)
+
+
+async def schedule_task_event(
+    task: Dict[str, Any],
+    kind: str,
+    title: str,
+    body: str,
+    actor: Optional[Dict[str, Any]] = None,
+    extra: Optional[Sequence[str]] = None,
+    extra_data: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Send a task notification without holding up the HTTP response.
+
+    Expo + web push can take up to 10s per subscription, so request handlers
+    (comment, assign, complete, ...) must not await them. The tenant ContextVar
+    is copied into the new asyncio task when it is created, so company scoping
+    and recipient filtering behave exactly as they did inline.
+    """
+    coro = dispatch_task_event(
+        _snapshot(task),
+        kind,
+        title,
+        body,
+        actor=_snapshot(actor),
+        extra=list(extra) if extra is not None else None,
+        extra_data=_snapshot(extra_data),
+    )
+    try:
+        bg = asyncio.get_running_loop().create_task(coro)
+    except RuntimeError:
+        await coro
+        return
+    _BACKGROUND_SENDS.add(bg)
+    bg.add_done_callback(_on_send_done)
+
+
+async def drain_background_notifications(timeout: Optional[float] = None) -> None:
+    """Wait for queued task notifications (tests and graceful shutdown)."""
+    while _BACKGROUND_SENDS:
+        pending = list(_BACKGROUND_SENDS)
+        done, still = await asyncio.wait(pending, timeout=timeout)
+        if still:
+            return
+
+
 def _serial(task: Dict[str, Any]) -> str:
     return str(task.get("serial") or "")
 
@@ -167,7 +235,7 @@ def _title(task: Dict[str, Any]) -> str:
 async def notify_assigned(task: Dict[str, Any], actor: Optional[Dict[str, Any]] = None) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_assigned",
         f"{name} assigned you {serial}",
@@ -179,7 +247,7 @@ async def notify_assigned(task: Dict[str, Any], actor: Optional[Dict[str, Any]] 
 async def notify_delegated(task: Dict[str, Any], actor: Optional[Dict[str, Any]] = None) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_delegated",
         f"{name} delegated {serial} to {task.get('assignee_name') or 'someone'}",
@@ -196,7 +264,7 @@ async def notify_reassigned(
     serial = _serial(task)
     name = actor_name(actor)
     extra = [old_assignee_id, task.get("assignee_id")]
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_reassigned",
         f"{name} reassigned {serial} to {task.get('assignee_name') or 'someone'}",
@@ -213,7 +281,7 @@ async def notify_review_requested(
 ) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_review_requested",
         f"{name} submitted {serial} for review",
@@ -226,7 +294,7 @@ async def notify_review_requested(
 async def notify_completed(task: Dict[str, Any], actor: Optional[Dict[str, Any]] = None) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_completed",
         f"{name} approved {serial}",
@@ -243,7 +311,7 @@ async def notify_sent_back(
 ) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_sent_back",
         f"{name} sent back {serial}",
@@ -257,7 +325,7 @@ async def notify_blocked(task: Dict[str, Any], actor: Optional[Dict[str, Any]] =
     serial = _serial(task)
     verb = "blocked" if task.get("blocked") else "unblocked"
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_blocked",
         f"{name} {verb} {serial}",
@@ -270,7 +338,7 @@ async def notify_updated(task: Dict[str, Any], fields: Sequence[str], actor: Opt
     serial = _serial(task)
     label = ", ".join(fields) if fields else "fields"
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_updated",
         f"{name} updated {serial}",
@@ -283,7 +351,7 @@ async def notify_cancelled(task: Dict[str, Any], actor: Optional[Dict[str, Any]]
     serial = _serial(task)
     name = actor_name(actor)
     reason = str(task.get("cancel_reason") or "").strip()
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_cancelled",
         f"{name} cancelled {serial}",
@@ -295,7 +363,7 @@ async def notify_cancelled(task: Dict[str, Any], actor: Optional[Dict[str, Any]]
 async def notify_reopened(task: Dict[str, Any], actor: Optional[Dict[str, Any]] = None) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_reopened",
         f"{name} reopened {serial}",
@@ -314,7 +382,7 @@ async def notify_mention(
     serial = _serial(task)
     name = actor_name(actor)
     title = f"{name} asked you a question on {serial}" if question else f"{name} mentioned you on {serial}"
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_mention",
         title,
@@ -332,7 +400,7 @@ async def notify_comment(
 ) -> None:
     serial = _serial(task)
     name = actor_name(actor)
-    await dispatch_task_event(
+    await schedule_task_event(
         task,
         "task_comment",
         f"{name} on {serial}",
