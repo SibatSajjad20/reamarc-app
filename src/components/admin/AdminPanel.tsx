@@ -9,6 +9,7 @@ import { ComplianceRemindersSection } from './sections/ComplianceRemindersSectio
 import { WorkspacesSection } from './sections/WorkspacesSection';
 import { OwnerView } from '../views/OwnerView';
 import { AddMemberModal } from './AddMemberModal';
+import { isCreatedMember, notCreatedMessage } from '../../utils/memberCreateResult';
 import { EditMemberModal } from './EditMemberModal';
 import { Button } from '../ui/button';
 import type { UserRole } from '../../types/auth';
@@ -158,17 +159,37 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // --- Member Handlers ---
   const handleCreateMember = async (payload: CreateMemberPayload): Promise<void> => {
-    const res = await adminService.createMember(payload);
-    if (res && 'id' in res && res.id) {
-      addToast('Member Added', `${payload.full_name} was invited successfully.`, 'success');
-      setIsAddModalOpen(false);
-      const created = res as AdminMember;
-      setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id)]);
-      await fetchMembers();
-    } else if (res && 'message' in res && (res as any).message) {
-      addToast('Invitation Request', (res as any).message, 'info');
-      setIsAddModalOpen(false);
+    const isClient = payload.role === 'client';
+    let res: Awaited<ReturnType<typeof adminService.createMember>>;
+    try {
+      res = await adminService.createMember(payload);
+    } catch (err: any) {
+      // The reused-email choice is handled inside the modal; every other failure gets a toast too.
+      const code = err?.details?.detail?.code;
+      if (code !== 'DEACTIVATED_MEMBER_EMAIL_REUSED') {
+        addToast(
+          isClient ? 'Client account not created' : 'Member not added',
+          err?.message || 'Please check the details and try again.',
+          'error',
+        );
+      }
+      throw err;
     }
+    if (!isCreatedMember(res)) {
+      // 2xx without a created member (e.g. an email that can't be used here): never show success.
+      const message = notCreatedMessage(res);
+      addToast(isClient ? 'Client account not created' : 'Member not added', message, 'warning');
+      throw new Error(message);
+    }
+    const created = res;
+    addToast(
+      isClient ? 'Client account created' : 'Member Added',
+      `${payload.full_name} was invited successfully.`,
+      'success',
+    );
+    setIsAddModalOpen(false);
+    setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id)]);
+    await fetchMembers();
   };
 
   const handleUpdateMember = async (userId: string, payload: UpdateMemberPayload) => {
@@ -183,6 +204,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await fetchMembers();
     } catch (err: any) {
       addToast('Update Failed', err.message || 'Could not save member.', 'error');
+      // Rethrow so the open form stays open and shows the error instead of closing as if saved.
+      throw err;
     }
   };
 
@@ -302,7 +325,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {isEditModalOpen && memberToEdit && (
+      {isEditModalOpen && memberToEdit && memberToEdit.role === 'client' && (
+        // Client accounts are edited with the same client form used to add them.
+        <AddMemberModal
+          isOpen={isEditModalOpen}
+          member={memberToEdit}
+          defaultRole="client"
+          onClose={() => {
+            setIsEditModalOpen(false);
+            setMemberToEdit(null);
+          }}
+          onUpdate={handleUpdateMember}
+        />
+      )}
+
+      {isEditModalOpen && memberToEdit && memberToEdit.role !== 'client' && (
         <EditMemberModal
           isOpen={isEditModalOpen}
           member={memberToEdit}

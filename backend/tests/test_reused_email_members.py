@@ -180,7 +180,7 @@ class TestReusedEmailMembers(unittest.IsolatedAsyncioTestCase):
         self.assertIn("already", str(detail).lower())
 
     async def test_other_company_email_creates_nothing_and_leaks_nothing(self):
-        """Email belonging to another company returns neutral 201 message and creates nothing."""
+        """Email belonging to another company returns a neutral not-created response and creates nothing."""
         # Insert user in Company B
         other_u = {
             "id": "usr_other_comp",
@@ -210,10 +210,16 @@ class TestReusedEmailMembers(unittest.IsolatedAsyncioTestCase):
             "joining_date": "2026-01-01",
         }
         r = await self.client.post("/api/v1/admin/members", json=payload, headers=self._auth("hr_user"))
-        self.assertEqual(r.status_code, 201)
+        # Never a fake "201 Created": the body says plainly nothing was created,
+        # without revealing that the email belongs to another company.
+        self.assertEqual(r.status_code, 200, r.text)
         resp_data = r.json()
         self.assertNotIn("id", resp_data)
-        self.assertEqual(resp_data.get("message"), "If this person can be added, they'll get an email")
+        self.assertIs(resp_data.get("created"), False)
+        self.assertEqual(resp_data.get("code"), "MEMBER_NOT_CREATED")
+        self.assertIn("No account was created", resp_data.get("message", ""))
+        self.assertNotIn("Secret Other Member", r.text)
+        self.assertNotIn(CID_OTHER, r.text)
 
         # Verify nothing created in Company A
         mem_in_a = await self.db.company_memberships.find_one({"company_id": CID, "user_id": "usr_other_comp"})
@@ -299,7 +305,8 @@ class TestReusedEmailMembers(unittest.IsolatedAsyncioTestCase):
             "company_id": CID,
         })
 
-        # HR adds Bob using the SAME email with reused_email_action="archive_and_create"
+        # Admin adds Bob using the SAME email with reused_email_action="archive_and_create"
+        # (HR can't create HR accounts, so the HR-email story is an Admin action).
         new_pass = "BobNewPassword123!"
         payload = {
             "full_name": "Bob New HR",
@@ -310,7 +317,7 @@ class TestReusedEmailMembers(unittest.IsolatedAsyncioTestCase):
             "temporary_password": new_pass,
             "reused_email_action": "archive_and_create",
         }
-        r = await self.client.post("/api/v1/admin/members", json=payload, headers=self._auth("hr_user"))
+        r = await self.client.post("/api/v1/admin/members", json=payload, headers=self._auth("adm_user"))
         self.assertEqual(r.status_code, 201, r.text)
         created = r.json()
         new_uid = created["id"]
@@ -458,7 +465,8 @@ class TestReusedEmailMembers(unittest.IsolatedAsyncioTestCase):
             "phone": "03001234567",
             "joining_date": "2026-01-01",
         }, headers=self._auth("hr_user"))
-        self.assertEqual(r_admin.status_code, 400)
+        self.assertEqual(r_admin.status_code, 403)
+        self.assertIn("HR can only create", r_admin.text)
 
         # 2. HR cannot create operations
         r_ops = await self.client.post("/api/v1/admin/members", json={

@@ -28,6 +28,10 @@ ADMIN_EDIT_DENIED_MSG = "You cannot change another Admin's details."
 DIRECTORY_NO_ADMIN_MSG = "Admin accounts cannot be created or assigned from Team directory."
 
 PRIVILEGED_ROLES: Set[str] = {"admin", "operations"}
+# Roles an HR user may create or assign from Team directory. HR can never
+# create or promote anyone to hr, operations, or admin.
+HR_ASSIGNABLE_ROLES: Set[str] = {"team_member", "member", "team_lead", "client"}
+HR_ASSIGN_MSG = "HR can only create or assign Team Member, Team Lead, or Client accounts."
 ADMIN_ROLES: Set[str] = {"admin"}
 
 IDENTITY_USER_KEYS: Set[str] = {
@@ -359,6 +363,8 @@ async def assert_can_edit_member(
         if actor_role == "hr" and not owner:
             if new_role in PRIVILEGED_ROLES or target_role in PRIVILEGED_ROLES:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HR_ROLE_MSG)
+            if new_role not in HR_ASSIGNABLE_ROLES:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HR_ASSIGN_MSG)
         if new_role in ADMIN_ROLES and target_role not in ADMIN_ROLES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=DIRECTORY_NO_ADMIN_MSG)
 
@@ -383,3 +389,24 @@ async def remove_company_membership(user_id: str, company_id: str) -> None:
 
 def emails_allowed() -> bool:
     return bool(getattr(settings, "EMAILS_ENABLED", True))
+
+
+def assert_role_assignable_by(caller: Optional[Dict[str, Any]], role: Any) -> None:
+    """Team directory role rule for creating accounts.
+
+    - Nobody creates Admin from Team directory (400, as before).
+    - HR may only create team_member, team_lead, or client (403 otherwise).
+    - Only Admin may create Operations.
+    """
+    new_role = _norm_role(role)
+    actor_role = caller_role_in_company(caller)
+    owner = is_owner_actor(caller)
+    if actor_role == "hr" and not owner and new_role not in HR_ASSIGNABLE_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HR_ASSIGN_MSG)
+    if new_role in ADMIN_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=DIRECTORY_NO_ADMIN_MSG)
+    if new_role == "operations" and actor_role != "admin" and not owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can assign the operations role.",
+        )

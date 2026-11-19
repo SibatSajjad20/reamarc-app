@@ -14,8 +14,9 @@ import { Button, IconButton } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomSelect } from '../ui/CustomSelect';
+import { ToggleSwitch } from '../ui/ToggleSwitch';
 import type { UserRole } from '../../types/auth';
-import type { CreateMemberPayload, EmploymentType } from '../../types/admin';
+import type { AdminMember, CreateMemberPayload, EmploymentType, UpdateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { workspaceService } from '../../services/workspaceService';
 import { useAuth } from '../../context/AuthContext';
@@ -31,8 +32,52 @@ export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (payload: CreateMemberPayload) => Promise<any>;
+  onSubmit?: (payload: CreateMemberPayload) => Promise<any>;
   defaultRole?: UserRole;
+  /**
+   * Edit an existing CLIENT account with the same client form used to add one.
+   * When set (together with onUpdate) the modal pre-fills the client's values
+   * and saves through PATCH /admin/members/{id}.
+   */
+  member?: AdminMember | null;
+  onUpdate?: (userId: string, payload: UpdateMemberPayload) => Promise<void>;
+}
+
+/** Build the PATCH payload for the client edit form: only fields that changed. */
+export function buildClientUpdatePayload(
+  member: AdminMember,
+  values: {
+    fullName: string;
+    email: string;
+    workspaceId: string;
+    password: string;
+    isActive: boolean;
+    canEditIdentity: boolean;
+    loginManagedElsewhere: boolean;
+  },
+): UpdateMemberPayload {
+  const payload: UpdateMemberPayload = {};
+  const oldWorkspaces = (member.workspace_ids || []).filter(Boolean);
+  if (values.workspaceId && values.workspaceId !== oldWorkspaces[0]) {
+    // Keep any extra workspaces this login already had; replace the primary one.
+    payload.workspace_ids = [
+      values.workspaceId,
+      ...oldWorkspaces.slice(1).filter((id) => id !== values.workspaceId),
+    ];
+  }
+  if (values.canEditIdentity) {
+    const name = values.fullName.trim();
+    if (name && name !== (member.full_name || '')) payload.full_name = name;
+    const normalizedEmail = values.email.trim().toLowerCase();
+    if (normalizedEmail && normalizedEmail !== (member.email || '').toLowerCase()) {
+      payload.email = normalizedEmail;
+    }
+    if (values.password.trim()) payload.password = values.password.trim();
+  }
+  if (!values.loginManagedElsewhere && values.isActive !== (member.is_active !== false)) {
+    payload.is_active = values.isActive;
+  }
+  return payload;
 }
 
 const generateRandomPassword = () => {
@@ -48,8 +93,16 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   onClose,
   onSubmit,
   defaultRole = 'team_member',
+  member = null,
+  onUpdate,
 }) => {
   const { user } = useAuth();
+  const isEdit = Boolean(member && onUpdate);
+  const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
+  const canEditIdentity = isEdit
+    ? (member?.can_edit_identity != null ? Boolean(member.can_edit_identity) : !loginManagedElsewhere)
+    : true;
+  const [isActive, setIsActive] = useState(true);
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -69,7 +122,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
-  const isClientForm = role === 'client' || defaultRole === 'client';
+  const isClientForm = isEdit || role === 'client' || defaultRole === 'client';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reusedEmailConflict, setReusedEmailConflict] = useState<{
     previous_name: string;
@@ -78,7 +131,24 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   } | null>(null);
 
   useEffect(() => {
+    if (isOpen && isEdit && member) {
+      setFullName(member.full_name || '');
+      setEmail(member.email || '');
+      setPhone('');
+      setRole('client');
+      setSelectedWorkspaceId((member.workspace_ids || []).filter(Boolean)[0] || '');
+      setTemporaryPassword('');
+      setIsActive(member.is_active !== false);
+      setShowPassword(false);
+      setCopied(false);
+      setFieldErrors({});
+      setServerError(null);
+      setReusedEmailConflict(null);
+      setHasSubmitted(false);
+      return;
+    }
     if (isOpen) {
+      setIsActive(true);
       setFullName('');
       setEmail('');
       setPhone('');
@@ -99,7 +169,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setReusedEmailConflict(null);
       setHasSubmitted(false);
     }
-  }, [isOpen, defaultRole]);
+  }, [isOpen, defaultRole, isEdit, member]);
 
   useEffect(() => {
     if (!isOpen || !isClientForm) return;
@@ -142,7 +212,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       errs.email = 'A valid work email is required';
     }
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
-    if (phone.trim() && !normalizedPhone) {
+    if (!isClientForm && phone.trim() && !normalizedPhone) {
       errs.phone = 'Invalid phone number format';
     }
     if (isClientForm) {
@@ -186,7 +256,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     return {
       full_name: fullName.trim(),
       email: normalizedEmail,
-      phone: normalizedPhone,
+      // Client logins don't collect a phone number.
+      phone: isClientForm ? undefined : normalizedPhone,
       role: isClientForm ? 'client' : role,
       department: deptValue,
       departments: deptsList,
@@ -209,6 +280,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     try {
       setIsSubmitting(true);
       setServerError(null);
+      if (!onSubmit) return;
       await onSubmit(buildPayload(action));
       setReusedEmailConflict(null);
       onClose();
@@ -234,8 +306,31 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       return;
     }
 
+    if (isEdit && member && onUpdate) {
+      try {
+        setIsSubmitting(true);
+        const payload = buildClientUpdatePayload(member, {
+          fullName,
+          email,
+          workspaceId: selectedWorkspaceId,
+          password: temporaryPassword,
+          isActive,
+          canEditIdentity,
+          loginManagedElsewhere,
+        });
+        await onUpdate(member.id, payload);
+        onClose();
+      } catch (err: any) {
+        setServerError(err.message || 'Failed to update client account');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     try {
       setIsSubmitting(true);
+      if (!onSubmit) return;
       await onSubmit(buildPayload());
       setReusedEmailConflict(null);
       onClose();
@@ -265,9 +360,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       isOpen={isOpen}
       onClose={isSubmitting ? undefined : onClose}
       maxWidth="lg"
-      title={isClientForm ? 'Add client account' : 'Add member'}
+      title={isEdit ? 'Edit client account' : isClientForm ? 'Add client account' : 'Add member'}
       subtitle={
-        isClientForm
+        isEdit
+          ? "Update this client's portal login and the client workspace it can review."
+          : isClientForm
           ? "Create a client portal login for this workspace. They'll receive an invitation by email."
           : "They'll get a sign-in link by email. You can change their role later."
       }
@@ -357,6 +454,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 required
                 placeholder="Rida Kamal"
                 value={fullName}
+                disabled={!canEditIdentity}
                 onChange={(e) => {
                   setFullName(e.target.value);
                   if (hasSubmitted) {
@@ -388,6 +486,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 required
                 placeholder="name@company.com"
                 value={email}
+                disabled={!canEditIdentity}
                 onChange={(e) => {
                   setEmail(e.target.value);
                   if (reusedEmailConflict) setReusedEmailConflict(null);
@@ -412,39 +511,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Phone (+ Joining date for non-clients) */}
-          {isClientForm ? (
-            <div>
-              <label className="block text-ui font-medium text-fg mb-1.5">
-                Phone / WhatsApp
-              </label>
-              <input
-                type="tel"
-                name="phone"
-                placeholder="+92 300 1234567"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  if (hasSubmitted) {
-                    const norm = e.target.value.trim() ? normalizePhoneForSave(e.target.value) : undefined;
-                    if (!e.target.value.trim() || norm) {
-                      setFieldErrors((prev) => { const n = { ...prev }; delete n.phone; return n; });
-                    }
-                  }
-                }}
-                aria-invalid={!!fieldErrors.phone}
-                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.phone ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
-                }`}
-              />
-              {fieldErrors.phone && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{fieldErrors.phone}</span>
-                </div>
-              )}
-            </div>
-          ) : (
+          {/* Row 2: Phone + Joining date (non-clients only; client logins have no phone field) */}
+          {!isClientForm && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-ui font-medium text-fg mb-1.5">
@@ -713,13 +781,37 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               </div>
             )}
 
+            {isEdit && !loginManagedElsewhere && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Account status
+                </label>
+                <div className="flex items-center gap-2.5 h-8">
+                  <ToggleSwitch
+                    checked={isActive}
+                    onChange={setIsActive}
+                    label={isActive ? 'Active' : 'Deactivated'}
+                  />
+                </div>
+              </div>
+            )}
+
+            {canEditIdentity && (
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Initial password
+                {isEdit ? (
+                  <>
+                    Reset password <span className="text-fg-muted font-normal">(leave blank to keep current)</span>
+                  </>
+                ) : (
+                  'Initial password'
+                )}
               </label>
               <div className="relative flex items-center">
                 <input
                   type={showPassword ? 'text' : 'password'}
+                  name="password"
+                  placeholder={isEdit ? 'Enter new password or click generate' : undefined}
                   value={temporaryPassword}
                   onChange={(e) => setTemporaryPassword(e.target.value)}
                   className="w-full h-9 pl-3 pr-20 text-xs font-mono bg-surface border border-border rounded-md text-fg focus:outline-none focus:border-accent"
@@ -752,6 +844,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 </div>
               </div>
             </div>
+            )}
           </div>
         </FormDialogBody>
 
@@ -771,7 +864,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             loading={isSubmitting}
             disabled={isSubmitting}
           >
-            {isClientForm ? 'Add client account' : 'Add member'}
+            {isEdit ? 'Save changes' : isClientForm ? 'Add client account' : 'Add member'}
           </Button>
         </FormFooter>
       </form>

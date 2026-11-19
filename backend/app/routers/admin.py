@@ -664,23 +664,25 @@ async def create_member(
 
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 
-    # Prevent creating additional Super Admin accounts
-    if member_in.role in (UserRole.ADMIN, "admin"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Admin accounts cannot be created or assigned from Team directory.",
-        )
-    if member_in.role in (UserRole.OPERATIONS, "operations") and not is_caller_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only an administrator can assign the operations role.",
-        )
-
     from fastapi.responses import JSONResponse
     from app.core.tenant import get_global_db
     from app.services.identity_guard import (
+        assert_role_assignable_by,
         assert_super_admin_protected,
         invalidate_global_login,
+    )
+
+    # Team directory role rules: never Admin; Operations is Admin-only;
+    # HR may only create Team Member, Team Lead, or Client accounts.
+    assert_role_assignable_by(current_user, member_in.role)
+
+    # Validate the client's workspace link up front so a bad link can never
+    # leave a half-finished request (e.g. an archived previous account and no new one).
+    # Several client logins may share one client workspace (e.g. two people at the client).
+    workspace_ids = (
+        await _client_workspace_ids(db, member_in.workspace_ids)
+        if member_in.role == UserRole.CLIENT
+        else []
     )
 
     email_clean = member_in.email.lower().strip()
@@ -705,13 +707,22 @@ async def create_member(
                 "user_id": existing_uid,
                 "company_id": caller_cid,
             })
-            is_same_company = bool(target_mem or existing.get("company_id") == caller_cid)
+            existing_cid = existing.get("company_id")
+            # Legacy Reamarc docs predate company_id (see tenant._company_id_clause).
+            if not existing_cid and caller_cid == "company_reamarc":
+                existing_cid = "company_reamarc"
+            is_same_company = bool(target_mem or existing_cid == caller_cid)
 
         # 3. Email belonging to another company: keep a neutral, non-revealing response, create nothing, and never let company A's HR read or change company B's user.
+        # The response says plainly that nothing was created ("created": false) so the UI never shows success.
         if not is_same_company:
             return JSONResponse(
-                status_code=status.HTTP_201_CREATED,
-                content={"message": "If this person can be added, they'll get an email"},
+                status_code=status.HTTP_200_OK,
+                content={
+                    "created": False,
+                    "code": "MEMBER_NOT_CREATED",
+                    "message": "No account was created. This email can't be used here. Use a different email address.",
+                },
             )
 
         # Determine if existing member in the same company is active or deactivated
@@ -753,6 +764,16 @@ async def create_member(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only an administrator can modify or reactivate an Admin or Operations account.",
+            )
+        # HR can't bring back (or archive) an HR account either: reactivating it would grant the HR role.
+        if (
+            str(target_role).lower() in (UserRole.HR.value, "hr")
+            and not is_caller_admin
+            and not current_user.get("is_super_admin")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an administrator can reuse or reactivate an HR account's email.",
             )
         assert_super_admin_protected(current_user, existing)
 
@@ -898,7 +919,6 @@ async def create_member(
         primary_val = packed["primary_department"]
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    workspace_ids = await _client_workspace_ids(db, member_in.workspace_ids) if member_in.role == UserRole.CLIENT else []
     user_doc = {
         "_id": user_id,
         "id": user_id,

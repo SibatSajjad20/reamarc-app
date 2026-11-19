@@ -153,7 +153,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       errs.email = 'A valid work email is required';
     }
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
-    if (phone.trim() && !normalizedPhone) {
+    if (role !== 'client' && phone.trim() && !normalizedPhone) {
       errs.phone = 'Invalid phone number format';
     }
     if (role === 'client' && !selectedWorkspaceId) {
@@ -257,7 +257,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             : {}),
           workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
           full_name: fullName.trim(),
-          phone: normalizedPhone,
+          // Client logins don't collect a phone; leave any stored phone untouched.
+          phone: role === 'client' ? undefined : normalizedPhone,
         };
         if (finishingSetup || (canEditRole && role !== member.role && role !== 'admin' && member.role !== 'admin')) {
           payload.role = role;
@@ -385,6 +386,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
           {/* Row 2: Phone + Joining date */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Client logins have no phone field. */}
+            {role !== 'client' && (
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
                 Phone / WhatsApp
@@ -423,6 +426,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 </>
               )}
             </div>
+            )}
 
             {role !== 'client' && (
               <div>
