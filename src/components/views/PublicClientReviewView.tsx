@@ -557,17 +557,18 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <BrandMark size={28} initial={((item as any)?.company_name || 'C').charAt(0)} />
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="text-sm font-semibold text-fg tracking-tight shrink-0">
+            {/* Phones: the brand mark stands in for the agency name so the client name fits. */}
+            <span className="hidden sm:inline text-sm font-semibold text-fg tracking-tight shrink-0">
               {(item as any)?.company_name || (item as any)?.company?.name || 'Client Portal'}
             </span>
-            <span className="text-fg-faint shrink-0">•</span>
+            <span className="hidden sm:inline text-fg-faint shrink-0">•</span>
             <ClientAvatar
               name={item.client_name || 'Client'}
               logoUrl={item.client_logo_url}
               size={32}
               decorative
             />
-            <span className="text-xs text-fg-muted truncate">
+            <span className="text-sm sm:text-xs font-medium sm:font-normal text-fg sm:text-fg-muted truncate">
               {item.client_name || 'Client review'}
             </span>
           </div>

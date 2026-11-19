@@ -230,6 +230,12 @@ function AppInner() {
     const t = window.setTimeout(() => prefetchPrimaryViews(views), 400);
     return () => window.clearTimeout(t);
   }, [user, isAuthLoading, prefetchKey]);
+  // Touch sizing (44px targets on coarse pointers, see index.css) for the screens
+  // clients use: the sign-in screen and the client portal. Staff screens keep their density.
+  const touchUi = !user || isClient;
+  useEffect(() => {
+    document.documentElement.classList.toggle('touch-ui', touchUi);
+  }, [touchUi]);
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

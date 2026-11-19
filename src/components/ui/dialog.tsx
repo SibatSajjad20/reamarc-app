@@ -28,12 +28,14 @@ export interface DialogContentProps
   extends React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> {
   maxWidth?: 'sm' | 'md' | 'lg' | 'xl' | '2xl';
   showClose?: boolean;
+  /** Below md: a full-height sheet (safe-area aware) instead of a floating card. */
+  fullScreenOnMobile?: boolean;
 }
 
 export const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(({ className, children, maxWidth = 'md', showClose = true, ...props }, ref) => {
+>(({ className, children, maxWidth = 'md', showClose = true, fullScreenOnMobile = false, ...props }, ref) => {
   const maxWidthMap = {
     sm: 'max-w-[400px]',
     md: 'max-w-[560px]',
@@ -46,12 +48,20 @@ export const DialogContent = React.forwardRef<
     <DialogPortal>
       <DialogOverlay />
       <div className="fixed inset-0 z-[var(--z-dialog)] overflow-y-auto pointer-events-none">
-        <div className="flex min-h-full items-center justify-center p-8">
+        <div
+          className={cn(
+            'flex min-h-full items-center justify-center',
+            fullScreenOnMobile ? 'p-0 md:p-8' : 'p-3 sm:p-8'
+          )}
+        >
           <DialogPrimitive.Content
             ref={ref}
             className={cn(
               'pointer-events-auto relative w-full',
-              'max-h-[calc(100vh-64px)] flex flex-col rounded-lg border border-border bg-surface shadow-lg text-fg outline-none',
+              'flex flex-col border border-border bg-surface shadow-lg text-fg outline-none',
+              fullScreenOnMobile
+                ? 'h-[100dvh] max-h-[100dvh] rounded-none border-0 pt-[env(safe-area-inset-top)] md:h-auto md:max-h-[calc(100vh-64px)] md:rounded-lg md:border md:pt-0'
+                : 'max-h-[calc(100dvh-24px)] sm:max-h-[calc(100vh-64px)] rounded-lg',
               'duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out',
               'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
               maxWidthMap[maxWidth],
@@ -61,7 +71,12 @@ export const DialogContent = React.forwardRef<
           >
             {children}
             {showClose && (
-              <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm p-1 text-fg-muted hover:text-fg hover:bg-hover transition-colors outline-none focus-visible:shadow-[0_0_0_3px_var(--ring)] cursor-pointer">
+              <DialogPrimitive.Close
+                className={cn(
+                  'absolute right-1.5 md:right-4 rounded-sm p-3 md:p-1 text-fg-muted hover:text-fg hover:bg-hover transition-colors outline-none focus-visible:shadow-[0_0_0_3px_var(--ring)] cursor-pointer',
+                  fullScreenOnMobile ? 'top-[calc(0.5rem+env(safe-area-inset-top))] md:top-4' : 'top-2 md:top-4'
+                )}
+              >
                 <X className="h-4 w-4" />
                 <span className="sr-only">Close</span>
               </DialogPrimitive.Close>

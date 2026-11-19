@@ -595,3 +595,30 @@ body.dark .time-input {
   height: 1.75rem;
   margin-left: 4px;
 }
+
+/* ─── Touch devices ───
+   Unlayered so it wins over Tailwind utilities (which live in @layer). */
+@media (pointer: coarse) {
+  /* iOS Safari zooms into any field under 16px on focus; keep fields at 16px on touch screens. */
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']),
+  select,
+  textarea {
+    font-size: max(16px, 1em);
+  }
+
+  /* Client-facing screens (html.touch-ui): 44px minimum tap targets (Apple HIG / WCAG 2.5.5). */
+  html.touch-ui :is(button, [role='button'], [role='tab'], [role='combobox']):not(
+      [role='checkbox'],
+      [role='switch'],
+      [role='radio'],
+      [data-tap-exempt],
+      [data-tap-exempt] *
+    ) {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  html.touch-ui :is(input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='hidden']), select) {
+    min-height: 44px;
+  }
+}
+

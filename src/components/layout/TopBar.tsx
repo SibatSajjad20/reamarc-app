@@ -259,7 +259,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   const trail = customTrail || getDefaultTrail();
 
   return (
-    <header className="h-14 shrink-0 bg-surface border-b border-border flex items-center px-6 xl:px-8 gap-2 sticky top-0 z-20 select-none">
+    <header className="h-[calc(3.5rem+env(safe-area-inset-top))] pt-[env(safe-area-inset-top)] shrink-0 bg-surface border-b border-border flex items-center pl-[max(0.5rem,env(safe-area-inset-left))] pr-[max(0.5rem,env(safe-area-inset-right))] sm:px-6 xl:px-8 gap-1 sm:gap-2 sticky top-0 z-20 select-none">
       {/* Mobile Drawer Trigger (<1024px) (§6.4) */}
       <button
         type="button"
@@ -271,7 +271,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </button>
 
       {/* Left: Breadcrumbs (§9.1) */}
-      <nav aria-label="Breadcrumbs" className="flex items-center gap-1.5 text-[13px] text-fg-muted overflow-hidden">
+      <nav aria-label="Breadcrumbs" className="flex min-w-0 items-center gap-1.5 text-[13px] text-fg-muted overflow-hidden">
         {trail.map((item, index) => {
           const isLast = index === trail.length - 1;
 
@@ -299,7 +299,7 @@ export const TopBar: React.FC<TopBarProps> = ({
       </nav>
 
       {/* Right: Search, Help, Bell */}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-2">
         {/* Search trigger (320px on desktop; icon button on mobile) (§9.1) */}
         <button
           type="button"

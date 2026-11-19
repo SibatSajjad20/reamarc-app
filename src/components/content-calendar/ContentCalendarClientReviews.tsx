@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Check,
   RotateCcw,
@@ -144,6 +144,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [dialogNote, setDialogNote] = useState('');
   const [isRevisionMode, setIsRevisionMode] = useState(false);
+  const revisionFieldRef = useRef<HTMLTextAreaElement>(null);
 
   // Fallback drawer
   const [drawerItem, setDrawerItem] = useState<ContentCalendarItem | null>(null);
@@ -346,6 +347,18 @@ export const ContentCalendarClientReviews: React.FC = () => {
     }
   };
 
+  // Revision mode: bring the feedback box into view and focus it (on phones it sits below the creative).
+  useEffect(() => {
+    if (!isDetailOpen || !isRevisionMode) return;
+    const t = window.setTimeout(() => {
+      const el = revisionFieldRef.current;
+      if (!el) return;
+      el.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      el.focus({ preventScroll: true });
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [isDetailOpen, isRevisionMode]);
+
   const openDetail = (item: ContentCalendarItem, revision = false) => {
     setDetailItem(item);
     setIsRevisionMode(revision);
@@ -357,11 +370,11 @@ export const ContentCalendarClientReviews: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-canvas">
       {/* Page Header */}
-      <div className="px-6 py-4 border-b border-border bg-surface shrink-0">
+      <div className="px-4 md:px-6 py-3 md:py-4 border-b border-border bg-surface shrink-0">
         <PageHeader
           className="mb-0"
           title="Content approvals"
-          description="Review posts from Reamarc before they go live."
+          description={<span className="hidden sm:inline">Review posts from Reamarc before they go live.</span>}
           actions={
             <div className="flex items-center gap-2">
               <Button
@@ -389,7 +402,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
       {/* Main View Area */}
       <main className={cn('flex-1 min-h-0 flex flex-col', viewMode === 'approvals' ? 'overflow-y-auto' : 'overflow-hidden')}>
         {error && (
-          <div className="px-6 pt-4">
+          <div className="px-4 md:px-6 pt-4">
             <div className="p-3.5 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs flex items-center gap-2">
               <span>{error}</span>
             </div>
@@ -397,7 +410,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
         )}
 
         {viewMode === 'approvals' ? (
-          <div className="w-full px-6 py-6 space-y-6">
+          <div className="w-full px-4 md:px-6 py-4 md:py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-5 md:space-y-6">
             {/* Filter Bar with Tabs and Search */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-3 pb-2 border-b border-border">
               <Tabs
@@ -529,7 +542,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                                 <Play className="w-5 h-5 fill-white ml-0.5" />
                               </div>
                             </div>
-                            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-medium">
+                            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-xs font-medium">
                               <Film className="w-3 h-3" />
                               Video
                             </span>
@@ -562,7 +575,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                           </div>
                         )}
                         {extraAssets > 0 && (
-                          <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-medium">
+                          <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-xs font-medium">
                             +{extraAssets} more
                           </span>
                         )}
@@ -571,7 +584,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                         </span>
                       </div>
 
-                      <div className="p-5 flex-1 flex flex-col justify-between space-y-3 min-w-0">
+                      <div className="p-4 md:p-5 flex-1 flex flex-col justify-between space-y-3 min-w-0">
                         <div>
                           {/* Top Meta Line: Serial + Stage Status */}
                           <div className="flex items-center justify-between gap-2">
@@ -692,7 +705,44 @@ export const ContentCalendarClientReviews: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="rounded-lg border border-border bg-surface overflow-hidden shadow-xs">
+                {/* Phones: one tappable row per item (the 5-column table does not fit). */}
+                <ul data-testid="recently-reviewed-list" className="sm:hidden rounded-lg border border-border bg-surface divide-y divide-border overflow-hidden shadow-xs">
+                  {recentlyReviewed.map((item) => {
+                    const isApproved = [
+                      'Creative Production',
+                      'Creative Internal Review',
+                      'Ready to Post',
+                      'Posted',
+                    ].includes(item.stage);
+                    return (
+                      <li key={item.id}>
+                        <button
+                          type="button"
+                          onClick={() => openDetail(item)}
+                          className="w-full text-left px-4 py-3 flex flex-col gap-1.5 active:bg-subtle cursor-pointer"
+                        >
+                          <span className="flex items-center justify-between gap-2 text-xs text-fg-muted font-numeric">
+                            <span className="font-medium">{item.serial}</span>
+                            <span>{item.publish_date || '—'}</span>
+                          </span>
+                          <span className="text-sm font-medium text-fg line-clamp-2">
+                            {item.content_concept || item.headlines_hooks || item.serial}
+                          </span>
+                          <span className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">
+                            <StatusPill
+                              variant={isApproved ? 'success' : 'warning'}
+                              dot
+                              label={isApproved ? 'Approved' : 'Revision requested'}
+                            />
+                            <span className="truncate">{item.stage}</span>
+                          </span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+
+                <div className="hidden sm:block rounded-lg border border-border bg-surface overflow-x-auto shadow-xs">
                   <table className="w-full text-left border-collapse text-xs">
                     <thead>
                       <tr className="border-b border-border bg-subtle text-fg-muted font-medium">
@@ -749,9 +799,11 @@ export const ContentCalendarClientReviews: React.FC = () => {
         ) : (
           /* Full Production Pipeline View */
           <div className="flex-1 min-h-0 h-full flex flex-col min-w-0">
-            <div className="px-6 py-2 bg-subtle border-b border-border text-xs text-fg-muted flex items-center justify-between shrink-0">
+            <div className="px-4 md:px-6 py-2 bg-subtle border-b border-border text-xs text-fg-muted flex items-center justify-between shrink-0">
               <span>
-                Viewing full campaign production pipeline across all {PIPELINE_STAGES.length} stages. Click any card to inspect specs.
+                Viewing full campaign production pipeline across all {PIPELINE_STAGES.length} stages.{' '}
+                <span className="hidden md:inline">Click</span>
+                <span className="md:hidden">Tap</span> any card to inspect specs.
               </span>
             </div>
 
@@ -776,10 +828,20 @@ export const ContentCalendarClientReviews: React.FC = () => {
 
       {/* Detail Review Dialog (880px / maxWidth="xl" per §13.17) */}
       <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
-        <DialogContent maxWidth="xl" className="p-0 overflow-hidden">
+        <DialogContent
+          maxWidth="xl"
+          fullScreenOnMobile
+          className="p-0 overflow-hidden"
+          // Focus the dialog itself, not its first field: on phones a focused textarea opens the keyboard
+          // over the creative. Revision mode focuses the feedback box on purpose (effect above).
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            (e.currentTarget as HTMLElement | null)?.focus({ preventScroll: true });
+          }}
+        >
           {detailItem && (
-            <div>
-              <DialogHeader className="p-5 border-b border-border">
+            <div className="flex flex-col flex-1 min-h-0" data-testid="client-review-detail">
+              <DialogHeader className="p-4 md:p-5 border-b border-border shrink-0">
                 <div className="flex items-center justify-between gap-3 pr-6">
                   <div>
                     <div className="flex items-center gap-2">
@@ -804,7 +866,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
               </DialogHeader>
 
               {/* Two-Column Detail Body */}
-              <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 max-h-[calc(80vh-140px)] overflow-y-auto">
+              <div className="flex-1 min-h-0 p-4 md:p-6 grid grid-cols-1 md:grid-cols-12 gap-5 md:gap-6 md:max-h-[calc(80vh-140px)] overflow-y-auto overscroll-contain">
                 {/* Left Column: Media Deliverables Preview */}
                 <div className="md:col-span-6 space-y-4">
                   <div className="space-y-2">
@@ -936,6 +998,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                       </div>
                     )}
                     <Textarea
+                      ref={revisionFieldRef}
                       id="dialog-revision-feedback"
                       rows={3}
                       value={dialogNote}
@@ -947,7 +1010,10 @@ export const ContentCalendarClientReviews: React.FC = () => {
               </div>
 
               {/* Dialog Footer Actions */}
-              <div className="px-6 py-4 border-t border-border bg-subtle/50 flex items-center justify-between gap-3">
+              <div
+                data-testid="client-review-actions"
+                className="shrink-0 px-4 md:px-6 pt-3 md:py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border bg-surface md:bg-subtle/50 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3"
+              >
                 <Button
                   variant="ghost"
                   size="sm"
@@ -960,7 +1026,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                   Inspect all specs
                 </Button>
 
-                <div className="flex items-center gap-2">
+                <div className="grid grid-cols-2 sm:flex sm:items-center gap-2">
                   <Button
                     variant="secondary"
                     size="sm"
