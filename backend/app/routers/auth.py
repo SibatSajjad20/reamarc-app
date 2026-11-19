@@ -76,6 +76,10 @@ def _cookie_domain_for_request(request: Optional[Request] = None) -> str:
     return ""
 
 
+AUTH_HINT_COOKIE = "wl_auth_hint"
+AUTH_HINT_SIGNED_OUT_MAX_AGE = 30 * 86400
+
+
 def _set_auth_cookies(
     response: Response,
     access_token: str,
@@ -106,11 +110,21 @@ def _set_auth_cookies(
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         **cookie_opts,
     )
+    # Non-secret hint the web app can read (see src/utils/authHint.ts). It grants
+    # nothing; it only tells the app a session probably exists.
+    hint_opts = dict(cookie_opts, httponly=False)
+    response.set_cookie(
+        key=AUTH_HINT_COOKIE,
+        value="1",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        **hint_opts,
+    )
     # Drop any leftover host-only copies so the browser keeps one Domain cookie.
     if cookie_domain:
         host_only = {k: v for k, v in cookie_opts.items() if k != "domain"}
         response.delete_cookie("access_token", path="/", **host_only)
         response.delete_cookie("refresh_token", path="/", **host_only)
+        response.delete_cookie(AUTH_HINT_COOKIE, path="/", **dict(host_only, httponly=False))
 
 
 def _clear_auth_cookies(response: Response, request: Optional[Request] = None) -> None:
@@ -147,6 +161,22 @@ def _clear_auth_cookies(response: Response, request: Optional[Request] = None) -
         alt["samesite"] = "none" if opts["samesite"] == "lax" else "lax"
         response.delete_cookie("access_token", **alt)
         response.delete_cookie("refresh_token", **alt)
+        response.delete_cookie(AUTH_HINT_COOKIE, **dict(opts, httponly=False))
+
+    # "Signed out" hint on the same domain login used: the next visit can skip the
+    # /auth/refresh retry, which would fail anyway (the refresh session is revoked).
+    primary = domain_for_req or explicit or None
+    use_lax = bool(primary) or not is_prod
+    signed_out = dict(
+        path="/",
+        httponly=False,
+        samesite="lax" if use_lax else "none",
+        secure=True if is_prod else settings.COOKIE_SECURE,
+        max_age=AUTH_HINT_SIGNED_OUT_MAX_AGE,
+    )
+    if primary:
+        signed_out["domain"] = primary
+    response.set_cookie(key=AUTH_HINT_COOKIE, value="0", **signed_out)
 
 
 def _issue_token_pair(claims: dict, session_id: str) -> tuple[str, str]:

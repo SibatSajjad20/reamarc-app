@@ -16,8 +16,14 @@ export const authService = {
     return apiClient.post<AuthResponse>('/auth/login', payload);
   },
 
-  async getMe(): Promise<AuthUser> {
-    return apiClient.get<AuthUser>('/auth/me');
+  /**
+   * skipRefresh: on a 401, do not try /auth/refresh + /auth/me again. Only used at
+   * startup after an explicit sign-out in this browser, where the refresh cookie
+   * was already revoked and cleared, so the retry could only fail (two wasted
+   * round trips before the login screen on a slow phone).
+   */
+  async getMe(opts?: { skipRefresh?: boolean }): Promise<AuthUser> {
+    return apiClient.get<AuthUser>('/auth/me', opts?.skipRefresh ? { _retried: true } : undefined);
   },
 
   async updateProfile(payload: {

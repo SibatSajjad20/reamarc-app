@@ -4,6 +4,7 @@ import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 import { clearAllAppCaches } from '../utils/cacheBus';
+import { readAuthHint } from '../utils/authHint';
 import {
   companySwitchNavigationUrl,
   isWorklaneHost,
@@ -179,7 +180,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       for (let attempt = 0; ; attempt += 1) {
         try {
-          const currentUser = await authService.getMe();
+          // Signed out explicitly last time: the refresh cookie is gone, skip the retry.
+          const currentUser = await authService.getMe({ skipRefresh: attempt === 0 && readAuthHint() === 'signed-out' });
           const normalized = currentUser?.impersonating
             ? { ...currentUser, impersonating: false, read_only: false }
             : currentUser;

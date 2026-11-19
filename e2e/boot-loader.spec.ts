@@ -218,3 +218,36 @@ test('module navigation never blanks the document or sidebar', async ({ page }) 
     expect(sample.blankDocument).toBe(false);
   }
 });
+
+test('signed out on a slow phone: the loader stays up until the login screen is on screen (no blank frame)', async ({ page }) => {
+  await blockOutbound(page);
+  await page.route('**/api/v1/auth/me', (route) =>
+    route.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"Not authenticated"}' }),
+  );
+  await page.route('**/api/v1/auth/refresh', (route) =>
+    route.fulfill({ status: 401, contentType: 'application/json', body: '{"detail":"Refresh token missing."}' }),
+  );
+  // The login chunk arrives 1.5s after the session check fails (slow mobile network).
+  await page.route('**/assets/AuthScreen-*.js', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    await route.continue();
+  });
+  await page.addInitScript(() => {
+    const store = window as unknown as { __blankFrames?: number };
+    store.__blankFrames = 0;
+    const sample = () => {
+      const el = document.getElementById('boot-splash');
+      const splashUp = el && !el.classList.contains('boot-splash-hide');
+      const root = document.getElementById('root');
+      const hasContent = Boolean(root && (root.innerText || '').trim()) || Boolean(document.querySelector('[data-testid=fullscreen-loader]'));
+      if (!splashUp && !hasContent && document.readyState !== 'loading') store.__blankFrames = (store.__blankFrames || 0) + 1;
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+  await page.goto('/login');
+  await expect(page.locator('input[type="password"]')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('#boot-splash')).toHaveCount(0, { timeout: 5_000 });
+  const blankFrames = await page.evaluate(() => (window as unknown as { __blankFrames?: number }).__blankFrames || 0);
+  expect(blankFrames).toBe(0);
+});

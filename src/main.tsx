@@ -10,6 +10,8 @@ import { LucideProvider } from 'lucide-react'
 import { TooltipProvider } from './components/ui/tooltip'
 import { ConfirmProvider } from './components/ui/ConfirmProvider'
 import { PrimitivesGallery } from './components/ui/PrimitivesGallery'
+import { loadAuthScreen } from './routes/lazyViews'
+import { readAuthHint } from './utils/authHint'
 
 resetStaleClientStorage();
 
@@ -49,7 +51,22 @@ function mount() {
   );
 }
 
-// Unknown company subdomains (hello.oneworklane.com) → apex. Fail-open on API errors.
-void redirectUnknownWorklaneSubdomain().then((redirected) => {
-  if (!redirected) mount();
-});
+// Start the login screen download now, in parallel with the session check, unless
+// this browser was signed in last time (then it is not needed). Public share pages
+// never show it.
+function shouldPreloadAuthScreen(): boolean {
+  if (typeof window === 'undefined' || isGallery) return false;
+  const path = window.location.pathname.toLowerCase();
+  if (/^\/(book|schedule|review|client-review|invoice\/)/.test(path)) return false;
+  return readAuthHint() !== 'signed-in';
+}
+if (shouldPreloadAuthScreen()) {
+  void loadAuthScreen().catch(() => {
+    // Ignore: React.lazy requests it again when the login screen is rendered.
+  });
+}
+
+mount();
+// Unknown company subdomains (hello.oneworklane.com) → apex. Runs in parallel with
+// startup (it used to block the first render by one round trip). Fail-open on API errors.
+void redirectUnknownWorklaneSubdomain();

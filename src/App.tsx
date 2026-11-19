@@ -24,6 +24,7 @@ import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { DashboardSkeleton } from './components/ui/Skeletons';
 import { removeBootSplash } from './utils/bootSplash';
+import { BootFallback, RemoveBootSplashOnMount } from './components/ui/BootSplashGate';
 import {
   DashboardView,
   AttendanceView,
@@ -78,8 +79,12 @@ function AppInner() {
     return () => window.removeEventListener('reamarc-module-disabled', onModuleDisabled);
   }, [addToast]);
   const moduleClicksBlocked = useModuleLoadBlocked();
-  // Splash never waits on dashboard/attendance data. Remove as soon as auth
-  // (or a public route) is ready, and force-remove at most 1.5s after auth.
+  // Splash never waits on dashboard/attendance data. Signed in: remove as soon as
+  // auth is ready (the shell paints its own skeletons). Login and public pages are
+  // lazy chunks: they remove the splash themselves when they mount
+  // (RemoveBootSplashOnMount), so a slow phone never sees a blank page while the
+  // chunk downloads. The caps only matter if a chunk never arrives.
+  const hasUser = Boolean(user);
   useEffect(() => {
     const path = (typeof window !== 'undefined' ? window.location.pathname : '').toLowerCase();
     const isPublic =
@@ -88,15 +93,15 @@ function AppInner() {
       path.startsWith('/review') ||
       path.startsWith('/client-review') ||
       path.startsWith('/invoice/');
-    if (isPublic) {
-      removeBootSplash();
-      return;
+    if (isPublic || (!isAuthLoading && !hasUser)) {
+      const cap = window.setTimeout(() => removeBootSplash(), 15_000);
+      return () => window.clearTimeout(cap);
     }
     if (isAuthLoading) return;
     removeBootSplash();
     const cap = window.setTimeout(() => removeBootSplash(), 1500);
     return () => window.clearTimeout(cap);
-  }, [isAuthLoading]);
+  }, [isAuthLoading, hasUser]);
 
   useEffect(() => {
     if (!user || isAuthLoading) return;
@@ -853,8 +858,9 @@ function AppInner() {
 
   if (isPublicBooking) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<BootFallback />}>
         <PublicSchedulerView theme={theme} />
+        <RemoveBootSplashOnMount />
       </Suspense>
     );
   }
@@ -865,8 +871,9 @@ function AppInner() {
 
   if (isPublicReview) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<BootFallback />}>
         <PublicClientReviewView theme={theme} />
+        <RemoveBootSplashOnMount />
       </Suspense>
     );
   }
@@ -874,8 +881,9 @@ function AppInner() {
   const isPublicInvoice = currentPathLower.startsWith('/invoice/');
   if (isPublicInvoice) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<BootFallback />}>
         <PublicInvoiceView />
+        <RemoveBootSplashOnMount />
       </Suspense>
     );
   }
@@ -897,8 +905,9 @@ function AppInner() {
 
   if (!user) {
     return (
-      <Suspense fallback={null}>
+      <Suspense fallback={<BootFallback />}>
         <AuthScreen />
+        <RemoveBootSplashOnMount />
       </Suspense>
     );
   }
