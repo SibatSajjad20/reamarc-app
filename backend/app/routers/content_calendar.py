@@ -331,6 +331,61 @@ async def restore_content_import(
     return await content_import.restore_import(db, job_id=job_id, viewer=current_user)
 
 
+@router.get("/report")
+@limiter.limit("30/minute")
+async def get_content_calendar_report(
+    request: Request,
+    response: Response,
+    workspace_id: str = Query(..., min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]{1,64}$"),
+    month: str = Query(..., min_length=7, max_length=7, pattern=r"^\d{4}-(0[1-9]|1[0-2])$", description="YYYY-MM"),
+    audience: str = Query("client", pattern=r"^(client|internal)$"),
+    current_user: dict = Depends(require_content_calendar_reader),
+):
+    """Monthly content calendar report for one client workspace (counting only, no AI).
+
+    Clients only get their own linked workspaces and always the client version.
+    Staff get the same stage scope as the calendar list and may choose either version.
+    """
+    from app.services import content_calendar_report as report_svc
+    from app.services.client_logo import sanitize_client_logo_url
+    from app.services.content_calendar_workflow import is_client
+    from app.core.tenant import company_tz
+
+    try:
+        report_svc.parse_month(month)
+    except report_svc.ReportError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    client_viewer = is_client(current_user)
+    not_found = HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workspace not found.")
+    if client_viewer and workspace_id not in report_svc.client_workspace_ids(current_user):
+        raise not_found
+    ws = await db.workspaces.find_one(
+        {"id": workspace_id},
+        {"_id": 0, "id": 1, "name": 1, "initials": 1, "logo_url": 1, "status": 1, "content_expectations": 1},
+    )
+    if not ws or (client_viewer and str(ws.get("status") or "active") == "inactive"):
+        raise not_found
+
+    start, _nxt, after = report_svc.parse_month(month)
+    items = await report_svc.fetch_items(db, ws, current_user, start, after)
+    result = report_svc.build_report(
+        items,
+        ws,
+        month,
+        audience="client" if client_viewer else audience,
+        viewer=current_user,
+        today=report_svc.local_today(company_tz(None)),
+        logo_url=sanitize_client_logo_url(ws.get("logo_url")),
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return result
+
+
 @router.get("/{item_id}", response_model=ContentCalendarItemResponse)
 @limiter.limit("120/minute")
 async def get_content_item(

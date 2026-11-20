@@ -50,6 +50,7 @@ const CreativeAssetGallery = lazy(() =>
 import type { StageAction } from '../../utils/contentCalendarWorkflow';
 import { cn } from '../../lib/utils';
 import { isConstrainedNetwork } from '../../routes/lazyViews';
+import { GenerateReportButton } from './report/GenerateReportButton';
 
 type ViewMode = 'approvals' | 'pipeline';
 type ReviewFilter = 'pending' | 'approved' | 'revision';
@@ -376,7 +377,8 @@ export const ContentCalendarClientReviews: React.FC = () => {
           title="Content approvals"
           description={<span className="hidden sm:inline">Review posts from Reamarc before they go live.</span>}
           actions={
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              <GenerateReportButton mode="client" variant="outline" />
               <Button
                 variant="outline"
                 size="sm"

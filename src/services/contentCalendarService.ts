@@ -23,6 +23,7 @@ import type {
   DrivePickedFile,
   DrivePickerConfig,
 } from '../types/contentCalendar';
+import type { ContentCalendarReport } from '../types/contentCalendarReport';
 
 export const contentCalendarService = {
   async getItems(
@@ -68,6 +69,20 @@ export const contentCalendarService = {
     const result = { items, total, stages_count: stagesCount };
     ccItemsCache.set(filterKey, result);
     return result;
+  },
+
+  /** Monthly report for one client workspace (always fetched fresh, never cached). */
+  async getReport(params: {
+    workspaceId: string;
+    month: string;
+    audience?: 'client' | 'internal';
+  }): Promise<ContentCalendarReport> {
+    const q = new URLSearchParams({
+      workspace_id: params.workspaceId,
+      month: params.month,
+      audience: params.audience || 'client',
+    });
+    return apiClient.get<ContentCalendarReport>(`/content-calendar/report?${q.toString()}`);
   },
 
   async getItem(id: string): Promise<ContentCalendarItem> {

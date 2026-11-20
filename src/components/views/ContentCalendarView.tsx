@@ -37,6 +37,7 @@ import {
   calculateClientExpectationSummary,
   findClientForFilter,
 } from '../../utils/contentCalendarExpectations';
+import { GenerateReportButton } from '../content-calendar/report/GenerateReportButton';
 import { ContentCalendarDisplayPopover } from '../content-calendar/ContentCalendarDisplayPopover';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { ClientLookupContext, useClientLookup } from '../../hooks/useClientLookup';
@@ -573,6 +574,13 @@ export const ContentCalendarView: React.FC = () => {
                 { value: 'pipeline', label: 'Pipeline', icon: Kanban },
                 { value: 'calendar', label: 'Calendar', icon: Calendar },
               ]}
+            />
+
+            <GenerateReportButton
+              mode="staff"
+              defaultWorkspaceId={
+                activeClients.find((c) => clientFilter !== 'all' && c.name === clientFilter)?.id || null
+              }
             />
 
             {allowCreate && (
