@@ -38,6 +38,7 @@ import {
   findClientForFilter,
 } from '../../utils/contentCalendarExpectations';
 import { GenerateReportButton } from '../content-calendar/report/GenerateReportButton';
+import { itemMatchesDrill, type OverviewDrill } from '../../utils/contentCalendarOverviewMatrix';
 import { ContentCalendarDisplayPopover } from '../content-calendar/ContentCalendarDisplayPopover';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { ClientLookupContext, useClientLookup } from '../../hooks/useClientLookup';
@@ -136,6 +137,8 @@ export const ContentCalendarView: React.FC = () => {
   const [quickFilter, setQuickFilter] = useState<ContentCalendarQuickFilter>('all');
   const [clientFilter, setClientFilter] = useState('all');
   const [assigneeFilter, setAssigneeFilter] = useState('all');
+  // Set by clicking a cell in the Overview matrix: dimension value + stage bucket + period.
+  const [overviewDrill, setOverviewDrill] = useState<OverviewDrill | null>(null);
 
   const clientOptions = React.useMemo(() => {
     const names = new Set<string>();
@@ -189,9 +192,10 @@ export const ContentCalendarView: React.FC = () => {
           if (it.assignee_id !== assigneeFilter) return false;
         }
       }
+      if (overviewDrill && !itemMatchesDrill(it, overviewDrill)) return false;
       return true;
     });
-  }, [items, clientFilter, assigneeFilter]);
+  }, [items, clientFilter, assigneeFilter, overviewDrill]);
 
   const sheetExpectationSummary = React.useMemo(() => {
     if (viewMode !== 'table') return null;
@@ -576,12 +580,14 @@ export const ContentCalendarView: React.FC = () => {
               ]}
             />
 
-            <GenerateReportButton
-              mode="staff"
-              defaultWorkspaceId={
-                activeClients.find((c) => clientFilter !== 'all' && c.name === clientFilter)?.id || null
-              }
-            />
+            {viewMode !== 'overview' && (
+              <GenerateReportButton
+                mode="staff"
+                defaultWorkspaceId={
+                  activeClients.find((c) => clientFilter !== 'all' && c.name === clientFilter)?.id || null
+                }
+              />
+            )}
 
             {allowCreate && (
               <Button
@@ -625,6 +631,24 @@ export const ContentCalendarView: React.FC = () => {
                   </button>
                 )}
               </div>
+
+              {overviewDrill && (
+                <span
+                  data-testid="overview-drill-chip"
+                  className="inline-flex items-center gap-1.5 h-7 max-w-full pl-2.5 pr-1 rounded-full bg-accent-soft-2 text-accent-text text-xs font-medium"
+                >
+                  <span className="truncate">{overviewDrill.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setOverviewDrill(null)}
+                    className="w-5 h-5 inline-flex items-center justify-center rounded-full hover:bg-accent-200 cursor-pointer"
+                    aria-label="Clear overview filter"
+                    title="Clear overview filter"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </span>
+              )}
 
               {/* Client Filter */}
               <div className="w-40 sm:w-44 shrink-0">
@@ -784,6 +808,22 @@ export const ContentCalendarView: React.FC = () => {
               setIsDrawerOpen(true);
             }}
             onRefresh={() => void loadData({ silent: false })}
+            onDrill={(drill) => {
+              setOverviewDrill(drill);
+              setQuickFilter('all');
+              setViewMode('table');
+              try {
+                localStorage.setItem('reamarc_cc_view_mode', 'table');
+              } catch (e) {}
+            }}
+            onShowOverdue={() => {
+              setOverviewDrill(null);
+              setQuickFilter('overdue');
+              setViewMode('table');
+              try {
+                localStorage.setItem('reamarc_cc_view_mode', 'table');
+              } catch (e) {}
+            }}
             onAddContent={() => {
               setEditingItem(null);
               setIsModalOpen(true);

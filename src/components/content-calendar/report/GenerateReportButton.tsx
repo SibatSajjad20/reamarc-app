@@ -13,7 +13,7 @@ export interface GenerateReportButtonProps {
   defaultWorkspaceId?: string | null;
   className?: string;
   size?: 'sm' | 'md';
-  variant?: 'secondary' | 'outline';
+  variant?: 'secondary' | 'outline' | 'primary';
 }
 
 export const GenerateReportButton: React.FC<GenerateReportButtonProps> = ({

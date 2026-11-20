@@ -314,7 +314,7 @@ const CANONICAL_CREATIVE_LABELS: Record<string, string> = {
   gif: 'GIF',
 };
 
-function canonicalCreativeTypeLabel(value?: string | null): string {
+export function canonicalCreativeTypeLabel(value?: string | null): string {
   const raw = (value || '').replace(/\s+/g, ' ').trim();
   if (!raw) return 'Unspecified';
   const normalized = normalizeCreativeType(raw);
