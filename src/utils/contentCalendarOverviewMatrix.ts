@@ -123,23 +123,24 @@ export function isClientReviewStage(stage?: string | null): boolean {
 export type OverviewDimension =
   | 'creative_type'
   | 'channel'
-  | 'pillar'
   | 'category'
   | 'content_type'
-  | 'campaign'
-  | 'offer'
   | 'assignee';
 
 export const DIMENSIONS: { key: OverviewDimension; label: string }[] = [
   { key: 'creative_type', label: 'Creative type' },
   { key: 'channel', label: 'Channel' },
-  { key: 'pillar', label: 'Pillar' },
   { key: 'category', label: 'Organic vs ad' },
   { key: 'content_type', label: 'Scheduled vs runtime' },
-  { key: 'campaign', label: 'Campaign' },
-  { key: 'offer', label: 'Offer' },
   { key: 'assignee', label: 'Assignee' },
 ];
+
+export const DEFAULT_DIMENSION: OverviewDimension = 'creative_type';
+
+/** Any saved or stale value (e.g. the removed pillar / campaign / offer) falls back to creative type. */
+export function normalizeDimension(value: unknown): OverviewDimension {
+  return DIMENSIONS.some((d) => d.key === value) ? (value as OverviewDimension) : DEFAULT_DIMENSION;
+}
 
 export const NOT_SET = 'Not set';
 
@@ -158,7 +159,7 @@ function titleChannel(v: string): string {
 
 /** Row value(s) an item falls under. Channel is multi-valued (one item can post to several). */
 export function dimensionValues(item: ContentCalendarItem, dim: OverviewDimension): string[] {
-  switch (dim) {
+  switch (normalizeDimension(dim)) {
     case 'creative_type': {
       const raw = clean(item.creative_type);
       return [raw ? canonicalCreativeTypeLabel(raw) : NOT_SET];
@@ -169,8 +170,6 @@ export function dimensionValues(item: ContentCalendarItem, dim: OverviewDimensio
       );
       return chans.length ? chans : [NOT_SET];
     }
-    case 'pillar':
-      return [clean(item.content_pillar) || NOT_SET];
     case 'category': {
       const cat = clean(item.creative_category || item.posting_type) || 'Organic Creative';
       return [/\b(ad(\s+creative)?|performance)\b/i.test(cat) ? 'Ad creative' : 'Organic creative'];
@@ -179,10 +178,6 @@ export function dimensionValues(item: ContentCalendarItem, dim: OverviewDimensio
       const ct = clean(item.content_type) || 'Scheduled';
       return [/runtime/i.test(ct) ? 'Runtime' : /scheduled/i.test(ct) ? 'Scheduled' : ct];
     }
-    case 'campaign':
-      return [clean(item.campaign_type) || NOT_SET];
-    case 'offer':
-      return [clean(item.offer) || NOT_SET];
     case 'assignee':
       return [clean(item.assignee_name) || 'Unassigned'];
     default:
@@ -278,9 +273,10 @@ function finishRow(value: string, counts: Record<StageBucket, number>, expected:
 
 export function buildOverviewMatrix(
   items: ContentCalendarItem[],
-  dimension: OverviewDimension,
+  dimensionIn: OverviewDimension,
   expected?: Map<string, number> | null,
 ): OverviewMatrix {
+  const dimension = normalizeDimension(dimensionIn);
   const byValue = new Map<string, Record<StageBucket, number>>();
   const totals = emptyCounts();
   for (const it of items) {
@@ -337,7 +333,7 @@ export function itemMatchesDrill(item: ContentCalendarItem, drill: OverviewDrill
   if (!drill) return true;
   if (drill.bucket && stageBucket(item.stage) !== drill.bucket) return false;
   if (!inRange(item, drill.range || null)) return false;
-  return dimensionValues(item, drill.dimension).includes(drill.value);
+  return dimensionValues(item, normalizeDimension(drill.dimension)).includes(drill.value);
 }
 
 // ---------------------------------------------------------------------------
@@ -460,6 +456,25 @@ export function nextSevenDays(items: ContentCalendarItem[], now: Date = new Date
   return days;
 }
 
+/** One creative type inside a client's monthly plan (its content_expectations line). */
+export interface ClientPlanTypeRow {
+  /** Display label, e.g. "Static", "Animated post". */
+  type: string;
+  /** Normalized key (normalizeCreativeType). */
+  key: string;
+  expected: number | null;
+  expectedMax: number | null;
+  posted: number;
+  inProgress: number;
+  gap: number | null;
+  pct: number | null;
+  status: PlanStatus | null;
+  paused: boolean;
+  /** Not a plan line: posted / in-progress work of a type the plan doesn't list. */
+  unplanned: boolean;
+  layout?: string | null;
+}
+
 export interface ClientPlanRow {
   id: string;
   name: string;
@@ -472,6 +487,8 @@ export interface ClientPlanRow {
   awaiting: number;
   overdue: number;
   typesShort: number;
+  /** Per creative type; empty when the client has no plan (no per-type breakdown). */
+  types: ClientPlanTypeRow[];
 }
 
 export function clientPlanRows(
@@ -501,9 +518,57 @@ export function clientPlanRows(
       ).length;
       return (l.expected || 0) > l.posted + open;
     }).length;
+    const types: ClientPlanTypeRow[] = [];
+    if (summary) {
+      const planned = new Set<string>();
+      for (const l of summary.lines) {
+        const key = normalizeCreativeType(l.creative_type);
+        if (planned.has(key)) continue;
+        planned.add(key);
+        const open = own.filter(
+          (it) => normalizeCreativeType(it.creative_type) === key && it.stage !== 'Posted' && it.stage !== 'Rejected',
+        ).length;
+        const lineExpected = l.paused ? null : l.expected;
+        types.push({
+          type: canonicalCreativeTypeLabel(l.creative_type) || l.creative_type,
+          key,
+          expected: lineExpected,
+          expectedMax: l.paused ? null : l.expectedMax,
+          posted: l.posted,
+          inProgress: open,
+          gap: lineExpected != null ? l.leftover : null,
+          pct: lineExpected != null && lineExpected > 0 ? Math.round((Math.min(l.posted, lineExpected) / lineExpected) * 100) : null,
+          status: planStatus(l.posted, open, lineExpected),
+          paused: l.paused,
+          unplanned: false,
+          layout: l.layout || null,
+        });
+      }
+      // Work of types outside the plan (stories included) so the sub-rows add up to what's on the calendar.
+      const extra = new Map<string, { label: string; posted: number; open: number }>();
+      for (const it of own) {
+        if (it.stage === 'Rejected') continue;
+        const key = normalizeCreativeType(it.creative_type) || 'not set';
+        if (planned.has(key)) continue;
+        if (!extra.has(key)) {
+          const raw = clean(it.creative_type);
+          extra.set(key, { label: raw ? canonicalCreativeTypeLabel(raw) : NOT_SET, posted: 0, open: 0 });
+        }
+        const e = extra.get(key)!;
+        if (it.stage === 'Posted') e.posted += 1;
+        else e.open += 1;
+      }
+      for (const [key, e] of [...extra.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label))) {
+        types.push({
+          type: e.label, key, expected: null, expectedMax: null, posted: e.posted, inProgress: e.open,
+          gap: null, pct: null, status: null, paused: false, unplanned: true, layout: null,
+        });
+      }
+    }
     rows.push({
       id: c.id,
       name: c.name,
+      types,
       expected,
       posted: expected != null ? delivered : postedAll,
       inProgress,

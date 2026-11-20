@@ -283,6 +283,9 @@ _PROJECTION = {
     "updated_at": 1,
     "design_owner": 1,
     "assignee_name": 1,
+    "approval_status": 1,
+    # Only its presence is used (internal revision count); the text never leaves this module.
+    "revision_note": 1,
     "attachments.kind": 1,
     "attachments.role": 1,
     "attachments.order": 1,
@@ -526,28 +529,245 @@ def build_report(
     }
 
     if not client_mode:
-        allowed = visible_stages(viewer) if viewer is not None else None
-        stage_keys = PIPELINE_STAGES if allowed is None else allowed
-        stage_counts = {s: 0 for s in stage_keys}
-        for it in month_items:
-            if it["_stage"] in stage_counts:
-                stage_counts[it["_stage"]] += 1
-        open_items = [it for it in month_items if it["_bucket"] not in ("posted", "rejected")]
-        owners = _counted(
-            _clean(it.get("design_owner"), 60) or stage_owner(it["_stage"], it.get("creative_category")) for it in open_items
+        report["internal"] = build_internal(
+            month_items, next_items, rows, viewer=viewer, today=today, gen=gen, month_key=month_key,
         )
-        assignees = _counted(_clean(it.get("assignee_name"), 80) or "Unassigned" for it in open_items)
-        report["internal"] = {
-            "stage_counts": [{"stage": s, "count": n} for s, n in stage_counts.items()],
-            "internal_review": stage_counts.get("Content Internal Review", 0) + stage_counts.get("Creative Internal Review", 0),
-            "workload_by_owner": owners,
-            "workload_by_assignee": assignees,
-        }
 
     for it in items:
         for k in ("_date", "_stage", "_bucket"):
             it.pop(k, None)
     return report
+
+
+STUCK_DAYS = 5
+INTERNAL_ITEM_LIMIT = 500
+_OPEN_BUCKETS_EXCLUDED = ("posted", "rejected")
+
+
+def _is_ad(item: Dict[str, Any]) -> bool:
+    cat = _clean(item.get("creative_category") or item.get("posting_type"), 60)
+    return bool(re.search(r"\b(ad(\s+creative)?|performance)\b", cat, re.I))
+
+
+def _target_date(item: Dict[str, Any]) -> Tuple[str, str]:
+    """Port of getContentCalendarTargetDate(): ready/posted use the publish date, else design due."""
+    pub, due = _date_part(item.get("publish_date")), _date_part(item.get("design_due"))
+    if item["_stage"] in ("Ready to Post", "Posted"):
+        return (pub, "Publish") if pub else (due, "Due")
+    return (due, "Due") if due else (pub, "Publish")
+
+
+def _days_overdue(item: Dict[str, Any], today: date) -> int:
+    if item["_bucket"] in _OPEN_BUCKETS_EXCLUDED:
+        return 0
+    target, _ = _target_date(item)
+    if not target:
+        return 0
+    return max(0, (today - date.fromisoformat(target)).days)
+
+
+def _days_since_update(item: Dict[str, Any], gen: datetime) -> Optional[int]:
+    upd = _parse_dt(item.get("updated_at")) or _parse_dt(item.get("created_at"))
+    return max(0, (gen - upd).days) if upd else None
+
+
+def build_internal(
+    month_items: List[Dict[str, Any]],
+    next_items: List[Dict[str, Any]],
+    type_rows: List[Dict[str, Any]],
+    *,
+    viewer: Optional[Dict[str, Any]],
+    today: date,
+    gen: datetime,
+    month_key: str,
+) -> Dict[str, Any]:
+    """Staff-only detail. Never called for the client audience.
+
+    Uses only fields in the item schema. There is no stage history, so "days in stage"
+    is days since ``updated_at`` (any edit resets it) and revisions are counted from
+    the current stage, ``approval_status`` and whether a ``revision_note`` is on file.
+    Note text, share tokens and notes are never included.
+    """
+    allowed = visible_stages(viewer) if viewer is not None else None
+    stage_keys = PIPELINE_STAGES if allowed is None else allowed
+
+    def owner(it: Dict[str, Any]) -> str:
+        return _clean(it.get("design_owner"), 60) or stage_owner(it["_stage"], it.get("creative_category"))
+
+    def assignee(it: Dict[str, Any]) -> str:
+        return _clean(it.get("assignee_name"), 80) or "Unassigned"
+
+    def title(it: Dict[str, Any]) -> str:
+        return _clean(it.get("content_concept"), 140) or _clean(it.get("serial"), 40) or "Untitled"
+
+    for it in month_items + next_items:
+        it["_overdue"] = _days_overdue(it, today)
+        it["_age"] = _days_since_update(it, gen)
+
+    open_items = [it for it in month_items if it["_bucket"] not in _OPEN_BUCKETS_EXCLUDED]
+
+    # --- stages ----------------------------------------------------------------
+    stages = []
+    for st in stage_keys:
+        its = [it for it in month_items if it["_stage"] == st]
+        ages = [it["_age"] for it in its if it["_age"] is not None]
+        closed = st in ("Posted", "Rejected")
+        stuck = 0 if closed else sum(1 for a in ages if a >= STUCK_DAYS)
+        stages.append({
+            "stage": st,
+            "department": stage_owner(st, None) if st not in ("Ready to Post", "Posted", "Rejected") else "Social / Performance",
+            "count": len(its),
+            "oldest_days": None if closed or not ages else max(ages),
+            "avg_days": None if closed or not ages else round(sum(ages) / len(ages), 1),
+            "stuck": stuck,
+            "overdue": sum(1 for it in its if it["_overdue"] > 0),
+        })
+    stage_counts = [{"stage": s["stage"], "count": s["count"]} for s in stages]
+
+    # --- assignees ---------------------------------------------------------------
+    people: Dict[str, Dict[str, Any]] = {}
+    for it in month_items:
+        name = assignee(it)
+        r = people.setdefault(name, {
+            "name": name, "assigned": 0, "open": 0, "done": 0, "overdue": 0, "in_revision": 0,
+            "client_review": 0, "rejected": 0,
+        })
+        r["assigned"] += 1
+        b = it["_bucket"]
+        if b == "posted":
+            r["done"] += 1
+        elif b == "rejected":
+            r["rejected"] += 1
+        else:
+            r["open"] += 1
+            if b == "in_revision":
+                r["in_revision"] += 1
+            if b == "awaiting_review":
+                r["client_review"] += 1
+            if it["_overdue"] > 0:
+                r["overdue"] += 1
+    assignees = sorted(
+        people.values(),
+        key=lambda r: (r["name"] == "Unassigned", -r["open"], -r["assigned"], r["name"].lower()),
+    )
+
+    def row(it: Dict[str, Any]) -> Dict[str, Any]:
+        target, target_label = _target_date(it)
+        return {
+            "id": str(it.get("id") or ""),
+            "serial": _clean(it.get("serial"), 40),
+            "title": title(it),
+            "creative_type": type_label(it.get("creative_type")),
+            "category": "Ad creative" if _is_ad(it) else "Organic creative",
+            "content_type": "Runtime" if re.search(r"runtime", _clean(it.get("content_type"), 40), re.I) else "Scheduled",
+            "channels": _channels(it),
+            "stage": it["_stage"],
+            "department": owner(it),
+            "assignee": assignee(it),
+            "publish_date": _date_part(it.get("publish_date")) or None,
+            "design_due": _date_part(it.get("design_due")) or None,
+            "target_date": target or None,
+            "target_label": target_label,
+            "updated": _date_part(it.get("updated_at")) or None,
+            "days_since_update": it["_age"],
+            "days_overdue": it["_overdue"],
+            "approval_status": _clean(it.get("approval_status"), 80) or None,
+        }
+
+    # --- overdue (report month + next month window) ------------------------------
+    overdue = [row(it) for it in month_items + next_items if it["_overdue"] > 0]
+    overdue.sort(key=lambda r: (-r["days_overdue"], r["title"]))
+
+    # --- stuck ------------------------------------------------------------------
+    stuck = [row(it) for it in open_items if it["_age"] is not None and it["_age"] >= STUCK_DAYS]
+    stuck.sort(key=lambda r: (-(r["days_since_update"] or 0), r["title"]))
+
+    # --- plan vs posted by type, split organic / ad -------------------------------
+    split_by_type: Dict[str, Dict[str, int]] = {}
+    for it in month_items:
+        if it["_bucket"] == "rejected":
+            continue
+        k = type_label(it.get("creative_type"))
+        d = split_by_type.setdefault(k, {"organic": 0, "ad": 0})
+        d["ad" if _is_ad(it) else "organic"] += 1
+    by_type = []
+    for r in type_rows:
+        d = split_by_type.get(r["creative_type"], {"organic": 0, "ad": 0})
+        by_type.append(dict(r, organic=d["organic"], ad=d["ad"]))
+
+    def split(pred) -> Dict[str, Any]:
+        its = [it for it in month_items if pred(it)]
+        return {
+            "total": len(its),
+            "posted": sum(1 for it in its if it["_bucket"] == "posted"),
+            "open": sum(1 for it in its if it["_bucket"] not in _OPEN_BUCKETS_EXCLUDED),
+            "rejected": sum(1 for it in its if it["_bucket"] == "rejected"),
+            "overdue": sum(1 for it in its if it["_overdue"] > 0),
+        }
+
+    category_split = [
+        dict(split(lambda it: not _is_ad(it)), label="Organic creative"),
+        dict(split(_is_ad), label="Ad creative"),
+    ]
+    is_runtime = lambda it: bool(re.search(r"runtime", _clean(it.get("content_type"), 40), re.I))  # noqa: E731
+    content_type_split = [
+        dict(split(lambda it: not is_runtime(it)), label="Scheduled"),
+        dict(split(is_runtime), label="Runtime"),
+    ]
+
+    # --- revisions / rejections (current state only, no history kept) ------------
+    revisions = {
+        "content_revision": sum(1 for it in month_items if it["_stage"] == "Content Revision"),
+        "creative_revision": sum(1 for it in month_items if it["_stage"] == "Creative Revision"),
+        "changes_requested": sum(
+            1 for it in month_items if _clean(it.get("approval_status"), 80).lower() == "changes requested"
+        ),
+        "with_revision_note": sum(
+            1 for it in month_items if it["_bucket"] != "rejected" and _clean(it.get("revision_note"), 10)
+        ),
+        "rejected": sum(1 for it in month_items if it["_bucket"] == "rejected"),
+    }
+
+    items = [row(it) for it in month_items]
+    items.sort(key=lambda r: (r["target_date"] or "9999", PIPELINE_STAGES.index(r["stage"]) if r["stage"] in PIPELINE_STAGES else 99, r["title"]))
+
+    totals = {
+        "total": len(month_items),
+        "open": len(open_items),
+        "posted": sum(1 for it in month_items if it["_bucket"] == "posted"),
+        "rejected": revisions["rejected"],
+        "overdue": sum(1 for it in month_items if it["_overdue"] > 0),
+        "overdue_window": len(overdue),
+        "stuck": len(stuck),
+        "unassigned_open": sum(1 for it in open_items if assignee(it) == "Unassigned"),
+        "internal_review": sum(1 for it in month_items if it["_stage"] in ("Content Internal Review", "Creative Internal Review")),
+        "client_review": sum(1 for it in month_items if it["_bucket"] == "awaiting_review"),
+        "next_month": sum(1 for it in next_items if it["_bucket"] != "rejected"),
+    }
+
+    for it in month_items + next_items:
+        it.pop("_overdue", None)
+        it.pop("_age", None)
+
+    return {
+        "month": month_key,
+        "stuck_days": STUCK_DAYS,
+        "totals": totals,
+        "stages": stages,
+        "stage_counts": stage_counts,
+        "internal_review": totals["internal_review"],
+        "workload_by_owner": _counted(owner(it) for it in open_items),
+        "workload_by_assignee": _counted(assignee(it) for it in open_items),
+        "assignees": assignees,
+        "overdue": overdue[:LIST_LIMIT],
+        "stuck": stuck[:LIST_LIMIT],
+        "by_type": by_type,
+        "category_split": category_split,
+        "content_type_split": content_type_split,
+        "revisions": revisions,
+        "items": items[:INTERNAL_ITEM_LIMIT],
+        "items_total": len(items),
+    }
 
 
 def local_today(tz_name: str) -> date:

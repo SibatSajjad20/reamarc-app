@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshCw, LayoutDashboard, Film, Layers, Play, Sparkles, Image as ImageIcon, FileText } from 'lucide-react';
+import { RefreshCw, ChevronRight, LayoutDashboard, Film, Layers, Play, Sparkles, Image as ImageIcon, FileText } from 'lucide-react';
 import type { ContentCalendarItem, ContentCalendarViewMode } from '../../../types/contentCalendar';
 import type { ContentExpectations } from '../../../types';
 import {
@@ -18,6 +18,8 @@ import {
   workloadByAssignee,
   inRange,
   ymd,
+  normalizeDimension,
+  type ClientPlanTypeRow,
   type DateRange,
   type OverviewDimension,
   type OverviewDrill,
@@ -50,6 +52,7 @@ interface Props {
 
 const PERIODS: OverviewPeriod[] = ['all', 'this_month', 'last_month', 'last_30', 'next_30', 'custom'];
 const STORAGE_KEY = 'reamarc_cc_overview_period';
+const DIMENSION_KEY = 'reamarc_cc_overview_dimension';
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -187,7 +190,28 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
     start: ymd(new Date(now.getFullYear(), now.getMonth(), 1)),
     end: ymd(now),
   }));
-  const [dimension, setDimension] = useState<OverviewDimension>('creative_type');
+  const [dimension, setDimensionState] = useState<OverviewDimension>(() => {
+    try {
+      return normalizeDimension(localStorage.getItem(DIMENSION_KEY));
+    } catch {
+      return normalizeDimension(null);
+    }
+  });
+  const setDimension = (d: OverviewDimension) => {
+    const next = normalizeDimension(d);
+    setDimensionState(next);
+    try {
+      localStorage.setItem(DIMENSION_KEY, next);
+    } catch {}
+  };
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const toggleClient = (id: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const changePeriod = (p: OverviewPeriod) => {
     setPeriod(p);
@@ -233,7 +257,8 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
   const attention = useMemo(() => needsAttention(clientItems, now), [clientItems, now]);
   const workload = useMemo(() => workloadByAssignee(scoped, now), [scoped, now]);
 
-  const dimLabel = DIMENSIONS.find((d) => d.key === dimension)!.label;
+  const dimLabel = (DIMENSIONS.find((d) => d.key === dimension) || DIMENSIONS[0]).label;
+  const allCollapsed = clientRows.some((r) => r.types.length) && clientRows.every((r) => !r.types.length || collapsed.has(r.id));
   const periodText = period === 'custom' && range ? `${shortDate(range.start)} – ${shortDate(range.end)}` : PERIOD_LABELS[period];
   const clientCount = activeClientFilter === 'all' ? clientNames.length : 1;
 
@@ -577,17 +602,29 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
           <Card
             testId="cc-overview-clients"
             title="Plan progress by client"
-            hint={`Monthly expectations vs posted · ${longMonth(planMonth)} · in progress can still close the gap`}
+            hint={`Monthly expectations vs posted · ${longMonth(planMonth)} · broken down by creative type where a plan is set`}
+            right={
+              clientRows.some((r) => r.types.length > 0) ? (
+                <button
+                  type="button"
+                  data-testid="cc-plan-toggle-all"
+                  className="text-xs font-medium text-accent-text hover:underline cursor-pointer min-h-[36px] sm:min-h-0"
+                  onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(clientRows.filter((r) => r.types.length).map((r) => r.id)))}
+                >
+                  {allCollapsed ? 'Show creative types' : 'Hide creative types'}
+                </button>
+              ) : null
+            }
           >
             {clientRows.length === 0 ? (
               <p className="text-sm text-fg-muted m-0">No client plans or items for {longMonth(planMonth)}.</p>
             ) : (
               <>
                 <div className="hidden md:block overflow-x-auto">
-                  <table className="w-full text-sm border-collapse">
+                  <table className="w-full text-sm border-collapse" data-testid="cc-plan-table">
                     <thead>
                       <tr className="text-xs text-fg-muted">
-                        <th className="text-left font-medium py-2 px-2">Client</th>
+                        <th className="text-left font-medium py-2 px-2">Client / creative type</th>
                         <th className="text-right font-medium py-2 px-2">Expected</th>
                         <th className="text-right font-medium py-2 px-2">Posted</th>
                         <th className="text-right font-medium py-2 px-2">In progress</th>
@@ -597,45 +634,133 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
                         <th className="text-left font-medium py-2 px-2">Needs attention</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {clientRows.map((r) => (
-                        <tr key={r.id} className="border-t border-border">
-                          <td className="py-2 px-2">
-                            <button type="button" className="inline-flex items-center gap-2 font-medium cursor-pointer hover:underline" onClick={() => onSelectClientFilter(r.name)}>
-                              <Avatar name={r.name} />
-                              {r.name}
-                            </button>
-                          </td>
-                          <td className="py-2 px-2 text-right tabular-nums">{r.expected ?? '–'}</td>
-                          <td className="py-2 px-2 text-right tabular-nums">{r.posted}</td>
-                          <td className="py-2 px-2 text-right tabular-nums">{r.inProgress}</td>
-                          <td className="py-2 px-2 text-right tabular-nums">{r.gap ?? '–'}</td>
-                          <td className="py-2 px-2 text-right tabular-nums">{r.pct != null ? `${r.pct}%` : '–'}</td>
-                          <td className="py-2 px-2 pl-4">{r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted">No plan</span>}</td>
-                          <td className="py-2 px-2 text-fg-muted text-xs">{attentionNote(r)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+                    {clientRows.map((r) => {
+                      const open = r.types.length > 0 && !collapsed.has(r.id);
+                      return (
+                        <tbody key={r.id} data-testid={`cc-plan-client-${r.id}`} className="border-t border-border">
+                          <tr>
+                            <td className="py-2 px-2">
+                              <span className="inline-flex items-center gap-1">
+                                {r.types.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    aria-expanded={open}
+                                    aria-label={`${open ? 'Hide' : 'Show'} creative types for ${r.name}`}
+                                    className="w-6 h-6 rounded-md flex items-center justify-center text-fg-muted hover:bg-hover cursor-pointer"
+                                    onClick={() => toggleClient(r.id)}
+                                  >
+                                    <ChevronRight className={cn('w-4 h-4 transition-transform', open && 'rotate-90')} />
+                                  </button>
+                                ) : (
+                                  <span className="w-6" aria-hidden="true" />
+                                )}
+                                <button type="button" className="inline-flex items-center gap-2 font-medium cursor-pointer hover:underline" onClick={() => onSelectClientFilter(r.name)}>
+                                  <Avatar name={r.name} />
+                                  {r.name}
+                                </button>
+                              </span>
+                            </td>
+                            <td className="py-2 px-2 text-right tabular-nums font-medium">{r.expected ?? '–'}</td>
+                            <td className="py-2 px-2 text-right tabular-nums font-medium">{r.posted}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{r.inProgress}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{r.gap ?? '–'}</td>
+                            <td className="py-2 px-2 text-right tabular-nums">{r.pct != null ? `${r.pct}%` : '–'}</td>
+                            <td className="py-2 px-2 pl-4">{r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted">No plan</span>}</td>
+                            <td className="py-2 px-2 text-fg-muted text-xs">{attentionNote(r)}</td>
+                          </tr>
+                          {open &&
+                            r.types.map((t) => (
+                              <tr key={t.key} className="text-[13px] text-fg-2 bg-subtle/60" data-testid={`cc-plan-type-${r.id}-${t.key}`}>
+                                <td className="py-1.5 px-2 pl-[62px]">
+                                  <span className="inline-flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: typeDot(t.key) }} aria-hidden="true" />
+                                    {t.type}
+                                    {t.layout ? <span className="text-xs text-fg-muted">{t.layout}</span> : null}
+                                  </span>
+                                </td>
+                                <td className="py-1.5 px-2 text-right tabular-nums">{typeExpected(t)}</td>
+                                <td className="py-1.5 px-2 text-right tabular-nums">{t.posted}</td>
+                                <td className="py-1.5 px-2 text-right tabular-nums">{t.inProgress}</td>
+                                <td className="py-1.5 px-2 text-right tabular-nums">{t.gap ?? '–'}</td>
+                                <td className="py-1.5 px-2 text-right tabular-nums">{t.pct != null ? `${t.pct}%` : '–'}</td>
+                                <td className="py-1.5 px-2 pl-4"><TypeStatus t={t} /></td>
+                                <td className="py-1.5 px-2 text-xs text-fg-muted">{typeNote(t)}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      );
+                    })}
                   </table>
                 </div>
-                <ul className="md:hidden m-0 p-0 list-none space-y-2">
-                  {clientRows.map((r) => (
-                    <li key={r.id}>
-                      <button type="button" className="w-full text-left rounded-xl border border-border p-3 cursor-pointer" onClick={() => onSelectClientFilter(r.name)}>
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="inline-flex items-center gap-2 font-semibold"><Avatar name={r.name} />{r.name}</span>
-                          {r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted">No plan</span>}
-                        </div>
-                        <div className="text-sm text-fg-2 tabular-nums mt-1.5">
-                          {r.expected != null
-                            ? `Posted ${r.posted} of ${r.expected} · ${r.inProgress} in progress · gap ${r.gap} · ${r.pct}%`
-                            : `Posted ${r.posted} · ${r.inProgress} in progress`}
-                        </div>
-                        <div className="text-xs text-fg-muted mt-1">{attentionNote(r)}</div>
-                      </button>
-                    </li>
-                  ))}
+                <ul className="md:hidden m-0 p-0 list-none space-y-2" data-testid="cc-plan-cards">
+                  {clientRows.map((r) => {
+                    const open = r.types.length > 0 && !collapsed.has(r.id);
+                    return (
+                      <li key={r.id} className="rounded-xl border border-border p-3">
+                        <button type="button" className="w-full text-left cursor-pointer" onClick={() => onSelectClientFilter(r.name)}>
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-2 font-semibold min-w-0"><Avatar name={r.name} /><span className="truncate">{r.name}</span></span>
+                            {r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted shrink-0">No plan</span>}
+                          </div>
+                          <div className="text-sm text-fg-2 tabular-nums mt-1.5">
+                            {r.expected != null
+                              ? `Posted ${r.posted} of ${r.expected} · ${r.inProgress} in progress · gap ${r.gap} · ${r.pct}%`
+                              : `Posted ${r.posted} · ${r.inProgress} in progress`}
+                          </div>
+                          <div className="text-xs text-fg-muted mt-1">{attentionNote(r)}</div>
+                        </button>
+                        {r.types.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              onClick={() => toggleClient(r.id)}
+                              className="mt-2 min-h-[36px] inline-flex items-center gap-1 text-xs font-medium text-accent-text cursor-pointer"
+                            >
+                              <ChevronRight className={cn('w-3.5 h-3.5 transition-transform', open && 'rotate-90')} />
+                              {open ? 'Hide' : 'Show'} {r.types.length} creative {r.types.length === 1 ? 'type' : 'types'}
+                            </button>
+                            {open && (
+                              <ul className="m-0 mt-1 p-0 list-none divide-y divide-border rounded-lg bg-subtle border border-border" data-testid={`cc-plan-types-${r.id}`}>
+                                {r.types.map((t) => {
+                                  const bar = t.expected ? Math.min(100, Math.round((t.posted / t.expected) * 100)) : 0;
+                                  return (
+                                    <li key={t.key} className="px-2.5 py-2">
+                                      <div className="flex items-center justify-between gap-2 text-[13px]">
+                                        <span className="inline-flex items-center gap-1.5 font-medium text-fg min-w-0">
+                                          <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: typeDot(t.key) }} aria-hidden="true" />
+                                          <span className="truncate">{t.type}</span>
+                                        </span>
+                                        <span className="tabular-nums text-fg-2 shrink-0">
+                                          {t.expected != null ? `${t.posted} / ${typeExpected(t)}` : t.posted}
+                                          {t.pct != null ? ` · ${t.pct}%` : ''}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center justify-between gap-2 mt-1">
+                                        <span className="text-xs text-fg-muted tabular-nums">
+                                          {t.inProgress} in progress{t.gap != null ? ` · gap ${t.gap}` : ''}
+                                        </span>
+                                        <TypeStatus t={t} />
+                                      </div>
+                                      {t.expected ? (
+                                        <div className="h-1 rounded-full bg-surface mt-1.5 overflow-hidden">
+                                          <span className="block h-full rounded-full" style={{ width: `${bar}%`, background: typeDot(t.key) }} />
+                                        </div>
+                                      ) : null}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+                          </>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
+                <p className="text-xs text-fg-muted mt-3 mb-0">
+                  Creative types come from each client's monthly plan. Paused types don't count this month; types outside the plan are listed as not in plan and don't count toward it.
+                </p>
               </>
             )}
           </Card>
@@ -709,6 +834,31 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
     </div>
   );
 };
+
+function typeDot(key: string): string {
+  return TYPE_COLORS[key] || (key === 'cover image' ? 'var(--chart-2)' : 'var(--text-muted)');
+}
+
+function typeExpected(t: ClientPlanTypeRow): string {
+  if (t.paused) return 'Paused';
+  if (t.expected == null) return '–';
+  return t.expectedMax != null && t.expectedMax > t.expected ? `${t.expected}–${t.expectedMax}` : String(t.expected);
+}
+
+function TypeStatus({ t }: { t: ClientPlanTypeRow }) {
+  if (t.paused) return <span className="text-xs text-fg-muted">Paused this month</span>;
+  if (t.unplanned) return <span className="text-xs text-fg-muted">Not in plan</span>;
+  if (t.expected == null) return <span className="text-xs text-fg-muted">Included</span>;
+  return <PlanPill status={t.status} />;
+}
+
+function typeNote(t: ClientPlanTypeRow): string {
+  if (t.expected == null || t.paused) return '';
+  const short = t.expected - t.posted - t.inProgress;
+  if (short > 0) return `${short} more to create`;
+  if (t.expectedMax != null && t.posted > t.expectedMax) return `${t.posted - t.expectedMax} over max`;
+  return '';
+}
 
 function attentionNote(r: { awaiting: number; overdue: number; typesShort: number }): string {
   const bits = [

@@ -21,6 +21,10 @@ const PRINT_CSS = `
   .cc-report-section { break-inside: avoid; page-break-inside: avoid; box-shadow: none !important; }
   .cc-report-section.cc-report-breakable { break-inside: auto; page-break-inside: auto; }
   .cc-report-avoid { break-inside: avoid; page-break-inside: avoid; }
+  .cc-report-table-wrap { overflow: visible !important; margin: 0 !important; padding: 0 !important; }
+  .cc-report-table { font-size: 10px !important; }
+  .cc-report-table th, .cc-report-table td { padding: 3px 4px !important; }
+  .cc-report-table thead { display: table-header-group; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
 `;
@@ -245,6 +249,7 @@ export const ContentCalendarReportDialog: React.FC<ContentCalendarReportDialogPr
           <div className={cn('transition-opacity', loading && 'opacity-60')} aria-busy={loading}>
             <ContentCalendarReportView
               report={report}
+              clientOnly={mode !== 'staff'}
               headerActions={
                 <Button variant="secondary" className="h-11 sm:h-8 px-3 text-sm" icon={Download} onClick={handlePrint}>
                   Download PDF

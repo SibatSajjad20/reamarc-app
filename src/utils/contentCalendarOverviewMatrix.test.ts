@@ -14,6 +14,8 @@ import {
   singleMonthOf,
   stageBucket,
   workloadByAssignee,
+  DIMENSIONS,
+  normalizeDimension,
   type OverviewDimension,
 } from './contentCalendarOverviewMatrix';
 
@@ -120,11 +122,8 @@ describe('matrix per dimension', () => {
 
   const cases: [OverviewDimension, Record<string, number>, string[]][] = [
     ['channel', { Instagram: 9, Facebook: 1, 'Not set': 1 }, ['Instagram', 'Facebook', 'Not set']],
-    ['pillar', { Product: 9, 'Not set': 1 }, ['Product', 'Not set']],
     ['category', { 'Organic creative': 9, 'Ad creative': 1 }, ['Organic creative', 'Ad creative']],
     ['content_type', { Scheduled: 9, Runtime: 1 }, ['Scheduled', 'Runtime']],
-    ['campaign', { Launch: 10 }, ['Launch']],
-    ['offer', { 'Free trial': 9, 'Not set': 1 }, ['Free trial', 'Not set']],
     ['assignee', { Aisha: 2, Omar: 1, Unassigned: 7 }, ['Aisha', 'Omar', 'Unassigned']],
   ];
   for (const [dim, totals, order] of cases) {
@@ -136,6 +135,17 @@ describe('matrix per dimension', () => {
       expect(m.totals.total).toBe(10); // items counted once even when channels overlap
     });
   }
+
+  it('only the five kept dimensions, stale ones fall back to creative type', () => {
+    expect(DIMENSIONS.map((d) => d.key)).toEqual(['creative_type', 'channel', 'category', 'content_type', 'assignee']);
+    for (const stale of ['pillar', 'campaign', 'offer', '', null, undefined, 'nonsense']) {
+      expect(normalizeDimension(stale)).toBe('creative_type');
+    }
+    expect(normalizeDimension('assignee')).toBe('assignee');
+    const stale = buildOverviewMatrix(nov, 'pillar' as OverviewDimension, exp);
+    expect(stale.dimension).toBe('creative_type');
+    expect(stale.hasExpected).toBe(true);
+  });
 
   it('dimension values', () => {
     expect(dimensionValues(items[0], 'channel')).toEqual(['Instagram', 'Facebook']);
@@ -164,6 +174,11 @@ describe('click-through to the sheet', () => {
     expect(items.filter((i) => itemMatchesDrill(i, fb)).map((i) => i.id)).toEqual([items[0].id]);
     expect(itemMatchesDrill(items[0], null)).toBe(true);
   });
+
+  it('a drill saved with a removed dimension filters by creative type', () => {
+    const drill = { dimension: 'offer' as OverviewDimension, value: 'Video', bucket: 'posted' as const, label: '' };
+    expect(items.filter((i) => itemMatchesDrill(i, drill)).length).toBe(2);
+  });
 });
 
 describe('kpis, upcoming, clients, attention, workload', () => {
@@ -182,6 +197,46 @@ describe('kpis, upcoming, clients, attention, workload', () => {
   it('client plan rows', () => {
     const [row] = clientPlanRows(items, [client], '2026-11', NOW);
     expect(row).toMatchObject({ expected: 8, posted: 3, inProgress: 6, gap: 5, pct: 38, status: 'on_track', awaiting: 1, overdue: 1, typesShort: 1 });
+  });
+
+  it('client plan rows break the plan down by creative type', () => {
+    const [row] = clientPlanRows(items, [client], '2026-11', NOW);
+    const byType = Object.fromEntries(row.types.map((t) => [t.type, t]));
+    expect(row.types.map((t) => t.type)).toEqual(['Video', 'Static', 'Reel', 'Carousel']); // plan order, story excluded
+    expect(byType.Video).toMatchObject({ expected: 3, posted: 1, inProgress: 4, gap: 2, pct: 33, status: 'on_track', unplanned: false });
+    expect(byType.Static).toMatchObject({ expected: 2, posted: 1, inProgress: 1, gap: 1, pct: 50, status: 'on_track' });
+    expect(byType.Reel).toMatchObject({ expected: 2, posted: 1, inProgress: 1, gap: 1, pct: 50 });
+    expect(byType.Carousel).toMatchObject({ expected: 1, posted: 0, inProgress: 0, gap: 1, pct: 0, status: 'at_risk' });
+    // Sub-rows add up to the client total.
+    expect(row.types.reduce((s, t) => s + (t.expected ?? 0), 0)).toBe(row.expected);
+    expect(row.types.reduce((s, t) => s + t.inProgress, 0)).toBe(row.inProgress);
+    expect(row.types.reduce((s, t) => s + (t.gap ?? 0), 0)).toBe(row.gap);
+  });
+
+  it('paused lines, min-max ranges and types outside the plan', () => {
+    const c2 = {
+      id: 'ws1',
+      name: 'Example Co',
+      content_expectations: {
+        period: 'month',
+        lines: [
+          { creative_type: 'Static', expected: 1, expected_max: 3 },
+          { creative_type: 'Reel', expected: 4, skip_months: ['2026-11'] },
+        ],
+      },
+    };
+    const [row] = clientPlanRows(items, [c2], '2026-11', NOW);
+    const byType = Object.fromEntries(row.types.map((t) => [t.type, t]));
+    expect(byType.Static).toMatchObject({ expected: 1, expectedMax: 3, posted: 1, gap: 0, pct: 100, status: 'met' });
+    expect(byType.Reel).toMatchObject({ paused: true, expected: null, gap: null, status: null, posted: 1 });
+    expect(byType.Video).toMatchObject({ unplanned: true, expected: null, posted: 1, inProgress: 4 });
+    expect(row.expected).toBe(1);
+  });
+
+  it('clients with no plan have no per-type breakdown', () => {
+    const [row] = clientPlanRows(items, [{ id: 'ws1', name: 'Example Co', content_expectations: null }], '2026-11', NOW);
+    expect(row.expected).toBeNull();
+    expect(row.types).toEqual([]);
   });
 
   it('needs attention: overdue first, then revision due soon, then waiting', () => {

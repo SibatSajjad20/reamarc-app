@@ -88,10 +88,92 @@ export interface ContentCalendarReport {
     at_risk_days: number;
   };
   next_month: { month: string; total: number; by_type: { creative_type: string; count: number }[] };
-  internal?: {
-    stage_counts: { stage: string; count: number }[];
+  /** Staff only (audience=internal). Never present for clients. */
+  internal?: ReportInternal;
+}
+
+export interface ReportInternalRow {
+  id: string;
+  serial: string;
+  title: string;
+  creative_type: string;
+  category: string;
+  content_type: string;
+  channels: string[];
+  /** Real internal pipeline stage. */
+  stage: string;
+  department: string;
+  assignee: string;
+  publish_date: string | null;
+  design_due: string | null;
+  target_date: string | null;
+  target_label: 'Due' | 'Publish' | string;
+  updated: string | null;
+  days_since_update: number | null;
+  days_overdue: number;
+  approval_status: string | null;
+}
+
+export interface ReportInternalSplit {
+  label: string;
+  total: number;
+  posted: number;
+  open: number;
+  rejected: number;
+  overdue: number;
+}
+
+export interface ReportInternal {
+  stage_counts: { stage: string; count: number }[];
+  internal_review: number;
+  workload_by_owner: ReportCount[];
+  workload_by_assignee: ReportCount[];
+  month?: string;
+  stuck_days?: number;
+  totals?: {
+    total: number;
+    open: number;
+    posted: number;
+    rejected: number;
+    overdue: number;
+    overdue_window: number;
+    stuck: number;
+    unassigned_open: number;
     internal_review: number;
-    workload_by_owner: ReportCount[];
-    workload_by_assignee: ReportCount[];
+    client_review: number;
+    next_month: number;
   };
+  stages?: {
+    stage: string;
+    department: string;
+    count: number;
+    oldest_days: number | null;
+    avg_days: number | null;
+    stuck: number;
+    overdue: number;
+  }[];
+  assignees?: {
+    name: string;
+    assigned: number;
+    open: number;
+    done: number;
+    overdue: number;
+    in_revision: number;
+    client_review: number;
+    rejected: number;
+  }[];
+  overdue?: ReportInternalRow[];
+  stuck?: ReportInternalRow[];
+  by_type?: (ContentCalendarReport['by_type'][number] & { organic: number; ad: number })[];
+  category_split?: ReportInternalSplit[];
+  content_type_split?: ReportInternalSplit[];
+  revisions?: {
+    content_revision: number;
+    creative_revision: number;
+    changes_requested: number;
+    with_revision_note: number;
+    rejected: number;
+  };
+  items?: ReportInternalRow[];
+  items_total?: number;
 }

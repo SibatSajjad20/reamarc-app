@@ -130,6 +130,55 @@ class TestBuildReport(unittest.TestCase):
         self.assertEqual(risk[0]["status_label"], "In revision")
         self.assertNotIn("stage", risk[0])
 
+    def test_internal_detail(self):
+        items = self._items()
+        items.append(_item("ov", "Creative Production", "Static", "2026-11-25", design_due="2026-11-14",
+                           assignee_name="Sara Design", creative_category="Ad Creative",
+                           updated_at="2026-11-01T00:00:00Z", approval_status="Changes Requested"))
+        r = rep.build_report(items, WS, "2026-11", audience="internal", today=date(2026, 11, 20),
+                             generated_at=datetime(2026, 11, 20, 10, tzinfo=timezone.utc))
+        internal = r["internal"]
+        self.assertEqual(internal["stuck_days"], 5)
+        stages = {s["stage"]: s for s in internal["stages"]}
+        self.assertEqual(stages["Creative Production"]["count"], 1)
+        self.assertEqual(stages["Creative Production"]["oldest_days"], 19)
+        self.assertEqual(stages["Creative Production"]["stuck"], 1)
+        self.assertEqual(stages["Content Internal Review"]["department"], "Content")
+        self.assertIsNone(stages["Posted"]["oldest_days"])
+        # Overdue: design due 14 Nov, 6 days late, with its assignee and internal stage.
+        ov = {o["id"]: o for o in internal["overdue"]}
+        self.assertEqual([o["id"] for o in internal["overdue"]][:2], ["dd", "ov"])  # most overdue first
+        self.assertEqual(ov["dd"]["days_overdue"], 8)
+        self.assertEqual((ov["ov"]["days_overdue"], ov["ov"]["assignee"], ov["ov"]["stage"], ov["ov"]["target_label"]),
+                         (6, "Sara Design", "Creative Production", "Due"))
+        people = {p["name"]: p for p in internal["assignees"]}
+        self.assertEqual((people["Sara Design"]["assigned"], people["Sara Design"]["overdue"], people["Sara Design"]["open"]), (1, 1, 1))
+        self.assertEqual(people["Ali Internal"]["done"], 3)
+        self.assertEqual(people["Ali Internal"]["rejected"], 1)
+        cats = {c["label"]: c for c in internal["category_split"]}
+        self.assertEqual((cats["Ad creative"]["total"], cats["Organic creative"]["total"]), (1, 9))
+        st = {t["creative_type"]: t for t in internal["by_type"]}
+        self.assertEqual((st["Static"]["organic"], st["Static"]["ad"]), (4, 1))
+        rev = internal["revisions"]
+        self.assertEqual((rev["creative_revision"], rev["changes_requested"], rev["rejected"]), (1, 1, 1))
+        self.assertEqual(len(internal["items"]), internal["items_total"])
+        self.assertEqual(internal["items_total"], 10)
+        row = next(i for i in internal["items"] if i["id"] == "r2")
+        self.assertEqual((row["stage"], row["assignee"], row["publish_date"]), ("Creative Revision", "Ali Internal", "2026-11-21"))
+        # Still nothing secret in the internal payload: no tokens, notes or revision note text.
+        import json
+        blob = json.dumps(r)
+        for word in ("tok-secret", "share_token", "internal note only", "secret revision words", "u_ali"):
+            self.assertNotIn(word, blob, word)
+
+    def test_client_audience_has_no_internal_block(self):
+        r = rep.build_report(self._items(), WS, "2026-11", audience="client", today=date(2026, 11, 20))
+        self.assertNotIn("internal", r)
+        import json
+        blob = json.dumps(r)
+        for word in FORBIDDEN:
+            self.assertNotIn(word, blob, word)
+
     def test_bad_month(self):
         for bad in ("2026-13", "2026-1", "26-11", "2026-11-01", "abcd-ef", "1999-01"):
             with self.assertRaises(rep.ReportError):
@@ -215,6 +264,17 @@ class TestReportApi(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(word, text, word)
         self.assertIn("no-store", r.headers.get("cache-control", ""))
 
+    async def test_client_requesting_internal_gets_client_output(self):
+        for qs in ("workspace_id=ws_sp&month=2026-11&audience=internal", "workspace_id=ws_sp&month=2026-11"):
+            r = await self._get(qs, "client_sp")
+            self.assertEqual(r.status_code, 200, r.text)
+            body = r.json()
+            self.assertEqual(body["audience"], "client")
+            for key in ("internal", "assignees", "stuck", "overdue", "items", "revisions", "category_split"):
+                self.assertNotIn(f'"{key}"', r.text, key)
+            for word in FORBIDDEN:
+                self.assertNotIn(word, r.text, word)
+
     async def test_client_cannot_read_other_workspace(self):
         r = await self._get("workspace_id=ws_sp&month=2026-11", "client_other")
         self.assertEqual(r.status_code, 404, r.text)
@@ -243,7 +303,11 @@ class TestReportApi(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stages["Content Internal Review"], 1)
         self.assertEqual(body["internal"]["internal_review"], 1)
         self.assertIn("Ali Internal", [w["label"] for w in body["internal"]["workload_by_assignee"]])
-        self.assertNotIn("share_token", r.text)
+        self.assertIn("Ali Internal", [a["name"] for a in body["internal"]["assignees"]])
+        self.assertTrue(any(i["stage"] == "Creative Revision" for i in body["internal"]["items"]))
+        self.assertIn("overdue", body["internal"])
+        for word in ("share_token", "tok-secret", "internal note only", "secret revision words"):
+            self.assertNotIn(word, r.text, word)
         r = await self._get("workspace_id=ws_sp&month=2026-11&audience=client", "admin_a")
         self.assertEqual(r.status_code, 200, r.text)
         for word in FORBIDDEN:

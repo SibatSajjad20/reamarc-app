@@ -88,4 +88,54 @@ describe('ContentCalendarOverviewTab', () => {
     fireEvent.click(screen.getByTestId('kpi-overdue'));
     expect(props.onShowOverdue).toHaveBeenCalled();
   });
+
+  it('shows only the five group-by chips', () => {
+    setup();
+    const group = screen.getByRole('group', { name: 'Group by' });
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'Creative type', 'Channel', 'Organic vs ad', 'Scheduled vs runtime', 'Assignee',
+    ]);
+    for (const gone of ['Pillar', 'Campaign', 'Offer']) expect(within(group).queryByRole('button', { name: gone })).toBeNull();
+  });
+
+  it('a stale saved dimension falls back to creative type and still drills', () => {
+    localStorage.setItem('reamarc_cc_overview_dimension', 'pillar');
+    const props = setup();
+    expect(screen.getByRole('button', { name: 'Creative type' }).getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(within(screen.getByTestId('cc-overview-matrix-table')).getByTestId('cell-Video-posted'));
+    expect((props.onDrill.mock.calls[0][0] as OverviewDrill).dimension).toBe('creative_type');
+    fireEvent.click(screen.getByRole('button', { name: 'Assignee' }));
+    expect(localStorage.getItem('reamarc_cc_overview_dimension')).toBe('assignee');
+  });
+
+  it('plan table breaks a client plan down by creative type and can collapse it', () => {
+    const planned = [
+      { id: 'ws1', name: 'Example Co', content_expectations: { period: 'month', lines: [
+        { creative_type: 'Video', expected: 4 },
+        { creative_type: 'Static', expected: 2, expected_max: 3 },
+      ] } },
+      { id: 'ws2', name: 'No Plan Co', content_expectations: null },
+    ];
+    setup({
+      activeClients: planned as never,
+      items: [...items, mk('Posted', { publish_date: '2026-11-09', workspace_id: 'ws2', client_name: 'No Plan Co' })],
+    });
+    const table = screen.getByTestId('cc-plan-table');
+    const video = within(table).getByTestId('cc-plan-type-ws1-video');
+    expect(within(video).getAllByRole('cell').map((c) => c.textContent)).toEqual(
+      ['Video', '4', '1', '2', '3', '25%', 'At risk', '1 more to create'],
+    );
+    const stat = within(table).getByTestId('cc-plan-type-ws1-static');
+    expect(within(stat).getAllByRole('cell').slice(1, 6).map((c) => c.textContent)).toEqual(['2–3', '1', '0', '1', '50%']);
+    // No plan: just the total row, no type rows and no expand control.
+    const noPlan = within(table).getByTestId('cc-plan-client-ws2');
+    expect(within(noPlan).getAllByRole('row')).toHaveLength(1);
+    expect(within(noPlan).queryByRole('button', { name: /creative types/ })).toBeNull();
+    fireEvent.click(within(table).getByRole('button', { name: 'Hide creative types for Example Co' }));
+    expect(within(table).queryByTestId('cc-plan-type-ws1-video')).toBeNull();
+    fireEvent.click(screen.getByTestId('cc-plan-toggle-all'));
+    expect(within(table).getByTestId('cc-plan-type-ws1-video')).toBeTruthy();
+    // Mobile cards carry the same breakdown.
+    expect(within(screen.getByTestId('cc-plan-types-ws1')).getByText('Static')).toBeTruthy();
+  });
 });

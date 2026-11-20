@@ -2,7 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { ContentCalendarReportView } from '../ContentCalendarReportView';
 import { reportThumbSrc, shiftMonth, monthLabel } from '../reportFormat';
-import { makeReport } from './reportFixture';
+import { makeInternal, makeReport } from './reportFixture';
 
 const INTERNAL_WORDS = [
   /Content Client Review/,
@@ -55,24 +55,53 @@ describe('ContentCalendarReportView', () => {
     expect(container.textContent).not.toMatch(/Creative Internal Review|Ali/);
   });
 
-  it('internal version shows the team view and the warning banner', () => {
-    render(
-      <ContentCalendarReportView
-        report={makeReport({
-          audience: 'internal',
-          internal: {
-            stage_counts: [{ stage: 'Creative Internal Review', count: 2 }],
-            internal_review: 2,
-            workload_by_owner: [{ label: 'Creative', count: 2 }],
-            workload_by_assignee: [{ label: 'Ali', count: 2 }],
-          },
-        })}
-      />,
-    );
-    expect(screen.getByTestId('cc-report-internal')).toBeTruthy();
-    expect(screen.getByText('Ali')).toBeTruthy();
+  it('internal version is its own detailed staff report, not the client report', () => {
+    render(<ContentCalendarReportView report={makeReport({ audience: 'internal', internal: makeInternal() })} />);
     expect(screen.getByText(/Do not send to the client/)).toBeTruthy();
-    expect(screen.getByText('Internal report')).toBeTruthy();
+    expect(screen.getAllByText('Internal report').length).toBeGreaterThan(0);
+    // None of the client sections.
+    expect(screen.queryByTestId('cc-report-summary')).toBeNull();
+    expect(screen.queryByTestId('cc-report-by-type')).toBeNull();
+    expect(screen.queryByText('Awaiting your review')).toBeNull();
+    expect(screen.queryByText('Behind the Factory Floor')).toBeNull();
+    // Real stage names with team, age and stuck counts.
+    const stages = screen.getByTestId('cc-internal-stage-table');
+    const prod = within(stages).getByText('Creative Production').closest('tr')!;
+    expect(within(prod).getAllByRole('cell').map((c) => c.textContent)).toEqual(['Creative Production', 'Creative', '1', '19', '19', '1', '1']);
+    expect(screen.getByTestId('cc-internal-stages').textContent).toMatch(/days since the item was last updated/);
+    // Assignees with assigned / done / overdue.
+    const sara = within(screen.getByTestId('cc-internal-team-table')).getByText('Sara Design').closest('tr')!;
+    expect(within(sara).getAllByRole('cell').slice(0, 5).map((c) => c.textContent)).toEqual(['Sara Design', '1', '1', '0', '1']);
+    // Overdue list with assignee and days overdue.
+    const od = within(screen.getByTestId('cc-internal-overdue-table')).getByText('Diwali Offer Banner').closest('tr')!;
+    expect(od.textContent).toMatch(/Sara Design/);
+    expect(od.textContent).toMatch(/Due 14 Nov/);
+    expect(within(od).getAllByRole('cell').pop()!.textContent).toBe('6');
+    expect(within(screen.getByTestId('cc-internal-stuck-table')).getByText('19')).toBeTruthy();
+    // Plan vs posted with organic / ad split, revisions, full list.
+    const st = within(screen.getByTestId('cc-internal-plan-table')).getByText('Static').closest('tr')!;
+    expect(within(st).getAllByRole('cell').slice(1, 7).map((c) => c.textContent)).toEqual(['3', '2', '1', '1', '2', '1']);
+    expect(within(screen.getByTestId('cc-internal-category-table')).getByText('Ad creative')).toBeTruthy();
+    expect(screen.getByTestId('cc-internal-revisions').textContent).toMatch(/In creative revision now1/);
+    const all = screen.getByTestId('cc-internal-items-table');
+    expect(within(all).getByText('Black Friday Teaser Reel')).toBeTruthy();
+    expect(within(all).getAllByText('Creative Revision').length).toBe(1);
+  });
+
+  it('internal payload is never shown in the client portal', () => {
+    const { container } = render(
+      <ContentCalendarReportView clientOnly report={makeReport({ audience: 'internal', internal: makeInternal() })} />,
+    );
+    const text = container.textContent || '';
+    for (const re of INTERNAL_WORDS) expect(text).not.toMatch(re);
+    expect(text).not.toMatch(/Sara Design|Ali Khan|Diwali Offer Banner/);
+    expect(screen.getByText('Client report')).toBeTruthy();
+  });
+
+  it('internal view without the detail block shows a notice instead of client sections', () => {
+    render(<ContentCalendarReportView report={makeReport({ audience: 'internal' })} />);
+    expect(screen.getByText(/internal detail isn't available/)).toBeTruthy();
+    expect(screen.queryByTestId('cc-report-summary')).toBeNull();
   });
 
   it('shows the no-plan state', () => {

@@ -11,6 +11,7 @@ import {
   shortDate,
   typeColor,
 } from './reportFormat';
+import { ContentCalendarInternalReportView } from './ContentCalendarInternalReportView';
 
 const BUCKET_COLORS: Record<string, string> = {
   posted: 'var(--success-dot)',
@@ -279,12 +280,21 @@ export interface ContentCalendarReportViewProps {
   report: ContentCalendarReport;
   /** Toolbar actions shown in the header (hidden when printing). */
   headerActions?: React.ReactNode;
+  /** Client portal: always render the client version, whatever the payload says. */
+  clientOnly?: boolean;
 }
 
-export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps> = ({ report, headerActions }) => {
+/** Internal audience gets its own detailed staff report; everything below is the client version only. */
+export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps> = (props) =>
+  props.report.audience === 'internal' && !props.clientOnly ? (
+    <ContentCalendarInternalReportView report={props.report} headerActions={props.headerActions} />
+  ) : (
+    <ClientReportView {...props} />
+  );
+
+const ClientReportView: React.FC<ContentCalendarReportViewProps> = ({ report, headerActions }) => {
   const s = report.summary;
   const month = monthLabel(report.period.month);
-  const internal = report.audience === 'internal';
   const lastDay = parseInt(report.period.end.slice(8, 10), 10);
   const shortMonth = shortDate(report.period.start).split(' ')[1];
   const pipelineTotal = report.pipeline.reduce((acc, p) => acc + p.count, 0);
@@ -302,12 +312,6 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
 
   return (
     <div className="cc-report-body max-w-[1080px] mx-auto px-3 sm:px-6 pt-4 pb-12 space-y-4 sm:space-y-5 text-fg" data-testid="cc-report">
-      {internal && (
-        <div className="cc-report-section flex items-center justify-center gap-2 rounded-lg border border-warning-bd bg-warning-bg text-warning-fg text-xs font-semibold px-3 py-2">
-          Internal version: includes team stages and workload. Do not send to the client.
-        </div>
-      )}
-
       {/* 1. Header */}
       <header className="cc-report-section bg-surface border border-border rounded-2xl shadow-xs p-4 sm:p-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div className="flex items-center gap-3.5 min-w-0">
@@ -330,7 +334,7 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
           <div className="font-semibold tracking-tight">
             <span className="text-accent">One</span>Worklane
           </div>
-          <div className="text-xs text-fg-muted mt-0.5">{internal ? 'Internal report' : 'Client report'}</div>
+          <div className="text-xs text-fg-muted mt-0.5">Client report</div>
           {headerActions ? <div className="cc-report-noprint mt-2.5 flex sm:justify-end gap-2">{headerActions}</div> : null}
         </div>
       </header>
@@ -368,7 +372,7 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
           )}
         </div>
         <SummaryCard label="Approved & scheduled" value={s.approved_scheduled} sub="Ready to post" />
-        <SummaryCard label={internal ? 'Awaiting client review' : 'Awaiting your review'} value={s.awaiting_review} sub="Action needed" tone={s.awaiting_review ? 'warning' : undefined} />
+        <SummaryCard label="Awaiting your review" value={s.awaiting_review} sub="Action needed" tone={s.awaiting_review ? 'warning' : undefined} />
         <SummaryCard label="In revision" value={s.in_revision} sub="Changes in progress" tone={s.in_revision ? 'accent' : undefined} />
         <SummaryCard label="In production" value={s.in_production} sub="Being prepared" />
       </div>
@@ -478,7 +482,7 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
               {report.pipeline.map((p) => (
                 <span key={p.key} className="inline-flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-sm" style={{ background: BUCKET_COLORS[p.key] }} />
-                  {internal && p.key === 'awaiting_review' ? 'Awaiting client review' : p.label} {p.count}
+                  {p.label} {p.count}
                 </span>
               ))}
             </div>
@@ -569,7 +573,7 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
       <Section testId="cc-report-action" title="Action needed" hint={`As of ${longDate(report.period.today)}`}>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <h3 className="text-sm font-semibold m-0 mb-2.5">{internal ? 'Awaiting client review' : 'Awaiting your review'}</h3>
+            <h3 className="text-sm font-semibold m-0 mb-2.5">Awaiting your review</h3>
             {report.action_needed.awaiting_review.length === 0 ? (
               <p className="text-sm text-fg-muted m-0">Nothing waiting on review.</p>
             ) : (
@@ -605,7 +609,7 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
                     <div className="min-w-0">
                       <div className="text-sm font-medium truncate">{it.title}</div>
                       <div className="text-xs text-fg-muted truncate">
-                        Publishes {shortDate(it.date)} · {internal && it.stage ? it.stage : it.status_label.toLowerCase()}
+                        Publishes {shortDate(it.date)} · {it.status_label.toLowerCase()}
                       </div>
                       <StatusPill
                         className="mt-1"
@@ -651,26 +655,6 @@ export const ContentCalendarReportView: React.FC<ContentCalendarReportViewProps>
           </>
         )}
       </Section>
-
-      {/* Internal only */}
-      {internal && report.internal && (
-        <Section testId="cc-report-internal" title="Team view (internal)" hint={`${report.internal.internal_review} in internal review`}>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div>
-              <h3 className="text-sm font-semibold m-0 mb-2.5">By stage</h3>
-              <Bars rows={report.internal.stage_counts.map((x) => ({ label: x.stage, count: x.count })).filter((x) => x.count > 0)} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold m-0 mb-2.5">Open work by department</h3>
-              <Bars rows={report.internal.workload_by_owner} />
-            </div>
-            <div>
-              <h3 className="text-sm font-semibold m-0 mb-2.5">Open work by assignee</h3>
-              <Bars rows={report.internal.workload_by_assignee} />
-            </div>
-          </div>
-        </Section>
-      )}
 
       <footer className="text-center text-xs text-fg-muted pt-4 border-t border-border">
         Generated from your content calendar, no manual edits
