@@ -1,7 +1,9 @@
 import React from 'react';
-import { Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon, Monitor, PanelLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { ThemePreference } from '@/types';
 import { persistThemePreference } from '@/utils/themePreference';
+import { useSidebarBehavior } from '@/hooks/useSidebarBehavior';
+import type { SidebarBehavior } from '@/utils/sidebarBehavior';
 import { SettingsCard } from '../SettingsCard';
 import { cn } from '@/lib/utils';
 
@@ -45,6 +47,34 @@ export const AccountAppearanceSection: React.FC<AccountAppearanceSectionProps> =
     }
   };
 
+  const { behavior, setBehavior } = useSidebarBehavior();
+
+  const sidebarOptions: {
+    value: SidebarBehavior;
+    label: string;
+    description: string;
+    icon: React.ComponentType<{ className?: string }>;
+  }[] = [
+    {
+      value: 'expanded',
+      label: 'Expanded',
+      description: 'Always show the full sidebar.',
+      icon: PanelLeft,
+    },
+    {
+      value: 'collapsed',
+      label: 'Collapsed',
+      description: 'Show icons only.',
+      icon: PanelLeftClose,
+    },
+    {
+      value: 'hover',
+      label: 'Expand on hover',
+      description: 'Show icons and expand over the page on hover.',
+      icon: PanelLeftOpen,
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <SettingsCard
@@ -60,6 +90,59 @@ export const AccountAppearanceSection: React.FC<AccountAppearanceSectionProps> =
                 key={opt.value}
                 type="button"
                 onClick={() => handleSelect(opt.value)}
+                className={cn(
+                  'p-4 rounded-xl border text-left transition-colors cursor-pointer flex flex-col justify-between',
+                  isSelected
+                    ? 'border-accent bg-accent-soft-2 ring-1 ring-accent'
+                    : 'border-border bg-surface hover:bg-hover'
+                )}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <div
+                    className={cn(
+                      'w-8 h-8 rounded-lg flex items-center justify-center',
+                      isSelected ? 'bg-accent text-white' : 'bg-subtle text-fg-muted'
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                  </div>
+                  <div
+                    className={cn(
+                      'w-4 h-4 rounded-full border flex items-center justify-center',
+                      isSelected ? 'border-accent bg-accent' : 'border-border bg-transparent'
+                    )}
+                  >
+                    {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="block text-xs font-semibold text-fg">
+                    {opt.label}
+                  </span>
+                  <span className="block text-micro text-fg-muted mt-0.5 leading-normal">
+                    {opt.description}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Sidebar"
+        description="Choose how the navigation sidebar behaves on desktop."
+      >
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {sidebarOptions.map((opt) => {
+            const Icon = opt.icon;
+            const isSelected = behavior === opt.value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setBehavior(opt.value)}
                 className={cn(
                   'p-4 rounded-xl border text-left transition-colors cursor-pointer flex flex-col justify-between',
                   isSelected

@@ -2,6 +2,7 @@ import { brandNameOf } from './utils/branding';
 import { Suspense, useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
+import { useSidebarBehavior } from './hooks/useSidebarBehavior';
 import type { ClientPageState } from './components/views/ClientPage';
 import type { WorkspaceFormSeed } from './hooks/useClientForm';
 import type { CrmSubSection } from './types/crm';
@@ -107,50 +108,13 @@ function AppInner() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
-  // User-persisted sidebar state without flash (§8.5, requirement 5)
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    try {
-      const lastUserId = localStorage.getItem('reamarc_last_user_id');
-      const userKey = lastUserId ? `sidebar_collapsed_${lastUserId}` : 'sidebar_collapsed';
-      const saved = localStorage.getItem(userKey) ?? localStorage.getItem('sidebar_collapsed');
-      return saved === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  // Sync state whenever authenticated user changes
-  useEffect(() => {
-    if (user?.id) {
-      try {
-        localStorage.setItem('reamarc_last_user_id', user.id);
-        const userKey = `sidebar_collapsed_${user.id}`;
-        const saved = localStorage.getItem(userKey);
-        if (saved !== null) {
-          setIsSidebarCollapsed(saved === 'true');
-        } else {
-          const generic = localStorage.getItem('sidebar_collapsed');
-          if (generic !== null) {
-            setIsSidebarCollapsed(generic === 'true');
-            localStorage.setItem(userKey, generic);
-          }
-        }
-      } catch {}
-    }
-  }, [user?.id]);
-
-  const handleToggleSidebar = useCallback(() => {
-    setIsSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        if (user?.id) {
-          localStorage.setItem(`sidebar_collapsed_${user.id}`, String(next));
-        }
-        localStorage.setItem('sidebar_collapsed', String(next));
-      } catch {}
-      return next;
-    });
-  }, [user?.id]);
+  // User-persisted sidebar behavior (§8.5, Supabase-style hover expand)
+  const {
+    behavior: sidebarBehavior,
+    setBehavior: setSidebarBehavior,
+    toggle: handleToggleSidebar,
+  } = useSidebarBehavior(user?.id);
+  const isSidebarCollapsed = sidebarBehavior !== 'expanded';
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -950,6 +914,8 @@ function AppInner() {
         onMobileNavOpenChange={setIsMobileNavOpen}
         sidebar={
           <Sidebar
+            behavior={sidebarBehavior}
+            onBehaviorChange={setSidebarBehavior}
             isCollapsed={isSidebarCollapsed}
             onToggleCollapse={handleToggleSidebar}
             isMobile={false}
