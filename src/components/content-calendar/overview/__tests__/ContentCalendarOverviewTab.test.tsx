@@ -4,6 +4,15 @@ import type { ContentCalendarItem } from '../../../../types/contentCalendar';
 import { ContentCalendarOverviewTab } from '../ContentCalendarOverviewTab';
 import { itemMatchesDrill, type OverviewDrill } from '../../../../utils/contentCalendarOverviewMatrix';
 
+let mockUser: { id: string; role: string; department?: string; departments?: string[] } = {
+  id: 'u1',
+  role: 'admin',
+};
+
+vi.mock('../../../../context/AuthContext', () => ({
+  useAuth: () => ({ user: mockUser }),
+}));
+
 const NOW = new Date(2026, 10, 20, 12);
 let n = 0;
 const mk = (stage: string, extra: Partial<ContentCalendarItem> = {}) =>
@@ -137,5 +146,69 @@ describe('ContentCalendarOverviewTab', () => {
     expect(within(table).getByTestId('cc-plan-type-ws1-video')).toBeTruthy();
     // Mobile cards carry the same breakdown.
     expect(within(screen.getByTestId('cc-plan-types-ws1')).getByText('Static')).toBeTruthy();
+  });
+
+  it('editor sees cc-plan-edit and cc-plan-set-<id> and they call onOpenSettings with id', () => {
+    mockUser = { id: 'admin1', role: 'admin' };
+    const onOpenSettings = vi.fn();
+    const planned = [
+      { id: 'ws1', name: 'Example Co', content_expectations: { period: 'month', lines: [{ creative_type: 'Video', expected: 4 }] } },
+      { id: 'ws2', name: 'No Plan Co', content_expectations: null },
+    ];
+    setup({
+      activeClients: planned as never,
+      items: [...items, mk('Posted', { publish_date: '2026-11-09', workspace_id: 'ws2', client_name: 'No Plan Co' })],
+      onOpenSettings,
+    });
+
+    const editBtn = screen.getByTestId('cc-plan-edit');
+    expect(editBtn).toBeTruthy();
+    fireEvent.click(editBtn);
+    expect(onOpenSettings).toHaveBeenCalledWith();
+
+    const setPlanBtns = screen.getAllByTestId('cc-plan-set-ws2');
+    expect(setPlanBtns.length).toBeGreaterThan(0);
+    fireEvent.click(setPlanBtns[0]);
+    expect(onOpenSettings).toHaveBeenCalledWith('ws2');
+  });
+
+  it('non-editor sees neither cc-plan-edit nor cc-plan-set-<id>', () => {
+    mockUser = { id: 'member1', role: 'team_member' };
+    const onOpenSettings = vi.fn();
+    const planned = [
+      { id: 'ws1', name: 'Example Co', content_expectations: { period: 'month', lines: [{ creative_type: 'Video', expected: 4 }] } },
+      { id: 'ws2', name: 'No Plan Co', content_expectations: null },
+    ];
+    setup({
+      activeClients: planned as never,
+      items: [...items, mk('Posted', { publish_date: '2026-11-09', workspace_id: 'ws2', client_name: 'No Plan Co' })],
+      onOpenSettings,
+    });
+
+    expect(screen.queryByTestId('cc-plan-edit')).toBeNull();
+    expect(screen.queryByTestId('cc-plan-set-ws2')).toBeNull();
+  });
+
+  it('non-editor tapping the mobile card body calls onSelectClientFilter', () => {
+    mockUser = { id: 'member1', role: 'team_member' };
+    const onSelectClientFilter = vi.fn();
+    const planned = [
+      { id: 'ws1', name: 'Example Co', content_expectations: { period: 'month', lines: [{ creative_type: 'Video', expected: 4 }] } },
+      { id: 'ws2', name: 'No Plan Co', content_expectations: null },
+    ];
+    setup({
+      activeClients: planned as never,
+      items: [...items, mk('Posted', { publish_date: '2026-11-09', workspace_id: 'ws2', client_name: 'No Plan Co' })],
+      onSelectClientFilter,
+    });
+
+    const cards = screen.getByTestId('cc-plan-cards');
+    const noPlanBtn = within(cards).getByRole('button', { name: /No Plan Co/i });
+    fireEvent.click(noPlanBtn);
+    expect(onSelectClientFilter).toHaveBeenCalledWith('No Plan Co');
+
+    const exampleBtn = within(cards).getByRole('button', { name: /Example Co/i });
+    fireEvent.click(exampleBtn);
+    expect(onSelectClientFilter).toHaveBeenCalledWith('Example Co');
   });
 });

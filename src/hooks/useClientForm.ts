@@ -4,6 +4,7 @@ import { workspaceService, type WorkspaceCreatePayload, type WorkspaceUpdatePayl
 import { dailyLogService } from '../services/dailyLogService';
 import { clientInitials } from '../utils/clientInitials';
 import { focusFirstError } from '../utils/formFocus';
+import { normalizeCreativeType } from '../utils/contentCalendarExpectations';
 
 export interface WorkspaceFormSeed {
   name?: string;
@@ -215,8 +216,48 @@ function snapshot(values: ClientFormValues): string {
   return JSON.stringify(values);
 }
 
-export function buildWorkspacePayload(values: ClientFormValues): WorkspaceCreatePayload {
+const MANAGED_CANONICAL_TYPES = new Set(['static', 'reel', 'carousel', 'animated post', 'cover image']);
+
+function sanitizePreservedLine(line: ContentExpectationLine): ContentExpectationLine {
+  const clamp = (val: number | null | undefined): number | null | undefined => {
+    if (val == null || Number.isNaN(val)) return val;
+    return Math.max(0, Math.min(500, Math.floor(val)));
+  };
+
+  const validSkipMonths = Array.isArray(line.skip_months)
+    ? line.skip_months.filter((m) => typeof m === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(m)).slice(0, 24)
+    : undefined;
+
+  return {
+    ...line,
+    creative_type: (line.creative_type || '').slice(0, 40),
+    expected: clamp(line.expected),
+    expected_max: clamp(line.expected_max),
+    layout: line.layout ? line.layout.slice(0, 20) : line.layout,
+    skip_months: validSkipMonths && validSkipMonths.length > 0 ? validSkipMonths : undefined,
+  };
+}
+
+export function buildWorkspacePayload(values: ClientFormValues, original?: Workspace | null): WorkspaceCreatePayload {
   const computedInitials = values.initials.trim() ? values.initials.trim().toUpperCase() : clientInitials(values.name);
+  const formExpectations = contentExpectationsFromForm(values);
+  const formLines = formExpectations?.lines || [];
+
+  const preservedLines: ContentExpectationLine[] = [];
+  if (original?.content_expectations?.lines) {
+    for (const line of original.content_expectations.lines) {
+      const canon = normalizeCreativeType(line.creative_type);
+      if (!MANAGED_CANONICAL_TYPES.has(canon)) {
+        preservedLines.push(sanitizePreservedLine(line));
+      }
+    }
+  }
+
+  const allLines = [...formLines, ...preservedLines];
+  const mergedExpectations: ContentExpectations | null = allLines.length > 0
+    ? { period: 'month', lines: allLines }
+    : null;
+
   return {
     name: values.name.trim(), initials: computedInitials, brandColor: values.brandColor.trim() || '#4f46e5',
     status: values.status,
@@ -228,7 +269,7 @@ export function buildWorkspacePayload(values: ClientFormValues): WorkspaceCreate
     services: values.selectedServices,
     poc_name: values.pocName.trim() || null, poc_email: values.pocEmail.trim() || null, poc_phone: values.pocPhone.trim() || null,
     billing_name: values.billingName.trim() || null, billing_email: values.billingEmail.trim() || null, billing_phone: values.billingPhone.trim() || null,
-    content_expectations: contentExpectationsFromForm(values),
+    content_expectations: mergedExpectations,
   };
 }
 
@@ -331,6 +372,6 @@ export function useClientForm(initial: Workspace | null, seed?: WorkspaceFormSee
     errorCount, pendingLogoFile, pendingLogoPreview,
     setPendingLogo: (file: File | null, preview: string | null) => { setPendingLogoFile(file); setPendingLogoPreview(preview); },
     toggleService, handleProposalFileUpload, runValidation,
-    payload: () => buildWorkspacePayload(values) as WorkspaceCreatePayload | WorkspaceUpdatePayload,
+    payload: () => buildWorkspacePayload(values, initial) as WorkspaceCreatePayload | WorkspaceUpdatePayload,
   };
 }

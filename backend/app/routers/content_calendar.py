@@ -3,8 +3,9 @@ API Router for Content Calendar module.
 Provides endpoints for viewing, managing, creating, updating, and transitioning content items.
 """
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status, File, Form, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status, File, Form, UploadFile, Path
 from app.core.limiter import limiter
 from app.services.content_calendar_access import (
     require_content_calendar_reader,
@@ -31,6 +32,7 @@ from app.schemas.content_calendar import (
     LinkAssetCreate,
     DriveAssetAttachRequest,
     DrivePickerConfigResponse,
+    ClientExpectationsUpdate,
 )
 from app.services import content_calendar_service
 from app.services import content_calendar_import as content_import
@@ -42,6 +44,15 @@ from app.services.content_calendar_workflow import (
     is_creative_lead,
     is_performance,
 )
+
+
+def can_edit_client_expectations(user: Optional[Dict[str, Any]]) -> bool:
+    if not user:
+        return False
+    if is_performance(user):
+        return False
+    return is_admin(user) or is_content_lead(user) or is_creative_lead(user)
+
 
 router = APIRouter(prefix="/content-calendar", tags=["Content Calendar"])
 
@@ -384,6 +395,202 @@ async def get_content_calendar_report(
     )
     response.headers["Cache-Control"] = "private, no-store"
     return result
+
+
+@router.get("/expectations")
+@limiter.limit("60/minute")
+async def get_client_expectations(
+    request: Request,
+    response: Response,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Returns all active clients and their monthly post expectations."""
+    from app.services.client_logo import sanitize_client_logo_url
+    from app.schemas.content_calendar import canonicalize_creative_type
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    constants = await content_calendar_service.get_constants_from_db(db)
+    raw_types = constants.get("creative_types") or []
+    seen = set()
+    creative_types = []
+    for t in raw_types:
+        canon_key = canonicalize_creative_type(t).lower()
+        if canon_key != "story" and canon_key not in seen:
+            seen.add(canon_key)
+            creative_types.append(t)
+
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "name": 1,
+        "initials": 1,
+        "logo_url": 1,
+        "brandColor": 1,
+        "proposal_url": 1,
+        "proposal_name": 1,
+        "content_expectations": 1,
+    }
+    cursor = db.workspaces.find({"status": {"$ne": "inactive"}}, projection)
+    docs = await cursor.to_list(500)
+    docs.sort(key=lambda w: (w.get("name") or "").lower())
+
+    clients = [
+        {
+            "workspace_id": w["id"],
+            "name": w.get("name", ""),
+            "initials": w.get("initials"),
+            "logo_url": sanitize_client_logo_url(w.get("logo_url")),
+            "brandColor": w.get("brandColor"),
+            "proposal_url": w.get("proposal_url"),
+            "proposal_name": w.get("proposal_name"),
+            "content_expectations": w.get("content_expectations"),
+        }
+        for w in docs
+    ]
+
+    response.headers["Cache-Control"] = "private, no-store"
+    return {
+        "creative_types": creative_types,
+        "can_edit": can_edit_client_expectations(current_user),
+        "clients": clients,
+    }
+
+
+@router.put("/expectations/{workspace_id}")
+@limiter.limit("30/minute")
+async def update_client_expectations(
+    request: Request,
+    payload: ClientExpectationsUpdate,
+    workspace_id: str = Path(..., pattern=r"^[A-Za-z0-9_-]{1,64}$"),
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Updates monthly post expectations for a client workspace."""
+    from app.services.client_logo import sanitize_client_logo_url
+    from app.schemas.content_calendar import canonicalize_creative_type
+
+    if is_performance(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Performance Marketing cannot edit client expectations.",
+        )
+    if not can_edit_client_expectations(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators and content or creative team leads can edit client expectations.",
+        )
+
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    projection = {
+        "_id": 0,
+        "id": 1,
+        "name": 1,
+        "initials": 1,
+        "logo_url": 1,
+        "brandColor": 1,
+        "proposal_url": 1,
+        "proposal_name": 1,
+        "status": 1,
+        "content_expectations": 1,
+    }
+    ws = await db.workspaces.find_one({"id": workspace_id}, projection)
+    if not ws:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+    if ws.get("status") == "inactive":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This client is inactive. Reactivate it in Active clients to change its plan.",
+        )
+
+    # Allowed types: company creative_types (canonical compare) OR already existing in this client's lines
+    constants = await content_calendar_service.get_constants_from_db(db)
+    raw_types = constants.get("creative_types") or []
+    company_types_canon = {
+        canonicalize_creative_type(t).lower()
+        for t in raw_types
+        if canonicalize_creative_type(t).lower() != "story"
+    }
+
+    raw_expectations = ws.get("content_expectations")
+    existing_expectations = raw_expectations if isinstance(raw_expectations, dict) else {}
+    raw_lines = existing_expectations.get("lines")
+    existing_lines = raw_lines if isinstance(raw_lines, list) else []
+    existing_by_canon: Dict[str, dict] = {}
+    for line in existing_lines:
+        if not isinstance(line, dict):
+            continue
+        ctype = line.get("creative_type") or ""
+        canon = canonicalize_creative_type(ctype)
+        if canon.lower() != "story":
+            existing_by_canon[canon.lower()] = dict(line)
+
+    # Validate every submitted type that has a count:
+    for line in payload.lines:
+        if line.expected is not None:
+            c_key = canonicalize_creative_type(line.creative_type).lower()
+            if c_key not in company_types_canon and c_key not in existing_by_canon:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Unknown content type '{line.creative_type}'. Add it under Settings → Content calendar → Field values first.",
+                )
+
+    # Merge (preserve attributes): build new lines in submitted order
+    submitted_canons = set()
+    merged_lines: List[dict] = []
+    for line in payload.lines:
+        canon_label = canonicalize_creative_type(line.creative_type)
+        canon_key = canon_label.lower()
+        submitted_canons.add(canon_key)
+        if line.expected is not None:
+            base = existing_by_canon.get(canon_key, {})
+            new_line = dict(base)
+            new_line["creative_type"] = canon_label
+            new_line["expected"] = line.expected
+            exp_max = new_line.get("expected_max")
+            if type(exp_max) is int and exp_max < line.expected:
+                new_line["expected_max"] = None
+            merged_lines.append(new_line)
+
+    # Existing lines whose type was NOT submitted at all are KEPT unchanged
+    for line in existing_lines:
+        if not isinstance(line, dict):
+            continue
+        ctype = line.get("creative_type") or ""
+        canon_key = canonicalize_creative_type(ctype).lower()
+        if canon_key not in submitted_canons:
+            merged_lines.append(dict(line))
+
+    new_content_expectations = (
+        {"period": "month", "lines": merged_lines} if merged_lines else None
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    result = await db.workspaces.update_one(
+        {"id": workspace_id, "status": {"$ne": "inactive"}},
+        {"$set": {"content_expectations": new_content_expectations, "updated_at": now_iso}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+
+    updated_ws = await db.workspaces.find_one({"id": workspace_id}, projection)
+    if not updated_ws:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found.")
+
+    return {
+        "workspace_id": updated_ws["id"],
+        "name": updated_ws.get("name", ""),
+        "initials": updated_ws.get("initials"),
+        "logo_url": sanitize_client_logo_url(updated_ws.get("logo_url")),
+        "brandColor": updated_ws.get("brandColor"),
+        "proposal_url": updated_ws.get("proposal_url"),
+        "proposal_name": updated_ws.get("proposal_name"),
+        "content_expectations": updated_ws.get("content_expectations"),
+    }
 
 
 @router.get("/{item_id}", response_model=ContentCalendarItemResponse)

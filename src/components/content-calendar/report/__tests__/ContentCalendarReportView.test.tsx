@@ -104,13 +104,17 @@ describe('ContentCalendarReportView', () => {
     expect(screen.queryByTestId('cc-report-summary')).toBeNull();
   });
 
-  it('shows the no-plan state', () => {
-    render(
+  it('shows the no-plan state and note only when has_plan is false', () => {
+    const { rerender } = render(
       <ContentCalendarReportView
         report={makeReport({ has_plan: false, summary: { ...makeReport().summary, planned: 0, delivered: 0, left: 0, percent: null } })}
       />,
     );
     expect(screen.getByText('No monthly plan set for this client')).toBeTruthy();
+    expect(screen.getByText('No monthly plan is set for this client yet.')).toBeTruthy();
+
+    rerender(<ContentCalendarReportView report={makeReport({ has_plan: true })} />);
+    expect(screen.queryByText('No monthly plan is set for this client yet.')).toBeNull();
   });
 
   it('uses the small authorized thumb URL for uploads', () => {
