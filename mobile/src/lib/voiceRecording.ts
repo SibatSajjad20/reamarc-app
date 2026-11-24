@@ -48,10 +48,10 @@ let activeRecording: any = null;
 
 /**
  * Safely check and load native audio library.
- * Supports modern expo-audio (SDK 52/58) and legacy expo-av.
+ * Modern Expo SDK 58 uses expo-audio.
  * Guards against crashing standalone APKs when native module is missing.
  */
-export function getAudioLibrary(): { type: 'expo-audio' | 'expo-av'; lib: any } | null {
+export function getAudioLibrary(): { type: 'expo-audio'; lib: any } | null {
   try {
     const g = globalThis as any;
     const hasNativeExpoAudio = Boolean(
@@ -67,23 +67,6 @@ export function getAudioLibrary(): { type: 'expo-audio' | 'expo-av'; lib: any } 
     }
   } catch {
     /* expo-audio native module not linked or failed to load */
-  }
-
-  try {
-    const g = globalThis as any;
-    const hasNativeExpoAv = Boolean(
-      g?.expo?.modules?.ExponentAV ||
-      g?.ExpoModules?.ExponentAV ||
-      g?.nativeExpoModules?.ExponentAV
-    );
-    if (hasNativeExpoAv) {
-      const ExpoAv = require('expo-av');
-      if (ExpoAv && ExpoAv.Audio) {
-        return { type: 'expo-av', lib: ExpoAv.Audio };
-      }
-    }
-  } catch {
-    /* expo-av not available */
   }
 
   return null;
@@ -103,13 +86,6 @@ export async function requestMicrophonePermission(): Promise<boolean> {
       if (typeof requestRecordingPermissionsAsync === 'function') {
         const res = await requestRecordingPermissionsAsync();
         return res?.granted === true;
-      }
-    }
-    if (mod.type === 'expo-av') {
-      const { requestPermissionsAsync } = mod.lib;
-      if (typeof requestPermissionsAsync === 'function') {
-        const res = await requestPermissionsAsync();
-        return res?.status === 'granted';
       }
     }
   } catch {
@@ -132,7 +108,7 @@ export async function startVoiceRecording(): Promise<any> {
   // Cancel any existing recording
   await cancelVoiceRecording().catch(() => {});
 
-  // 1. expo-audio (Modern Expo SDK 52/58)
+  // 1. expo-audio (Modern Expo SDK 58)
   if (mod.type === 'expo-audio') {
     const { AudioModule } = mod.lib;
     if (!AudioModule || !AudioModule.AudioRecorder) {
@@ -158,49 +134,6 @@ export async function startVoiceRecording(): Promise<any> {
     return activeRecording;
   }
 
-  // 2. expo-av (Legacy fallback)
-  if (mod.type === 'expo-av') {
-    const Audio = mod.lib;
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
-    });
-
-    const recording = new Audio.Recording();
-    await recording.prepareToRecordAsync({
-      isMeteringEnabled: true,
-      android: {
-        extension: '.m4a',
-        outputFormat: Audio.AndroidOutputFormat?.MPEG_4 ?? 2,
-        audioEncoder: Audio.AndroidAudioEncoder?.AAC ?? 3,
-        sampleRate: VOICE_SAMPLE_RATE,
-        numberOfChannels: VOICE_CHANNELS,
-        bitRate: VOICE_BIT_RATE,
-      },
-      ios: {
-        extension: '.m4a',
-        audioQuality: Audio.IOSAudioQuality?.MEDIUM ?? 64,
-        sampleRate: VOICE_SAMPLE_RATE,
-        numberOfChannels: VOICE_CHANNELS,
-        bitRate: VOICE_BIT_RATE,
-        linearPCMBitDepth: 16,
-        linearPCMIsBigEndian: false,
-        linearPCMIsFloat: false,
-      },
-      web: {
-        mimeType: 'audio/webm',
-        bitsPerSecond: VOICE_BIT_RATE,
-      },
-    });
-
-    await recording.startAsync();
-    activeRecording = { type: 'expo-av', rec: recording };
-    return activeRecording;
-  }
-
   throw new Error('No supported audio recording driver found.');
 }
 
@@ -220,14 +153,6 @@ export async function stopVoiceRecording(): Promise<{ uri: string; durationMilli
     return { uri, durationMillis: duration };
   }
 
-  if (current.type === 'expo-av') {
-    const status = await current.rec.getStatusAsync();
-    await current.rec.stopAndUnloadAsync();
-    const uri = current.rec.getURI();
-    if (!uri) throw new Error('Failed to retrieve recording audio file.');
-    return { uri, durationMillis: status.durationMillis || 0 };
-  }
-
   throw new Error('Unsupported recorder.');
 }
 
@@ -240,9 +165,6 @@ export async function cancelVoiceRecording(): Promise<void> {
       if (current.type === 'expo-audio') {
         await current.rec.stop().catch(() => {});
         uri = current.rec.uri || current.rec.url;
-      } else if (current.type === 'expo-av') {
-        await current.rec.stopAndUnloadAsync().catch(() => {});
-        uri = current.rec.getURI?.();
       }
     } catch {
       /* ignore */
