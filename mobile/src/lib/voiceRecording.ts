@@ -258,9 +258,32 @@ export async function getRecordingFileSize(uri: string): Promise<number | null> 
 }
 
 export async function parseVoiceTaskAudio(uri: string): Promise<VoiceTaskParseResponse> {
-  // Multipart upload with a fixed name; the server checks size and magic bytes.
+  const fs = getFileSystem();
+
+  // Expo's WinterCG fetch serializer requires a part with .bytes() or a standard Blob.
+  // Passing { uri, name, type } throws "Unsupported FormDataPart implementation".
+  const audioPart = {
+    name: VOICE_UPLOAD_NAME,
+    type: VOICE_UPLOAD_TYPE,
+    uri,
+    bytes: async (): Promise<Uint8Array> => {
+      try {
+        if (fs.File) {
+          const file = new fs.File(uri);
+          const raw = await file.bytes();
+          if (raw && raw.length > 0) return raw;
+        }
+      } catch {
+        /* fall through to fetch/arrayBuffer */
+      }
+      const res = await fetch(uri);
+      const buf = await res.arrayBuffer();
+      return new Uint8Array(buf);
+    },
+  };
+
   const form = new FormData();
-  form.append('audio', { uri, name: VOICE_UPLOAD_NAME, type: VOICE_UPLOAD_TYPE } as any);
+  form.append('audio', audioPart as any);
 
   return await api<VoiceTaskParseResponse>('/tasks/voice-parse', {
     method: 'POST',
