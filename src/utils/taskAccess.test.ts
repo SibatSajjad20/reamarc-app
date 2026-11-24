@@ -5,6 +5,7 @@ import {
   canEditTask,
   canReassign,
   canTransitionTo,
+  canUseVoiceTask,
   canViewTask,
   changedFields,
   isApprover,
@@ -298,5 +299,21 @@ describe('taskAccess', () => {
     const orig = { title: 'A', priority: 'low', due_date: '2026-11-11' };
     const next = { title: 'A', priority: 'high', due_date: '2026-11-11' };
     expect(changedFields(orig, next)).toEqual({ priority: 'high' });
+  });
+});
+
+describe('canUseVoiceTask', () => {
+  it('allows admins and team leads, including role aliases', () => {
+    for (const role of ['admin', 'super_admin', 'team_lead', 'lead', 'Team Lead', 'ADMIN']) {
+      expect(canUseVoiceTask(actor('u1', role, 'Content'))).toBe(true);
+    }
+  });
+
+  it('blocks members, HR, operations and the Safeer ops exception', () => {
+    for (const role of ['team_member', 'member', 'hr', 'operations', '']) {
+      expect(canUseVoiceTask(actor('u2', role, 'Content'))).toBe(false);
+    }
+    expect(canUseVoiceTask({ ...actor('ops.safeer', 'operations', ''), full_name: 'Safeer' })).toBe(false);
+    expect(canUseVoiceTask(null)).toBe(false);
   });
 });

@@ -39,6 +39,8 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
 
         self.app.dependency_overrides[get_current_user] = _user
         patch("app.services.task_service.ensure_task_indexes", new_callable=AsyncMock).start()
+        # Fake key: the service reads only settings.GROQ_API_KEY (never .env files).
+        patch.object(voice_task_service.settings, "GROQ_API_KEY", "test-key").start()
 
     async def asyncTearDown(self):
         db_instance.db = self._prev
@@ -205,11 +207,9 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(body["task"]["title"], "Prepare quarterly financial presentation")
             self.assertEqual(body["confidence"]["status"], "matched")
 
-    async def test_endpoint_voice_parse_with_json_audio_base64(self):
-        """Calling POST /tasks/voice-parse with JSON audio_base64 parses audio correctly."""
-        import base64
-        fake_audio = b"RIFF....WAVEfmt ...." + b"0" * 200
-        b64_audio = base64.b64encode(fake_audio).decode("ascii")
+    async def test_endpoint_voice_parse_with_multipart_audio(self):
+        """Multipart audio is accepted; the client's filename is never forwarded."""
+        fake_audio = b"\x1a\x45\xdf\xa3" + b"\x00" * 2048
 
         with patch("app.services.voice_task_service.parse_voice_task") as mock_parse:
             mock_parse.return_value = {
@@ -233,11 +233,7 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
             async with await self._ac() as ac:
                 res = await ac.post(
                     "/api/v1/tasks/voice-parse",
-                    json={
-                        "audio_base64": b64_audio,
-                        "filename": "voice_test.m4a",
-                        "content_type": "audio/m4a",
-                    },
+                    files={"audio": ("../../etc/passwd", fake_audio, "audio/webm;codecs=opus")},
                 )
 
             self.assertEqual(res.status_code, 200, res.text)
@@ -246,7 +242,17 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
             mock_parse.assert_called_once()
             called_kwargs = mock_parse.call_args.kwargs
             self.assertEqual(called_kwargs["audio_bytes"], fake_audio)
-            self.assertEqual(called_kwargs["filename"], "voice_test.m4a")
+            self.assertEqual(called_kwargs["audio_ext"], "webm")
+            self.assertNotIn("filename", called_kwargs)
+
+    async def test_endpoint_voice_parse_rejects_json_audio_base64(self):
+        """Audio must be sent as multipart; JSON audio_base64 is rejected."""
+        import base64
+        b64_audio = base64.b64encode(b"RIFF....WAVE" + b"0" * 2048).decode("ascii")
+        async with await self._ac() as ac:
+            res = await ac.post("/api/v1/tasks/voice-parse", json={"audio_base64": b64_audio})
+        self.assertEqual(res.status_code, 400, res.text)
+        self.assertIn("multipart", res.json()["detail"])
 
     async def test_unauthorized_user_blocked(self):
         """User without task access is blocked with 403 Forbidden."""

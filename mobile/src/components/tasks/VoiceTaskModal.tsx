@@ -31,7 +31,17 @@ import {
 import { useTheme } from '../../theme';
 import { SelectField } from '../../ui/SelectField';
 import {
+  VOICE_MAX_SECONDS,
+  VOICE_MAX_TEXT,
+  VOICE_TOO_LONG_MESSAGE,
+  clampVoiceText,
+  isVoiceFileTooLarge,
+  shouldAutoStop,
+} from '../../lib/voiceLimits';
+import {
   cancelVoiceRecording,
+  deleteRecordingFile,
+  getRecordingFileSize,
   isAudioRecordingAvailable,
   parseVoiceTaskAudio,
   parseVoiceTaskText,
@@ -340,6 +350,9 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
   const [showTimeModal, setShowTimeModal] = useState(false);
 
   const timerRef = useRef<any>(null);
+  const elapsedRef = useRef(0);
+  const autoStoppedRef = useRef(false);
+  const finishRef = useRef<() => void>(() => {});
   const scrollViewRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -434,10 +447,18 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
 
     try {
       setSeconds(0);
+      elapsedRef.current = 0;
+      autoStoppedRef.current = false;
       setStep('recording');
 
       timerRef.current = setInterval(() => {
-        setSeconds((prev) => prev + 1);
+        elapsedRef.current += 1;
+        setSeconds(elapsedRef.current);
+        // Hard 60 s cap: stop and process exactly once
+        if (shouldAutoStop(elapsedRef.current) && !autoStoppedRef.current) {
+          autoStoppedRef.current = true;
+          finishRef.current();
+        }
       }, 1000);
 
       await startVoiceRecording();
@@ -470,15 +491,28 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setStep('processing');
     setErrorMsg(null);
 
+    let uri: string | undefined;
     try {
-      const { uri } = await stopVoiceRecording();
+      const stopped = await stopVoiceRecording();
+      uri = stopped.uri;
+      if (isVoiceFileTooLarge(await getRecordingFileSize(uri))) {
+        throw new Error(VOICE_TOO_LONG_MESSAGE);
+      }
       const res: VoiceTaskParseResponse = await parseVoiceTaskAudio(uri);
       applyParseResponse(res);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to transcribe or parse voice command.');
       setStep('idle');
+    } finally {
+      // Never leave the recording in the cache, whatever happened.
+      await deleteRecordingFile(uri);
     }
   };
+  useEffect(() => {
+    finishRef.current = () => {
+      void handleFinishRecording();
+    };
+  });
 
   const handleTestTyped = async () => {
     const clean = typedCommand.trim();
@@ -763,7 +797,8 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                     multiline
                     numberOfLines={3}
                     value={typedCommand}
-                    onChangeText={setTypedCommand}
+                    onChangeText={(value) => setTypedCommand(clampVoiceText(value))}
+                    maxLength={VOICE_MAX_TEXT}
                     placeholder="e.g. Assign website banner to Hamza by tomorrow 5pm urgent"
                     placeholderTextColor={theme.textSubtle}
                     returnKeyType="done"
@@ -773,6 +808,10 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                       }, 120);
                     }}
                   />
+
+                  <Text style={[styles.sectionLabel, { color: theme.textMuted, textAlign: 'right' }]}>
+                    {typedCommand.length}/{VOICE_MAX_TEXT}
+                  </Text>
 
                   <View style={styles.manualActionRow}>
                     <Pressable
@@ -821,7 +860,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                 <View style={styles.timerRow}>
                   <View style={[styles.liveDot, { backgroundColor: theme.rose }]} />
                   <Text style={[styles.timerValue, { color: theme.text }]}>
-                    {formatSeconds(seconds)}
+                    {formatSeconds(seconds)} / {formatSeconds(VOICE_MAX_SECONDS)}
                   </Text>
                 </View>
 

@@ -1,7 +1,6 @@
 """Task Manager API router."""
 from __future__ import annotations
 
-import base64
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile, status
@@ -292,7 +291,7 @@ async def voice_parse_task(
 ):
     """Parse voice audio or transcript text into a structured task draft.
     Restricted to administrators and team leads only.
-    Supports both JSON payloads (audio_base64 or text) and multipart/form-data.
+    Audio must be multipart/form-data (max 3 MB); text may be JSON or form (max 600 chars).
     """
     if not can_use_voice_task(current_user):
         raise HTTPException(
@@ -300,47 +299,10 @@ async def voice_parse_task(
             detail="Voice task agent is restricted to administrators and team leads only.",
         )
 
-    content_type = request.headers.get("content-type", "").lower()
-    audio_bytes: Optional[bytes] = None
-    filename: str = "audio.m4a"
-    file_content_type: str = "audio/m4a"
-    text: Optional[str] = None
-
-    if "application/json" in content_type:
-        try:
-            body = await request.json()
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload.")
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload.")
-
-        b64_audio = body.get("audio_base64")
-        if b64_audio:
-            try:
-                raw_b64 = str(b64_audio)
-                if "," in raw_b64:
-                    raw_b64 = raw_b64.split(",", 1)[1]
-                audio_bytes = base64.b64decode(raw_b64)
-            except Exception:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid base64 audio data.")
-            filename = body.get("filename") or "audio.m4a"
-            file_content_type = body.get("content_type") or "audio/m4a"
-        text = body.get("text")
-    else:
-        try:
-            form = await request.form()
-        except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to parse form data.")
-
-        audio_field = form.get("audio")
-        if audio_field is not None and hasattr(audio_field, "read"):
-            audio_bytes = await audio_field.read()
-            filename = getattr(audio_field, "filename", None) or "audio.m4a"
-            file_content_type = getattr(audio_field, "content_type", None) or "audio/m4a"
-
-        form_text = form.get("text")
-        if form_text is not None:
-            text = str(form_text)
+    # Role check above runs before the body is read; reading is size-capped.
+    voice_input = await voice_task_service.read_voice_request(request)
+    audio_bytes: Optional[bytes] = voice_input["audio"]
+    text: Optional[str] = voice_input["text"]
 
     db = _db()
     assignable = await task_service.list_assignable(db, current_user)
@@ -359,13 +321,13 @@ async def voice_parse_task(
             audio_bytes=audio_bytes,
             assignable_users=assignable,
             workspaces=workspaces,
-            filename=filename,
-            content_type=file_content_type,
+            audio_ext=voice_input["audio_ext"],
+            audio_mime=voice_input["audio_mime"],
             timezone_name=tz_name,
         )
-    elif text and text.strip():
+    elif text:
         return await voice_task_service.extract_task_from_transcript(
-            transcript=text.strip(),
+            transcript=text,
             assignable_users=assignable,
             workspaces=workspaces,
             timezone_name=tz_name,

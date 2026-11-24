@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { taskService } from '@/services/taskService';
 import { useToast } from '@/context/ToastContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
+import { canUseVoiceTask } from '@/utils/taskAccess';
 import type {
   Task,
   TaskActor,
@@ -32,6 +33,12 @@ interface Props {
 
 type Step = 'idle' | 'recording' | 'processing' | 'draft' | 'saving';
 
+export const VOICE_MAX_SECONDS = 60;
+export const VOICE_MAX_BYTES = 3 * 1024 * 1024;
+export const VOICE_MAX_TEXT = 600;
+const VOICE_AUDIO_BITS_PER_SECOND = 32000;
+const TOO_LONG_MSG = 'Recording is too large. Keep voice commands under 60 seconds.';
+
 export const TaskVoiceModal: React.FC<Props> = ({
   open,
   onClose,
@@ -43,11 +50,6 @@ export const TaskVoiceModal: React.FC<Props> = ({
   const { addToast } = useToast();
   const { workspaces: hookWorkspaces } = useWorkspaces();
   const allWorkspaces = propWorkspaces && propWorkspaces.length > 0 ? propWorkspaces : hookWorkspaces;
-
-  // Admin & Team Lead gate
-  if (actor && actor.role !== 'admin' && actor.role !== 'team_lead') {
-    return null;
-  }
 
   const [step, setStep] = useState<Step>('idle');
   const [seconds, setSeconds] = useState(0);
@@ -78,6 +80,9 @@ export const TaskVoiceModal: React.FC<Props> = ({
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const elapsedRef = useRef(0);
+  const autoStoppedRef = useRef(false);
+  const finishRef = useRef<() => void>(() => {});
 
   // Reset state whenever modal is opened or closed
   useEffect(() => {
@@ -140,7 +145,14 @@ export const TaskVoiceModal: React.FC<Props> = ({
       }
 
       // Request stream directly inside the user click handler
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          noiseSuppression: true,
+          echoCancellation: true,
+          autoGainControl: true,
+          channelCount: 1,
+        },
+      });
       streamRef.current = stream;
 
       let mimeType = '';
@@ -156,7 +168,9 @@ export const TaskVoiceModal: React.FC<Props> = ({
 
       let recorder: MediaRecorder;
       try {
-        recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+        recorder = mimeType
+          ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: VOICE_AUDIO_BITS_PER_SECOND })
+          : new MediaRecorder(stream, { audioBitsPerSecond: VOICE_AUDIO_BITS_PER_SECOND });
       } catch {
         recorder = new MediaRecorder(stream);
       }
@@ -174,14 +188,21 @@ export const TaskVoiceModal: React.FC<Props> = ({
 
       // Successfully started
       setSeconds(0);
+      elapsedRef.current = 0;
+      autoStoppedRef.current = false;
       setStep('recording');
 
       timerRef.current = setInterval(() => {
-        setSeconds((prev) => prev + 1);
+        elapsedRef.current += 1;
+        setSeconds(elapsedRef.current);
+        // Hard 60 s cap: stop and process exactly once
+        if (elapsedRef.current >= VOICE_MAX_SECONDS && !autoStoppedRef.current) {
+          autoStoppedRef.current = true;
+          finishRef.current();
+        }
       }, 1000);
     } catch (err: any) {
       cleanup();
-      console.error('Audio capture error:', err);
       if (err?.name === 'NotAllowedError' || /permission|denied|blocked/i.test(err?.message || '')) {
         setErrorMsg('Microphone permission was denied. Check the site permissions icon in your browser address bar.');
       } else if (err?.name === 'NotFoundError' || /devices? not found/i.test(err?.message || '')) {
@@ -249,6 +270,15 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setErrorMsg(null);
 
     recorder.onstop = async () => {
+      // Release the microphone as soon as recording stops, before the upload.
+      if (streamRef.current) {
+        try {
+          streamRef.current.getTracks().forEach((track) => track.stop());
+        } catch {
+          /* ignore */
+        }
+        streamRef.current = null;
+      }
       try {
         const mimeType = recorder.mimeType || 'audio/webm';
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
@@ -256,26 +286,23 @@ export const TaskVoiceModal: React.FC<Props> = ({
         if (blob.size < 100) {
           throw new Error('Audio recording too short. Please speak and try again.');
         }
+        if (blob.size > VOICE_MAX_BYTES) {
+          throw new Error(TOO_LONG_MSG);
+        }
 
         const res: VoiceTaskParseResponse = await taskService.voiceParseTask({ audio: blob });
         applyParsedResponse(res);
       } catch (err: any) {
         setErrorMsg(err?.message || 'Failed to transcribe or parse voice command.');
         setStep('idle');
-      } finally {
-        if (streamRef.current) {
-          try {
-            streamRef.current.getTracks().forEach((track) => track.stop());
-          } catch {
-            /* ignore */
-          }
-          streamRef.current = null;
-        }
       }
     };
 
     recorder.stop();
   };
+  useEffect(() => {
+    finishRef.current = handleFinishRecording;
+  });
 
   const handleTestTyped = async () => {
     if (!typedCommand.trim()) return;
@@ -381,6 +408,11 @@ export const TaskVoiceModal: React.FC<Props> = ({
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  // Admin & Team Lead gate (after all hooks so hook order never changes)
+  if (actor && !canUseVoiceTask(actor)) {
+    return null;
+  }
+
   return (
     <FormDialog
       open={open}
@@ -446,7 +478,8 @@ export const TaskVoiceModal: React.FC<Props> = ({
                 <input
                   type="text"
                   value={typedCommand}
-                  onChange={(e) => setTypedCommand(e.target.value)}
+                  onChange={(e) => setTypedCommand(e.target.value.slice(0, VOICE_MAX_TEXT))}
+                  maxLength={VOICE_MAX_TEXT}
                   placeholder="e.g. Assign website banner to Hamza by tomorrow 5pm urgent"
                   className="flex-1 h-9 px-3 rounded-md bg-surface border border-border text-sm text-fg focus:border-accent focus:outline-hidden"
                   onKeyDown={(e) => {
@@ -466,6 +499,9 @@ export const TaskVoiceModal: React.FC<Props> = ({
                   Parse
                 </Button>
               </div>
+              <p className="text-xs text-fg-muted text-right">
+                {typedCommand.length}/{VOICE_MAX_TEXT}
+              </p>
             </div>
           </div>
         )}
@@ -481,7 +517,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
               <div className="flex items-center justify-center gap-2">
                 <span className="w-2.5 h-2.5 rounded-full bg-danger-solid animate-pulse" />
                 <span className="text-2xl font-semibold font-mono text-fg tracking-tight">
-                  {formatSeconds(seconds)}
+                  {formatSeconds(seconds)} / {formatSeconds(VOICE_MAX_SECONDS)}
                 </span>
               </div>
               <p className="text-xs text-fg-muted">

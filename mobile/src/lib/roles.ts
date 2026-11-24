@@ -22,6 +22,13 @@ export function isAdmin(role?: string | null): boolean {
   return value === 'admin' || value === 'super_admin';
 }
 
+/** Voice task agent: admins and team leads only (server enforces the same rule). */
+export function canUseVoiceTasks(user?: { role?: string | null } | null): boolean {
+  if (!user) return false;
+  const role = normalizeRole(user.role).replace(/[-\s]/g, '_');
+  return role === 'admin' || role === 'super_admin' || role === 'team_lead' || role === 'lead';
+}
+
 export interface RoleUserLike {
   role?: string | null;
   department?: string | null;

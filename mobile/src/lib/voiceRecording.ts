@@ -1,4 +1,13 @@
 import { api } from './api';
+import {
+  VOICE_BIT_RATE,
+  VOICE_CHANNELS,
+  VOICE_SAMPLE_RATE,
+  VOICE_UPLOAD_NAME,
+  VOICE_UPLOAD_TYPE,
+  buildExpoAudioRecordingOptions,
+  isDeletableCacheUri,
+} from './voiceLimits';
 
 export interface VoiceTaskConfidence {
   status: 'matched' | 'needs_selection' | 'unassigned';
@@ -86,8 +95,8 @@ export async function requestMicrophonePermission(): Promise<boolean> {
         return res?.status === 'granted';
       }
     }
-  } catch (err) {
-    console.warn('Failed to request microphone permission:', err);
+  } catch {
+    /* permission request failed; treated as denied */
   }
   return false;
 }
@@ -108,7 +117,7 @@ export async function startVoiceRecording(): Promise<any> {
 
   // 1. expo-audio (Modern Expo SDK 52/58)
   if (mod.type === 'expo-audio') {
-    const { AudioModule, RecordingPresets } = mod.lib;
+    const { AudioModule } = mod.lib;
     if (!AudioModule || !AudioModule.AudioRecorder) {
       throw new Error('ExpoAudio native recorder is not available.');
     }
@@ -120,16 +129,12 @@ export async function startVoiceRecording(): Promise<any> {
       }).catch(() => {});
     }
 
-    const preset = RecordingPresets?.HIGH_QUALITY || {
-      extension: '.m4a',
-      sampleRate: 16000,
-      numberOfChannels: 1,
-      bitRate: 64000,
-    };
-
-    const recorder = new AudioModule.AudioRecorder(preset);
+    // Speech-sized recording: 16 kHz mono ~32 kbps (not the 44.1 kHz stereo HIGH_QUALITY preset).
+    // expo-audio flattens the per-platform keys (android.audioSource etc.) inside prepareToRecordAsync(options).
+    const options = buildExpoAudioRecordingOptions(mod.lib);
+    const recorder = new AudioModule.AudioRecorder(options);
     if (typeof recorder.prepareToRecordAsync === 'function') {
-      await recorder.prepareToRecordAsync();
+      await recorder.prepareToRecordAsync(options);
     }
     recorder.record();
     activeRecording = { type: 'expo-audio', rec: recorder };
@@ -154,23 +159,23 @@ export async function startVoiceRecording(): Promise<any> {
         extension: '.m4a',
         outputFormat: Audio.AndroidOutputFormat?.MPEG_4 ?? 2,
         audioEncoder: Audio.AndroidAudioEncoder?.AAC ?? 3,
-        sampleRate: 16000,
-        numberOfChannels: 1,
-        bitRate: 64000,
+        sampleRate: VOICE_SAMPLE_RATE,
+        numberOfChannels: VOICE_CHANNELS,
+        bitRate: VOICE_BIT_RATE,
       },
       ios: {
         extension: '.m4a',
-        audioQuality: Audio.IOSAudioQuality?.HIGH ?? 2,
-        sampleRate: 16000,
-        numberOfChannels: 1,
-        bitRate: 64000,
+        audioQuality: Audio.IOSAudioQuality?.MEDIUM ?? 64,
+        sampleRate: VOICE_SAMPLE_RATE,
+        numberOfChannels: VOICE_CHANNELS,
+        bitRate: VOICE_BIT_RATE,
         linearPCMBitDepth: 16,
         linearPCMIsBigEndian: false,
         linearPCMIsFloat: false,
       },
       web: {
         mimeType: 'audio/webm',
-        bitsPerSecond: 64000,
+        bitsPerSecond: VOICE_BIT_RATE,
       },
     });
 
@@ -213,86 +218,101 @@ export async function cancelVoiceRecording(): Promise<void> {
   if (activeRecording) {
     const current = activeRecording;
     activeRecording = null;
+    let uri: string | undefined;
     try {
       if (current.type === 'expo-audio') {
         await current.rec.stop().catch(() => {});
+        uri = current.rec.uri || current.rec.url;
       } else if (current.type === 'expo-av') {
         await current.rec.stopAndUnloadAsync().catch(() => {});
+        uri = current.rec.getURI?.();
       }
     } catch {
       /* ignore */
     }
+    await deleteRecordingFile(uri);
   }
 }
 
-/**
- * Reads local audio recording file and returns base64-encoded string.
- * Uses modern expo-file-system File API with fallbacks to legacy and fetch.
- */
-export async function readAudioFileAsBase64(uri: string): Promise<string> {
-  // Method 1: expo-file-system File (SDK 52/58 modern standard)
+function getFileSystem(): { File?: any; Paths?: any; legacy?: any } {
+  const out: { File?: any; Paths?: any; legacy?: any } = {};
   try {
-    const { File: ExpoFile } = require('expo-file-system');
-    if (ExpoFile) {
-      const file = new ExpoFile(uri);
-      if (typeof file.base64 === 'function') {
-        const b64 = await file.base64();
-        if (b64 && typeof b64 === 'string' && b64.length > 0) {
-          return b64;
-        }
+    const fs = require('expo-file-system');
+    out.File = fs?.File;
+    out.Paths = fs?.Paths;
+  } catch {
+    /* not available */
+  }
+  try {
+    out.legacy = require('expo-file-system/legacy');
+  } catch {
+    /* not available */
+  }
+  return out;
+}
+
+function getCacheDir(fs: { Paths?: any; legacy?: any }): string | null {
+  const modern = fs.Paths?.cache?.uri;
+  if (typeof modern === 'string' && modern) return modern;
+  const legacy = fs.legacy?.cacheDirectory;
+  return typeof legacy === 'string' && legacy ? legacy : null;
+}
+
+/** Deletes a recording from the app cache. Never throws; ignores paths outside the cache folder. */
+export async function deleteRecordingFile(uri?: string | null): Promise<void> {
+  if (!uri) return;
+  const fs = getFileSystem();
+  if (!isDeletableCacheUri(uri, getCacheDir(fs))) return;
+  try {
+    if (fs.File) {
+      const file = new fs.File(uri);
+      if (file.exists !== false && typeof file.delete === 'function') {
+        file.delete();
+        return;
       }
     }
-  } catch (err) {
-    console.warn('ExpoFile.base64 failed, falling back:', err);
+  } catch {
+    /* fall through to legacy */
   }
-
-  // Method 2: expo-file-system/legacy
   try {
-    const FileSystemLegacy = require('expo-file-system/legacy');
-    if (FileSystemLegacy && typeof FileSystemLegacy.readAsStringAsync === 'function') {
-      const b64 = await FileSystemLegacy.readAsStringAsync(uri, {
-        encoding: FileSystemLegacy.EncodingType?.Base64 ?? 'base64',
-      });
-      if (b64 && typeof b64 === 'string' && b64.length > 0) {
-        return b64;
-      }
+    if (fs.legacy && typeof fs.legacy.deleteAsync === 'function') {
+      await fs.legacy.deleteAsync(uri, { idempotent: true });
     }
-  } catch (err) {
-    console.warn('expo-file-system/legacy failed, falling back:', err);
+  } catch {
+    /* ignore */
   }
+}
 
-  // Method 3: fetch as arrayBuffer
+/** Size of a local recording in bytes, or null if it cannot be read. */
+export async function getRecordingFileSize(uri: string): Promise<number | null> {
+  const fs = getFileSystem();
   try {
-    const res = await fetch(uri);
-    const buf = await res.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let binary = '';
-    const chunk = 8192;
-    for (let i = 0; i < bytes.length; i += chunk) {
-      binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+    if (fs.File) {
+      const size = new fs.File(uri).size;
+      if (typeof size === 'number') return size;
     }
-    if (typeof btoa === 'function') {
-      const b64 = btoa(binary);
-      if (b64 && b64.length > 0) return b64;
-    }
-  } catch (err) {
-    console.warn('fetch arrayBuffer conversion failed:', err);
+  } catch {
+    /* fall through */
   }
-
-  throw new Error('Unable to read voice recording audio file.');
+  try {
+    if (fs.legacy && typeof fs.legacy.getInfoAsync === 'function') {
+      const info = await fs.legacy.getInfoAsync(uri);
+      if (info && typeof info.size === 'number') return info.size;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
 }
 
 export async function parseVoiceTaskAudio(uri: string): Promise<VoiceTaskParseResponse> {
-  const filename = uri.split('/').pop() || 'voice_task.m4a';
-  const audio_base64 = await readAudioFileAsBase64(uri);
+  // Multipart upload with a fixed name; the server checks size and magic bytes.
+  const form = new FormData();
+  form.append('audio', { uri, name: VOICE_UPLOAD_NAME, type: VOICE_UPLOAD_TYPE } as any);
 
   return await api<VoiceTaskParseResponse>('/tasks/voice-parse', {
     method: 'POST',
-    body: JSON.stringify({
-      audio_base64,
-      filename,
-      content_type: 'audio/m4a',
-    }),
+    body: form,
   });
 }
 

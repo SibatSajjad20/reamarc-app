@@ -1,18 +1,20 @@
 """Voice Task Service for transcribing voice commands and extracting structured task proposals."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
 import difflib
+import time
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
 import httpx
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 
-from app.config import Settings
+from app.config import settings
 
 logger = logging.getLogger("app.services.voice_task")
 
@@ -20,43 +22,208 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 WHISPER_MODEL = "whisper-large-v3-turbo"
 DEFAULT_LLM_MODELS = [
     "openai/gpt-oss-120b",
-    "llama-3.3-70b-versatile",
-    "qwen/qwen3.8-27b",
     "openai/gpt-oss-20b",
 ]
 
+# Request limits (413 as a literal: the Starlette constant name differs across versions)
+HTTP_413_TOO_LARGE = 413
+MAX_AUDIO_BYTES = 3 * 1024 * 1024
+MIN_AUDIO_BYTES = 1024
+MAX_TEXT_CHARS = 600
+MAX_FORM_OVERHEAD = 64 * 1024
+MAX_JSON_BODY_BYTES = MAX_TEXT_CHARS * 4 + 1024
+READ_CHUNK_BYTES = 64 * 1024
+
+# Provider time budget (whole request: Whisper + LLM)
+VOICE_DEADLINE_SECONDS = 28.0
+WHISPER_TIMEOUT_SECONDS = 12.0
+LLM_CALL_TIMEOUT_SECONDS = 15.0
+MIN_CALL_SECONDS = 2.0
+
+ALLOWED_AUDIO_TYPES = {
+    "audio/webm",
+    "audio/ogg",
+    "audio/mp4",
+    "audio/m4a",
+    "audio/x-m4a",
+    "audio/aac",
+    "audio/wav",
+    "audio/x-wav",
+    "audio/mpeg",
+}
+
+# Fixed client-facing messages (provider text never reaches the client)
+MSG_TOO_LARGE = "Recording is too large. Keep voice commands under 60 seconds."
+MSG_TEXT_TOO_LONG = "Command is too long (max 600 characters)."
+MSG_UNSUPPORTED_AUDIO = "Unsupported audio format."
+MSG_AUDIO_AS_MULTIPART = "Send audio as multipart form data."
+MSG_TOO_SHORT = "Audio recording is empty or too short. Please speak clearly and try again."
+MSG_NOT_CONFIGURED = "Voice service is not configured."
+MSG_TRANSCRIBE_FAILED = "Voice transcription is unavailable right now. Please try again or type the task."
+MSG_BUSY = "Voice service is busy. Please try again in a minute."
+MSG_EXTRACT_FAILED = "Could not understand the command right now. Please try again or type the task."
+MSG_TIMEOUT = "Voice service timed out. Please try again."
+
+_NULLABLE_STRING = {"type": ["string", "null"]}
+_STRING_ARRAY = {"type": "array", "items": {"type": "string"}}
+
+VOICE_TASK_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "is_task": {"type": "boolean"},
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "assignee_name": _NULLABLE_STRING,
+        "assignee_id": _NULLABLE_STRING,
+        "spoken_assignee": _NULLABLE_STRING,
+        "ambiguous_names": _STRING_ARRAY,
+        "watcher_names": _STRING_ARRAY,
+        "watcher_ids": _STRING_ARRAY,
+        "spoken_watchers": _STRING_ARRAY,
+        "company_id": _NULLABLE_STRING,
+        "company_name": _NULLABLE_STRING,
+        "spoken_company": _NULLABLE_STRING,
+        "start_date": _NULLABLE_STRING,
+        "due_date": _NULLABLE_STRING,
+        "due_time": _NULLABLE_STRING,
+        "estimate_hours": {"type": ["number", "null"]},
+        "priority": {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
+        "checklist": _STRING_ARRAY,
+    },
+    "required": [
+        "is_task", "title", "description", "assignee_name", "assignee_id",
+        "spoken_assignee", "ambiguous_names", "watcher_names", "watcher_ids",
+        "spoken_watchers", "company_id", "company_name", "spoken_company",
+        "start_date", "due_date", "due_time", "estimate_hours", "priority", "checklist",
+    ],
+    "additionalProperties": False,
+}
+
 
 def _get_groq_api_key() -> str:
-    # 1. Check global settings instance from app.config
+    key = (settings.GROQ_API_KEY or "").strip()
+    if not key:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_NOT_CONFIGURED)
+    return key
+
+
+def _new_deadline() -> float:
+    return time.monotonic() + VOICE_DEADLINE_SECONDS
+
+
+def _remaining(deadline: float) -> float:
+    return deadline - time.monotonic()
+
+
+def _is_retryable_status(code: int) -> bool:
+    return code == 429 or code >= 500
+
+
+# ── Request reading (size, type and magic-byte checks) ─────────────────
+
+def detect_audio_format(data: bytes) -> Optional[Tuple[str, str]]:
+    """Return (extension, mime) from the file's magic bytes, or None."""
+    if len(data) < 12:
+        return None
+    if data[:4] == b"\x1a\x45\xdf\xa3":
+        return "webm", "audio/webm"
+    if data[:4] == b"OggS":
+        return "ogg", "audio/ogg"
+    if data[4:8] == b"ftyp":
+        return "m4a", "audio/mp4"
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return "wav", "audio/wav"
+    if data[:3] == b"ID3" or (data[0] == 0xFF and (data[1] & 0xE0) == 0xE0):
+        return "mp3", "audio/mpeg"
+    return None
+
+
+def _declared_type_allowed(content_type: Optional[str]) -> bool:
+    base = (content_type or "").split(";", 1)[0].strip().lower()
+    return base in ALLOWED_AUDIO_TYPES
+
+
+async def _read_body_limited(request: Request, limit: int) -> bytes:
+    """Read the request body in chunks, aborting with 413 once `limit` is passed."""
+    raw_len = request.headers.get("content-length")
+    if raw_len is not None:
+        try:
+            declared = int(raw_len)
+        except ValueError:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid Content-Length header.")
+        if declared < 0 or declared > limit:
+            raise HTTPException(status_code=HTTP_413_TOO_LARGE, detail=MSG_TOO_LARGE)
+
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf.extend(chunk)
+        if len(buf) > limit:
+            raise HTTPException(status_code=HTTP_413_TOO_LARGE, detail=MSG_TOO_LARGE)
+    body = bytes(buf)
+    # Let Starlette's json()/form() parse the already-bounded body.
+    request._body = body
+    return body
+
+
+def _clean_text(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if len(text) > MAX_TEXT_CHARS:
+        raise HTTPException(status_code=HTTP_413_TOO_LARGE, detail=MSG_TEXT_TOO_LONG)
+    return text
+
+
+async def read_voice_request(request: Request) -> Dict[str, Any]:
+    """Read a voice-parse request safely.
+
+    Returns {"audio": bytes | None, "audio_ext": str, "audio_mime": str, "text": str | None}.
+    """
+    content_type = request.headers.get("content-type", "").lower()
+    out: Dict[str, Any] = {"audio": None, "audio_ext": "", "audio_mime": "", "text": None}
+
+    if "application/json" in content_type:
+        await _read_body_limited(request, MAX_JSON_BODY_BYTES)
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload.")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON payload.")
+        if body.get("audio_base64"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_AUDIO_AS_MULTIPART)
+        out["text"] = _clean_text(body.get("text"))
+        return out
+
+    await _read_body_limited(request, MAX_AUDIO_BYTES + MAX_FORM_OVERHEAD)
     try:
-        from app.config import settings
-        key = (settings.GROQ_API_KEY or "").strip()
-        if key:
-            return key
+        form = await request.form(max_files=1, max_fields=2)
     except Exception:
-        pass
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to parse form data.")
 
-    # 2. Check os.environ
-    import os
-    env_key = os.getenv("GROQ_API_KEY", "").strip()
-    if env_key:
-        return env_key
+    audio_field = form.get("audio")
+    if audio_field is not None and hasattr(audio_field, "read"):
+        buf = bytearray()
+        while True:
+            chunk = await audio_field.read(READ_CHUNK_BYTES)
+            if not chunk:
+                break
+            buf.extend(chunk)
+            if len(buf) > MAX_AUDIO_BYTES:
+                raise HTTPException(status_code=HTTP_413_TOO_LARGE, detail=MSG_TOO_LARGE)
+        audio = bytes(buf)
+        if len(audio) < MIN_AUDIO_BYTES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_TOO_SHORT)
+        detected = detect_audio_format(audio)
+        if not detected or not _declared_type_allowed(getattr(audio_field, "content_type", None)):
+            raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=MSG_UNSUPPORTED_AUDIO)
+        out["audio"] = audio
+        out["audio_ext"], out["audio_mime"] = detected
 
-    # 3. Direct inspection of .env files across possible working directories
-    for env_path in [".env", "backend/.env", "../backend/.env", "../.env"]:
-        if os.path.exists(env_path):
-            try:
-                with open(env_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        clean = line.strip()
-                        if clean.startswith("GROQ_API_KEY="):
-                            val = clean.split("=", 1)[1].strip().strip('"').strip("'")
-                            if val:
-                                return val
-            except Exception:
-                pass
-
-    return ""
+    form_text = form.get("text")
+    if form_text is not None and not hasattr(form_text, "read"):
+        out["text"] = _clean_text(form_text)
+    return out
 
 
 COMMON_NAME_EQUIVALENTS = {
@@ -83,24 +250,19 @@ def _normalize_name_token(token: str) -> str:
 
 async def transcribe_audio(
     audio_bytes: bytes,
-    filename: str = "audio.m4a",
-    content_type: str = "audio/m4a",
+    audio_ext: str = "m4a",
+    audio_mime: str = "audio/mp4",
     roster_hint: Optional[List[Dict[str, Any]]] = None,
     workspace_hint: Optional[List[Dict[str, Any]]] = None,
+    deadline: Optional[float] = None,
 ) -> str:
     """Transcribe voice audio to text using Groq Whisper Large v3 Turbo."""
     if not audio_bytes or len(audio_bytes) < 100:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Audio recording is empty or too short. Please speak clearly and try again.",
-        )
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=MSG_TOO_SHORT)
 
     api_key = _get_groq_api_key()
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Voice service is not configured (missing GROQ_API_KEY).",
-        )
+    if deadline is None:
+        deadline = _new_deadline()
 
     # Build prompt hint from team members and companies to bias acoustic decoder towards correct spelling
     prompt_words: List[str] = []
@@ -120,8 +282,9 @@ async def transcribe_audio(
         "Authorization": f"Bearer {api_key}",
     }
 
+    # Fixed filename: never forward the client's filename or declared type.
     files = {
-        "file": (filename, audio_bytes, content_type or "audio/m4a"),
+        "file": (f"voice.{audio_ext or 'm4a'}", audio_bytes, audio_mime or "audio/mp4"),
     }
     data = {
         "model": WHISPER_MODEL,
@@ -130,29 +293,39 @@ async def transcribe_audio(
         "prompt": prompt_str,
     }
 
+    budget = min(WHISPER_TIMEOUT_SECONDS, _remaining(deadline))
+    if budget < MIN_CALL_SECONDS:
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=MSG_TIMEOUT)
+
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                f"{GROQ_BASE_URL}/audio/transcriptions",
-                headers=headers,
-                files=files,
-                data=data,
+        async with httpx.AsyncClient(timeout=budget) as client:
+            resp = await asyncio.wait_for(
+                client.post(
+                    f"{GROQ_BASE_URL}/audio/transcriptions",
+                    headers=headers,
+                    files=files,
+                    data=data,
+                ),
+                timeout=budget,
             )
+    except (asyncio.TimeoutError, httpx.TimeoutException):
+        logger.warning("groq_whisper_timeout")
+        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=MSG_TIMEOUT)
     except httpx.RequestError as exc:
-        logger.error(f"Network error calling Groq Whisper: {exc}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Failed to connect to voice transcription service. Please try again.",
-        ) from exc
+        logger.warning("groq_whisper_network_error type=%s", type(exc).__name__)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=MSG_TRANSCRIBE_FAILED)
 
     if resp.status_code != 200:
-        logger.error(f"Groq Whisper returned {resp.status_code}: {resp.text}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Voice transcription failed: {resp.text[:200]}",
-        )
+        logger.warning("groq_whisper_failed status=%s", resp.status_code)
+        if resp.status_code == 429:
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_BUSY)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=MSG_TRANSCRIBE_FAILED)
 
-    result = resp.json()
+    try:
+        result = resp.json()
+    except Exception:
+        logger.warning("groq_whisper_bad_json")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=MSG_TRANSCRIBE_FAILED)
     transcript = (result.get("text") or "").strip()
     if not transcript:
         raise HTTPException(
@@ -160,7 +333,7 @@ async def transcribe_audio(
             detail="No intelligible speech detected. Please speak closer to the microphone and try again.",
         )
 
-    return transcript
+    return transcript[:MAX_TEXT_CHARS]
 
 
 def _find_matching_candidates(
@@ -271,14 +444,13 @@ async def extract_task_from_transcript(
     assignable_users: List[Dict[str, Any]],
     workspaces: Optional[List[Dict[str, Any]]] = None,
     timezone_name: str = "Asia/Karachi",
+    deadline: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """Parse a voice transcript into structured task fields using Groq LLaMA 3.3 70B."""
+    """Parse a voice transcript into structured task fields using Groq GPT-OSS (strict JSON schema)."""
     api_key = _get_groq_api_key()
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Voice service is not configured (missing GROQ_API_KEY).",
-        )
+    if deadline is None:
+        deadline = _new_deadline()
+    transcript = (transcript or "").strip()[:MAX_TEXT_CHARS]
 
     # Current time anchor
     try:
@@ -312,10 +484,10 @@ The voice command may be spoken in English, Urdu (Perso-Arabic Urdu script), or 
 Your job is to read the transcribed voice command and extract task properties strictly as JSON.
 
 Active Company Team Roster (EMPLOYEES DROPDOWN):
-{json.dumps(compact_roster, indent=2)}
+{json.dumps(compact_roster, separators=(",", ":"))}
 
 Active Companies / Workspaces:
-{json.dumps(compact_workspaces, indent=2)}
+{json.dumps(compact_workspaces, separators=(",", ":"))}
 
 CRITICAL RULES FOR EXTRACTION:
 0. "is_task": boolean. Set to true if the voice command is a genuine instruction or request to create, assign, or track a task. Set to false if the speech is casual conversational talk (e.g. "how are you", "what's the weather today"), testing phrases ("hello testing 1 2 3", "mic check"), random chatter, or questions with no actionable task intent.
@@ -367,69 +539,79 @@ Return ONLY a valid JSON object with these keys:
 }}"""
 
     models_to_try = list(DEFAULT_LLM_MODELS)
-    last_error_text = ""
     content = None
+    last_failure = "error"  # "busy" | "timeout" | "error"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=LLM_CALL_TIMEOUT_SECONDS) as client:
         for model_name in models_to_try:
+            budget = min(LLM_CALL_TIMEOUT_SECONDS, _remaining(deadline))
+            if budget < MIN_CALL_SECONDS:
+                last_failure = "timeout"
+                break
             payload = {
                 "model": model_name,
                 "temperature": 0.1,
-                "response_format": {"type": "json_object"},
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {"name": "voice_task", "strict": True, "schema": VOICE_TASK_SCHEMA},
+                },
                 "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"Voice Command: \"{transcript}\""},
                 ],
             }
             try:
-                resp = await client.post(
-                    f"{GROQ_BASE_URL}/chat/completions",
-                    headers=headers,
-                    json=payload,
+                resp = await asyncio.wait_for(
+                    client.post(
+                        f"{GROQ_BASE_URL}/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=budget,
+                    ),
+                    timeout=budget,
                 )
-                if resp.status_code == 200:
-                    content = resp.json()["choices"][0]["message"]["content"]
-                    break
-                else:
-                    last_error_text = resp.text
-                    logger.warning(f"Groq model {model_name} failed ({resp.status_code}): {resp.text[:100]}")
+            except (asyncio.TimeoutError, httpx.TimeoutException):
+                logger.warning("groq_llm_timeout model=%s", model_name)
+                last_failure = "timeout"
+                continue
             except httpx.RequestError as exc:
-                last_error_text = str(exc)
-                logger.warning(f"Groq model {model_name} network error: {exc}")
+                logger.warning("groq_llm_network_error model=%s type=%s", model_name, type(exc).__name__)
+                last_failure = "error"
+                continue
+
+            if resp.status_code == 200:
+                try:
+                    content = resp.json()["choices"][0]["message"]["content"]
+                except Exception:
+                    logger.warning("groq_llm_bad_response model=%s", model_name)
+                    last_failure = "error"
+                    break
+                break
+
+            logger.warning("groq_llm_failed model=%s status=%s", model_name, resp.status_code)
+            if not _is_retryable_status(resp.status_code):
+                last_failure = "error"
+                break
+            last_failure = "busy" if resp.status_code == 429 else "error"
 
     if not content:
-        logger.error(f"All Groq LLM candidate models failed: {last_error_text}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Task extraction failed: {last_error_text[:200]}",
-        )
+        if last_failure == "timeout":
+            raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail=MSG_TIMEOUT)
+        if last_failure == "busy":
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=MSG_BUSY)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=MSG_EXTRACT_FAILED)
 
     try:
         parsed = json.loads(content)
-    except Exception as exc:
-        logger.error(f"Failed to parse LLM JSON: {exc}")
-        parsed = {
-            "title": transcript[:100],
-            "description": transcript,
-            "assignee_id": None,
-            "assignee_name": None,
-            "ambiguous_names": [],
-            "watcher_names": [],
-            "watcher_ids": [],
-            "spoken_watchers": [],
-            "company_id": None,
-            "company_name": None,
-            "start_date": None,
-            "due_date": None,
-            "due_time": None,
-            "estimate_hours": None,
-            "priority": "medium",
-            "checklist": [],
-        }
+        if not isinstance(parsed, dict):
+            raise ValueError("not an object")
+    except Exception:
+        logger.warning("groq_llm_bad_json")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=MSG_EXTRACT_FAILED)
 
     # Guard against non-task speech (random chatter, filler, testing phrases)
     if parsed.get("is_task") is False:
@@ -617,21 +799,24 @@ async def parse_voice_task(
     audio_bytes: bytes,
     assignable_users: List[Dict[str, Any]],
     workspaces: Optional[List[Dict[str, Any]]] = None,
-    filename: str = "audio.m4a",
-    content_type: str = "audio/m4a",
+    audio_ext: str = "m4a",
+    audio_mime: str = "audio/mp4",
     timezone_name: str = "Asia/Karachi",
 ) -> Dict[str, Any]:
-    """End-to-end orchestration: Transcribe audio then extract structured task."""
+    """End-to-end orchestration: Transcribe audio then extract structured task (one shared deadline)."""
+    deadline = _new_deadline()
     transcript = await transcribe_audio(
         audio_bytes=audio_bytes,
-        filename=filename,
-        content_type=content_type,
+        audio_ext=audio_ext,
+        audio_mime=audio_mime,
         roster_hint=assignable_users,
         workspace_hint=workspaces,
+        deadline=deadline,
     )
     return await extract_task_from_transcript(
         transcript=transcript,
         assignable_users=assignable_users,
         workspaces=workspaces,
         timezone_name=timezone_name,
+        deadline=deadline,
     )
