@@ -1,5 +1,5 @@
 import { brandNameOf } from '../utils/branding';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
 import type { ViewType, ThemeMode, ThemePreference } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { dailyLogService } from '@/services/dailyLogService';
@@ -37,6 +37,7 @@ import {
   Settings,
   ChevronRight,
   ChevronsUpDown,
+  PanelLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
@@ -69,6 +70,8 @@ import { getGroupedVisibleSettings } from '@/utils/settingsAccess';
 import { isCompanyModuleEnabled } from '@/utils/companyModules';
 import { prefetchView } from '@/routes/lazyViews';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
+import { useSidebarHoverExpand } from '@/hooks/useSidebarHoverExpand';
+import type { SidebarBehavior } from '@/utils/sidebarBehavior';
 
 const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ className?: string; size?: number }>> = {
   profile: User,
@@ -114,6 +117,8 @@ export interface SidebarProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   isMobile?: boolean;
+  behavior?: SidebarBehavior;
+  onBehaviorChange?: (behavior: SidebarBehavior) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -140,6 +145,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed: controlledIsCollapsed,
   onToggleCollapse,
   isMobile = false,
+  behavior,
+  onBehaviorChange,
 }) => {
   const { user, switchCompany } = useAuth();
   const [internalIsCollapsed, setInternalIsCollapsed] = useState<boolean>(() => {
@@ -157,6 +164,88 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : controlledIsCollapsed !== undefined
     ? controlledIsCollapsed
     : internalIsCollapsed;
+
+  const behaviorDefined = behavior !== undefined;
+
+  const [finePointer, setFinePointer] = useState<boolean>(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return true;
+    try {
+      return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return;
+    try {
+      const mql = window.matchMedia('(hover: hover) and (pointer: fine)');
+      const handler = (e: MediaQueryListEvent) => {
+        setFinePointer(e.matches);
+      };
+      if (mql.addEventListener) {
+        mql.addEventListener('change', handler);
+        return () => mql.removeEventListener('change', handler);
+      } else if (mql.addListener) {
+        mql.addListener(handler);
+        return () => mql.removeListener(handler);
+      }
+    } catch {}
+  }, []);
+
+  const hoverExpandEnabled = behaviorDefined && !isMobile && behavior === 'hover' && finePointer;
+
+  const {
+    peekState,
+    panelProps,
+    setOverlayOpen,
+    onTransitionEnd,
+  } = useSidebarHoverExpand({
+    enabled: hoverExpandEnabled,
+    openDelay: 120,
+    closeDelay: 250,
+    closeAnimMs: 240,
+  });
+
+  const visuallyCollapsed = isMobile
+    ? false
+    : behaviorDefined
+    ? (behavior === 'expanded' ? false : peekState === 'closed')
+    : isCollapsed;
+
+  const labelsShown = isMobile
+    ? true
+    : behaviorDefined
+    ? behavior === 'expanded' || peekState === 'opening' || peekState === 'open'
+    : !isCollapsed;
+
+  const asideRef = useRef<HTMLElement | null>(null);
+  const lastFocusedNavKeyRef = useRef<string | null>(null);
+
+  useLayoutEffect(() => {
+    const aside = asideRef.current;
+    if (!aside) return;
+    const active = document.activeElement as HTMLElement | null;
+    const activeNavKey =
+      active?.closest?.('[data-nav-key]')?.getAttribute('data-nav-key') ??
+      lastFocusedNavKeyRef.current;
+
+    if (activeNavKey && (aside.contains(active) || lastFocusedNavKeyRef.current)) {
+      const targetToFocus = aside.querySelector<HTMLElement>(`[data-nav-key="${activeNavKey}"]`);
+      if (targetToFocus && targetToFocus !== active) {
+        targetToFocus.focus({ preventScroll: true });
+      }
+    }
+  }, [visuallyCollapsed]);
+
+  const handleFocusCapture = (e: React.FocusEvent<HTMLElement>) => {
+    const target = e.target as HTMLElement | null;
+    const navKey = target?.closest?.('[data-nav-key]')?.getAttribute('data-nav-key');
+    if (navKey) {
+      lastFocusedNavKeyRef.current = navKey;
+    }
+    panelProps.onFocusCapture(e);
+  };
 
   const toggleSidebar = () => {
     if (onToggleCollapse) {
@@ -616,35 +705,60 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onSelectView(lastNonSettingsView || defaultBackView);
   };
 
-  return (
+  const isRailMode = behaviorDefined && !isMobile && behavior !== 'expanded';
+  const isPeeking = isRailMode && (peekState === 'open' || peekState === 'opening');
+  const isPeekingAny = isRailMode && peekState !== 'closed';
+
+  const asideElement = (
     <aside
+      ref={asideRef}
       id="app-sidebar"
       aria-label="Application sidebar"
-      data-collapsed={isCollapsed}
+      aria-expanded={!visuallyCollapsed}
+      data-collapsed={visuallyCollapsed}
+      data-peek={behaviorDefined && !isMobile ? peekState : undefined}
+      data-behavior={behavior}
+      data-labels={labelsShown ? 'shown' : 'hidden'}
+      onTransitionEnd={onTransitionEnd}
+      onPointerEnter={behaviorDefined && !isMobile ? panelProps.onPointerEnter : undefined}
+      onPointerLeave={behaviorDefined && !isMobile ? panelProps.onPointerLeave : undefined}
+      onFocusCapture={behaviorDefined && !isMobile ? handleFocusCapture : undefined}
+      onBlurCapture={behaviorDefined && !isMobile ? panelProps.onBlurCapture : undefined}
+      onKeyDown={behaviorDefined && !isMobile ? panelProps.onKeyDown : undefined}
       className={cn(
-        'group/sidebar relative flex flex-col h-full bg-surface border-r border-border p-3 select-none shrink-0 z-20 motion-reduce:transition-none motion-reduce:delay-0',
-        isCollapsed
-          ? 'w-[60px] px-2 transition-[width] duration-200 delay-100 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
-          : 'w-[224px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
+        'group/sidebar flex flex-col h-full bg-surface border-r border-border px-2 select-none shrink-0 motion-reduce:transition-none motion-reduce:delay-0',
+        isRailMode
+          ? cn(
+              'absolute inset-y-0 left-0 z-[45] [contain:layout_paint] transition-[width] duration-200 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]',
+              isPeeking ? 'w-[var(--sidebar-w,224px)]' : 'w-[var(--sidebar-w-collapsed,60px)]',
+              peekState !== 'closed' && 'shadow-lg'
+            )
+          : cn(
+              'relative z-20',
+              visuallyCollapsed
+                ? 'w-[60px] transition-[width] duration-200 delay-100 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
+                : 'w-[224px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
+            )
       )}
+      style={{
+        paddingTop: 'var(--sb-aside-py, 12px)',
+        paddingBottom: 'var(--sb-aside-py, 12px)',
+      }}
     >
       {/* 1. Brand Block (§8.1, §8.5, Multi-Company Switcher) */}
-      <div className="relative h-11 mb-4 shrink-0">
+      <div
+        className="relative h-11 shrink-0"
+        style={{ marginBottom: 'var(--sb-brand-mb, 15px)' }}
+      >
         {/* Expanded state logo row */}
-        <div
-          className={cn(
-            'absolute inset-0 h-11 px-2 py-1.5 border border-border rounded-[10px] flex items-center gap-2 bg-surface transition-opacity motion-reduce:transition-none',
-            isCollapsed
-              ? 'opacity-0 pointer-events-none duration-100 delay-0 ease-out'
-              : 'opacity-100 duration-100 delay-200 ease-out'
-          )}
-        >
+        <div className="sidebar-brand-expanded absolute inset-0 h-11 pl-[7px] pr-2 py-1.5 border border-border rounded-[10px] flex items-center gap-2 bg-surface select-none">
           {Boolean((user?.companies && user.companies.length > 1) || user?.is_super_admin) ? (
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={(open) => setOverlayOpen('company', open)}>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md hover:bg-subtle p-0.5 -ml-0.5 transition-colors group/brand"
+                  tabIndex={labelsShown || behavior === 'hover' ? 0 : -1}
+                  className="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md hover:bg-subtle p-0 transition-colors group/brand cursor-pointer"
                 >
                   {user?.company?.logo_url ? (
                     <img
@@ -655,7 +769,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   ) : (
                     <BrandMark size={28} className="shrink-0" />
                   )}
-                  <div className="min-w-0 flex-1 truncate pr-1 select-none">
+                  <div className="sidebar-label min-w-0 flex-1 truncate pr-1 select-none">
                     <div className="flex items-center gap-1">
                       <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
                         {brandNameOf(user?.company)}
@@ -735,7 +849,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
-            <>
+            <div className="flex items-center gap-2 min-w-0 flex-1">
               {user?.company?.logo_url ? (
                 <img
                   src={user.company.logo_url}
@@ -745,7 +859,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : (
                 <BrandMark size={28} className="shrink-0" />
               )}
-              <div className="min-w-0 flex-1 truncate pr-1 select-none">
+              <div className="sidebar-label min-w-0 flex-1 truncate pr-1 select-none">
                 <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
                   {brandNameOf(user?.company)}
                 </span>
@@ -753,7 +867,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                 </span>
               </div>
-            </>
+            </div>
           )}
 
           {!isMobile && (
@@ -761,18 +875,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  onClick={toggleSidebar}
-                  aria-label="Collapse sidebar"
+                  tabIndex={labelsShown || behavior === 'hover' ? 0 : -1}
+                  onClick={() => {
+                    if (isPeekingAny && onBehaviorChange) {
+                      onBehaviorChange('expanded');
+                    } else {
+                      toggleSidebar();
+                    }
+                  }}
+                  aria-label={isPeekingAny ? 'Keep sidebar expanded' : 'Collapse sidebar'}
                   aria-expanded="true"
                   aria-controls="app-sidebar"
-                  tabIndex={isCollapsed ? -1 : 0}
-                  className="w-7 h-7 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-subtle transition-opacity duration-[120ms] ease-[var(--ease-standard)] cursor-pointer focus-visible:focus-ring opacity-0 group-hover/sidebar:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 shrink-0"
+                  className="sidebar-label w-7 h-7 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-subtle transition-opacity duration-[120ms] ease-[var(--ease-standard)] cursor-pointer focus-visible:focus-ring opacity-0 group-hover/sidebar:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 shrink-0"
                 >
-                  <PanelLeftClose size={16} strokeWidth={1.5} />
+                  {isPeekingAny ? (
+                    <PanelLeftOpen size={16} strokeWidth={1.5} />
+                  ) : (
+                    <PanelLeftClose size={16} strokeWidth={1.5} />
+                  )}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <span>Collapse sidebar</span>
+                <span>{isPeekingAny ? 'Keep sidebar expanded' : 'Collapse sidebar'}</span>
                 <kbd className="ml-1.5 font-mono text-[10px] text-fg-muted bg-surface/80 border border-border px-1 py-0.5 rounded">
                   {shortcutHint}
                 </kbd>
@@ -782,23 +906,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Collapsed state logo expand button */}
-        <div
-          className={cn(
-            'absolute inset-0 h-11 flex items-center justify-center transition-opacity motion-reduce:transition-none',
-            isCollapsed
-              ? 'opacity-100 duration-100 delay-200 ease-out'
-              : 'opacity-0 pointer-events-none duration-100 delay-0 ease-out'
-          )}
-        >
-          <Tooltip delayDuration={300}>
+        <div className="sidebar-brand-collapsed absolute inset-0 h-11 flex items-center justify-center select-none">
+          <Tooltip
+            delayDuration={300}
+            open={behavior === 'hover' ? false : undefined}
+            disableHoverableContent={behavior === 'hover'}
+          >
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={toggleSidebar}
+                tabIndex={labelsShown || behavior === 'hover' ? -1 : 0}
+                onClick={() => {
+                  if (behaviorDefined && onBehaviorChange) {
+                    onBehaviorChange('expanded');
+                  } else {
+                    toggleSidebar();
+                  }
+                }}
                 aria-label="Expand sidebar"
                 aria-expanded="false"
                 aria-controls="app-sidebar"
-                tabIndex={isCollapsed ? 0 : -1}
                 className="sidebar-expand-btn relative w-7 h-7 rounded-mark bg-accent text-accent-fg font-semibold flex items-center justify-center shrink-0 cursor-pointer select-none focus-visible:focus-ring hover:bg-accent-hover transition-colors"
                 style={{ fontSize: '14px' }}
               >
@@ -825,9 +952,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {/* Main App Nav */}
         <nav
           aria-label="Main"
+          aria-hidden={isSettingsMode ? true : undefined}
+          inert={isSettingsMode ? true : undefined}
           className={cn(
-            'overflow-y-auto overflow-x-hidden space-y-3.5 transition-all duration-180 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))] motion-reduce:transition-none motion-reduce:transform-none',
-            isCollapsed ? 'pr-0' : 'pr-0.5',
+            'sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden transition-[opacity,transform] duration-180 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))] motion-reduce:transition-none motion-reduce:transform-none',
+            labelsShown && 'sidebar-scroll-visible',
             isSettingsMode
               ? 'opacity-0 -translate-x-2 pointer-events-none absolute inset-0'
               : 'opacity-100 translate-x-0 relative flex-1'
@@ -835,167 +964,84 @@ export const Sidebar: React.FC<SidebarProps> = ({
         >
           {groups.filter((group) => group.items.length > 0).map((group, groupIndex) => (
             <div key={group.id} role="group" aria-labelledby={`nav-group-${group.id}`}>
-            {/* Group Label / Divider */}
-            <div className="relative">
+              {/* Group Header Slot */}
               <div
-                id={`nav-group-${group.id}`}
-                className={cn(
-                  'text-xs font-medium text-fg-muted px-2.5 pb-1 leading-4 select-none whitespace-nowrap overflow-hidden transition-all ease-out motion-reduce:transition-none',
-                  isCollapsed
-                    ? 'opacity-0 max-h-0 pb-0 duration-100 delay-0 pointer-events-none'
-                    : 'opacity-100 max-h-6 duration-100 delay-200'
-                )}
+                data-group-header
+                className="relative shrink-0 select-none"
+                style={{ height: 'var(--sb-group-h, 28px)' }}
               >
-                {group.label}
-              </div>
-              {groupIndex > 0 && (
                 <div
-                  className={cn(
-                    'border-t border-border transition-all ease-out motion-reduce:transition-none',
-                    isCollapsed
-                      ? 'my-2 opacity-100 duration-100 delay-200'
-                      : 'my-0 opacity-0 max-h-0 pointer-events-none duration-100 delay-0'
-                  )}
-                />
-              )}
-            </div>
+                  id={`nav-group-${group.id}`}
+                  className="sidebar-label absolute inset-x-0 bottom-1 px-2.5 text-xs font-medium text-fg-muted leading-4 truncate whitespace-nowrap overflow-hidden"
+                >
+                  {group.label}
+                </div>
+                {groupIndex > 0 && (
+                  <div
+                    className="sidebar-rail-only absolute inset-x-2 top-1/2 -translate-y-1/2 border-t border-border"
+                  />
+                )}
+              </div>
 
-            {/* Group Items */}
-            <div className="space-y-0.5">
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const isItemActive = currentView === item.id;
-                const isParentOfActive = isItemActive && item.hasSubItems;
-                const parentFilled = isItemActive && (!item.hasSubItems || item.highlightParent);
+              {/* Group Items */}
+              <div
+                className="flex flex-col"
+                style={{ gap: 'var(--sb-row-gap, 2px)' }}
+              >
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isItemActive = currentView === item.id;
+                  const isParentOfActive = isItemActive && item.hasSubItems;
+                  const parentFilled = isItemActive && (!item.hasSubItems || item.highlightParent);
 
-                // Collapsed item with Tooltip / DropdownMenu
-                if (isCollapsed) {
-                  const buttonElement = (
+                  const rowButton = (
                     <button
                       type="button"
+                      data-nav-key={item.id}
                       onMouseEnter={() => prefetchView(item.id)}
-                      onClick={() => onSelectView(item.id)}
-                      className={cn(
-                        'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer relative focus-visible:focus-ring',
-                        isItemActive
-                          ? 'bg-accent-soft text-accent-text'
-                          : 'text-fg-2 hover:bg-hover hover:text-fg'
-                      )}
+                      onClick={() => {
+                        onSelectView(item.id);
+                        item.onParentSelect?.();
+                        if (!isRailMode && item.hasSubItems && currentView === item.id) {
+                          item.onToggleExpand?.();
+                        }
+                      }}
                       aria-current={isItemActive ? 'page' : undefined}
                       aria-label={item.label}
-                    >
-                      <Icon
-                        size={18}
-                        className={cn('shrink-0', isItemActive ? 'text-accent-text' : 'text-fg-muted')}
-                      />
-                      {item.badge && item.badge > 0 && (
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent" />
-                      )}
-                    </button>
-                  );
-
-                  // If item has sub-items in collapsed mode, hover/click opens right dropdown (§8.5)
-                  if (item.hasSubItems && item.subItems) {
-                    return (
-                      <DropdownMenu key={item.id}>
-                        <Tooltip delayDuration={300}>
-                          <TooltipTrigger asChild>
-                            <DropdownMenuTrigger asChild>
-                              {buttonElement}
-                            </DropdownMenuTrigger>
-                          </TooltipTrigger>
-                          <TooltipContent side="right">
-                            <span>{item.label}</span>
-                          </TooltipContent>
-                        </Tooltip>
-
-                        <DropdownMenuContent side="right" align="start" sideOffset={8} className="w-48">
-                          <div className="px-2 py-1.5 text-xs font-semibold text-fg-muted">
-                            {item.label}
-                          </div>
-                          <DropdownMenuSeparator />
-                          {(item.id === 'tasks'
-                            ? [
-                                {
-                                  id: 'all',
-                                  label: 'All tasks',
-                                  isActive: currentView === 'tasks' && activeTaskSection === 'all',
-                                  onSelect: () => {
-                                    onSelectView('tasks');
-                                    applyTaskSection('all');
-                                  },
-                                },
-                                ...item.subItems,
-                              ]
-                            : item.subItems
-                          ).map((sub) => (
-                            <DropdownMenuItem
-                              key={sub.id}
-                              onClick={sub.onSelect}
-                              className={cn(
-                                'text-[13px] h-8 cursor-pointer',
-                                sub.isActive && 'bg-accent-soft text-accent-text font-medium'
-                              )}
-                            >
-                              <span className="truncate flex-1">{sub.label}</span>
-                              {sub.badge !== undefined && sub.badge > 0 && (
-                                <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    );
-                  }
-
-                  return (
-                    <Tooltip key={item.id} delayDuration={300}>
-                      <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
-                      <TooltipContent side="right">
-                        <span>{item.label}</span>
-                        {item.badge && item.badge > 0 && <span> ({item.badge})</span>}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                }
-
-                // Expanded Mode
-                return (
-                  <div key={item.id} className="space-y-0.5">
-                    <div
                       className={cn(
-                        'h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none group',
+                        'w-full pl-[13px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap transition-colors cursor-pointer select-none group focus-visible:focus-ring',
                         parentFilled
                           ? 'bg-accent-soft text-accent-text font-medium'
                           : isParentOfActive
                           ? 'text-fg font-medium hover:bg-hover'
                           : 'text-fg-2 hover:bg-hover hover:text-fg'
                       )}
-                      onMouseEnter={() => prefetchView(item.id)}
-                      onClick={() => {
-                        onSelectView(item.id);
-                        item.onParentSelect?.();
-                        if (item.hasSubItems && currentView === item.id) {
-                          item.onToggleExpand?.();
-                        }
-                      }}
+                      style={{ height: 'var(--sb-row-h, 34px)' }}
                     >
-                      <Icon
-                        size={18}
-                        className={cn(
-                          'shrink-0',
-                          isItemActive ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
+                      {/* Icon with dot badge wrapper */}
+                      <div className="relative shrink-0 flex items-center justify-center">
+                        <Icon
+                          size={18}
+                          className={cn(
+                            'shrink-0',
+                            isItemActive ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
+                          )}
+                        />
+                        {item.badge !== undefined && item.badge > 0 && (
+                          <span className="sidebar-rail-only absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent" />
                         )}
-                      />
-                      <span className="text-[13px] font-medium truncate flex-1 leading-5 whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
+                      </div>
+
+                      {/* Label */}
+                      <span className="sidebar-label ml-2.5 text-[13px] font-medium truncate flex-1 leading-5 text-left">
                         {item.label}
                       </span>
 
-                      {/* Attention or standard badge */}
+                      {/* Badge pill */}
                       {item.badge !== undefined && item.badge > 0 && (
                         <span
                           className={cn(
-                            'ml-auto text-micro leading-4 px-1.5 rounded-full font-numeric font-medium whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none',
+                            'sidebar-label ml-auto text-micro leading-4 px-1.5 rounded-full font-numeric font-medium whitespace-nowrap overflow-hidden shrink-0',
                             item.badgeAttention
                               ? 'bg-accent-soft-2 text-accent-text'
                               : 'bg-subtle text-fg-2'
@@ -1005,16 +1051,24 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       )}
 
-                      {/* Sub-item Chevron toggle */}
-                      {item.hasSubItems && (
-                        <button
-                          type="button"
+                      {/* Sub-item Chevron (only when !isRailMode) */}
+                      {!isRailMode && item.hasSubItems && (
+                        <span
+                          role="button"
+                          tabIndex={labelsShown ? 0 : -1}
                           aria-label={`Toggle ${item.label} sub-items`}
                           onClick={(e) => {
                             e.stopPropagation();
                             item.onToggleExpand?.();
                           }}
-                          className="p-0.5 rounded hover:bg-subtle text-fg-faint hover:text-fg transition-colors shrink-0"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              e.preventDefault();
+                              item.onToggleExpand?.();
+                            }
+                          }}
+                          className="sidebar-label p-0.5 rounded hover:bg-subtle text-fg-faint hover:text-fg transition-colors shrink-0 ml-1 cursor-pointer"
                         >
                           <ChevronRight
                             size={14}
@@ -1023,262 +1077,327 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               item.isExpanded && 'rotate-90'
                             )}
                           />
-                        </button>
+                        </span>
                       )}
-                    </div>
+                    </button>
+                  );
 
-                    {/* Sub-item List (§8.3) */}
-                    {item.hasSubItems && item.isExpanded && item.subItems && (
-                      <div className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5 whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                        {item.subItems.map((sub) => (
-                          <button
-                            key={sub.id}
-                            type="button"
-                            onClick={sub.onSelect}
-                            className={cn(
-                              'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left',
-                              sub.isActive
-                                ? 'bg-accent-soft text-accent-text font-medium'
-                                : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
-                            )}
+                  if (isRailMode) {
+                    if (item.hasSubItems && item.subItems) {
+                      return (
+                        <DropdownMenu
+                          key={item.id}
+                          onOpenChange={(open) => setOverlayOpen(`sub-${item.id}`, open)}
+                        >
+                          <Tooltip
+                            delayDuration={300}
+                            open={behavior === 'collapsed' ? undefined : false}
+                            disableHoverableContent={behavior === 'hover'}
                           >
-                            <span className="truncate flex-1">{sub.label}</span>
-                            {sub.badge !== undefined && sub.badge > 0 && (
-                              <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </nav>
+                            <TooltipTrigger asChild>
+                              <DropdownMenuTrigger asChild>
+                                {rowButton}
+                              </DropdownMenuTrigger>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">
+                              <span>{item.label}</span>
+                            </TooltipContent>
+                          </Tooltip>
 
-      {/* Settings Nav */}
-      <nav
-        aria-label="Settings"
-        className={cn(
-          'overflow-y-auto overflow-x-hidden space-y-2 transition-all duration-180 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))] motion-reduce:transition-none motion-reduce:transform-none',
-          isCollapsed ? 'pr-0' : 'pr-0.5',
-          isSettingsMode
-            ? 'opacity-100 translate-x-0 relative flex-1'
-            : 'opacity-0 translate-x-2 pointer-events-none absolute inset-0'
-        )}
-      >
+                          <DropdownMenuContent side="right" align="start" sideOffset={8} className="w-48">
+                            <div className="px-2 py-1.5 text-xs font-semibold text-fg-muted">
+                              {item.label}
+                            </div>
+                            <DropdownMenuSeparator />
+                            {(item.id === 'tasks'
+                              ? [
+                                  {
+                                    id: 'all',
+                                    label: 'All tasks',
+                                    isActive: currentView === 'tasks' && activeTaskSection === 'all',
+                                    onSelect: () => {
+                                      onSelectView('tasks');
+                                      applyTaskSection('all');
+                                    },
+                                  },
+                                  ...item.subItems,
+                                ]
+                              : item.subItems
+                            ).map((sub) => (
+                              <DropdownMenuItem
+                                key={sub.id}
+                                onClick={sub.onSelect}
+                                className={cn(
+                                  'text-[13px] h-8 cursor-pointer',
+                                  sub.isActive && 'bg-accent-soft text-accent-text font-medium'
+                                )}
+                              >
+                                <span className="truncate flex-1">{sub.label}</span>
+                                {sub.badge !== undefined && sub.badge > 0 && (
+                                  <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      );
+                    }
 
-          {/* Back to app button */}
-          <div className="pt-0.5 pb-1">
-            {!isCollapsed ? (
-              <button
-                type="button"
-                onClick={handleBackToApp}
-                className="w-full h-8 px-2 rounded-md flex items-center gap-2 text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer text-xs font-medium"
-              >
-                <ArrowLeft size={14} className="shrink-0" />
-                <span className="truncate whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                  Back to app
-                </span>
-              </button>
-            ) : (
-              <Tooltip delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleBackToApp}
-                    className="w-10 h-8 mx-auto rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
-                    aria-label="Back to app"
-                  >
-                    <ArrowLeft size={16} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Back to app</TooltipContent>
-              </Tooltip>
-            )}
-          </div>
-
-          {/* Settings Heading */}
-          {!isCollapsed && (
-            <div className="px-2.5 pt-1 pb-1">
-              <h2 className="text-sm font-semibold text-fg tracking-tight whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                Settings
-              </h2>
-            </div>
-          )}
-
-          {/* Settings Groups & Sections */}
-          {settingsGroups.map((group, groupIdx) => (
-            <div key={group.group} className="space-y-0.5">
-              {!isCollapsed ? (
-                <div className="text-[11px] font-medium text-fg-muted px-2.5 pt-2 pb-0.5 select-none leading-4 whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                  {group.label}
-                </div>
-              ) : (
-                groupIdx > 0 && <div className="my-2 border-t border-border" />
-              )}
-
-              <div className="space-y-0.5">
-                {group.sections.map((sec) => {
-                  const Icon = SETTINGS_ICONS[sec.slug] || Settings;
-                  const isSecActive = activeSettingsSection === sec.slug;
-
-                  if (isCollapsed) {
                     return (
-                      <Tooltip key={sec.slug} delayDuration={300}>
-                        <TooltipTrigger asChild>
-                          <button
-                            type="button"
-                            onClick={() => onSelectSettingsSection?.(sec.slug)}
-                            className={cn(
-                              'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer relative focus-visible:focus-ring',
-                              isSecActive
-                                ? 'bg-accent-soft text-accent-text'
-                                : 'text-fg-2 hover:bg-hover hover:text-fg'
-                            )}
-                            aria-current={isSecActive ? 'page' : undefined}
-                            aria-label={sec.label}
-                          >
-                            <Icon
-                              size={16}
-                              className={isSecActive ? 'text-accent-text' : 'text-fg-muted'}
-                            />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="right">{sec.label}</TooltipContent>
+                      <Tooltip
+                        key={item.id}
+                        delayDuration={300}
+                        open={behavior === 'collapsed' ? undefined : false}
+                        disableHoverableContent={behavior === 'hover'}
+                      >
+                        <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+                        <TooltipContent side="right">
+                          <span>{item.label}</span>
+                          {item.badge && item.badge > 0 && <span> ({item.badge})</span>}
+                        </TooltipContent>
                       </Tooltip>
                     );
                   }
 
+                  // !isRailMode (expanded mode, mobile, etc.)
                   return (
-                    <button
-                      key={sec.slug}
-                      type="button"
-                      onClick={() => onSelectSettingsSection?.(sec.slug)}
-                      className={cn(
-                        'w-full h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none text-[13px] font-medium leading-5',
-                        isSecActive
-                          ? 'bg-accent-soft text-accent-text font-medium'
-                          : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
+                    <div key={item.id} className="space-y-0.5">
+                      <Tooltip
+                        delayDuration={300}
+                        open={false}
+                        disableHoverableContent
+                      >
+                        <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+                        <TooltipContent side="right">
+                          <span>{item.label}</span>
+                          {item.badge && item.badge > 0 && <span> ({item.badge})</span>}
+                        </TooltipContent>
+                      </Tooltip>
+
+                      {/* Inline Sub-item List */}
+                      {item.hasSubItems && item.isExpanded && item.subItems && (
+                        <div className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5 whitespace-nowrap overflow-hidden">
+                          {item.subItems.map((sub) => (
+                            <button
+                              key={sub.id}
+                              type="button"
+                              onClick={sub.onSelect}
+                              className={cn(
+                                'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left',
+                                sub.isActive
+                                  ? 'bg-accent-soft text-accent-text font-medium'
+                                  : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
+                              )}
+                            >
+                              <span className="truncate flex-1">{sub.label}</span>
+                              {sub.badge !== undefined && sub.badge > 0 && (
+                                <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
                       )}
-                      aria-current={isSecActive ? 'page' : undefined}
-                    >
-                      <Icon
-                        size={16}
-                        className={cn('shrink-0', isSecActive ? 'text-accent-text' : 'text-fg-muted')}
-                      />
-                      <span className="truncate whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                        {sec.label}
-                      </span>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
             </div>
           ))}
         </nav>
-      </div>
 
-      {/* 3. Bottom Area (§8.1, §8.7) - ONLY Settings and User Block */}
-      <div className="mt-auto pt-2 space-y-1 shrink-0">
-        {/* Settings nav item */}
-        {!isCollapsed ? (
-          <button
-            type="button"
-            onMouseEnter={() => prefetchView('settings')}
-            onClick={() => {
-              onSelectView('settings');
-              if (onSelectSettingsSection) onSelectSettingsSection('profile');
-            }}
-            className={cn(
-              'w-full h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none group focus-visible:focus-ring',
-              currentView === 'settings'
-                ? 'bg-accent-soft text-accent-text font-medium'
-                : 'text-fg-2 hover:bg-hover hover:text-fg'
-            )}
+      {/* Settings Nav */}
+      <nav
+        aria-label="Settings"
+        aria-hidden={isSettingsMode ? undefined : true}
+        inert={isSettingsMode ? undefined : true}
+        className={cn(
+          'sidebar-scroll flex-1 overflow-y-auto overflow-x-hidden transition-[opacity,transform] duration-180 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))] motion-reduce:transition-none motion-reduce:transform-none',
+          labelsShown && 'sidebar-scroll-visible',
+          isSettingsMode
+            ? 'opacity-100 translate-x-0 relative flex-1'
+            : 'opacity-0 translate-x-2 pointer-events-none absolute inset-0'
+        )}
+      >
+        {/* Back to app button */}
+        <div className="pt-0.5 pb-1">
+          <Tooltip
+            delayDuration={300}
+            open={behavior === 'collapsed' ? undefined : false}
+            disableHoverableContent={behavior === 'hover'}
           >
-            <Settings
-              size={18}
-              className={cn(
-                'shrink-0',
-                currentView === 'settings' ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
-              )}
-            />
-            <span className="text-[13px] font-medium truncate leading-5 text-left whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-              Settings
-            </span>
-          </button>
-        ) : (
-          <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onMouseEnter={() => prefetchView('settings')}
-                onClick={() => {
-                  onSelectView('settings');
-                  if (onSelectSettingsSection) onSelectSettingsSection('profile');
-                }}
-                className={cn(
-                  'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer focus-visible:focus-ring',
-                  currentView === 'settings'
-                    ? 'bg-accent-soft text-accent-text'
-                    : 'text-fg-2 hover:bg-hover hover:text-fg'
-                )}
-                aria-label="Settings"
+                data-nav-key="back-to-app"
+                onClick={handleBackToApp}
+                aria-label="Back to app"
+                className="w-full pl-[14px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer text-xs font-medium focus-visible:focus-ring"
+                style={{ height: 'var(--sb-row-h, 34px)' }}
               >
-                <Settings
-                  size={18}
-                  className={currentView === 'settings' ? 'text-accent-text' : 'text-fg-muted'}
-                />
+                <ArrowLeft size={16} className="shrink-0" />
+                <span className="sidebar-label ml-2.5 truncate">
+                  Back to app
+                </span>
               </button>
             </TooltipTrigger>
-            <TooltipContent side="right">
-              <span>Settings</span>
-            </TooltipContent>
+            <TooltipContent side="right">Back to app</TooltipContent>
           </Tooltip>
-        )}
+        </div>
+
+        {/* Settings Heading Slot */}
+        <div
+          data-group-header
+          className="relative shrink-0 select-none"
+          style={{ height: 'var(--sb-group-h, 28px)' }}
+        >
+          <h2 className="sidebar-label absolute inset-x-0 bottom-1 px-2.5 text-sm font-semibold text-fg tracking-tight truncate whitespace-nowrap overflow-hidden">
+            Settings
+          </h2>
+        </div>
+
+        {/* Settings Groups & Sections */}
+        {settingsGroups.map((group, groupIdx) => (
+          <div key={group.group} role="group" aria-label={group.label} className="space-y-0.5">
+            {/* Group Header Slot */}
+            <div
+              data-group-header
+              className="relative shrink-0 select-none"
+              style={{ height: 'var(--sb-group-h, 28px)' }}
+            >
+              <div className="sidebar-label absolute inset-x-0 bottom-1 px-2.5 text-[11px] font-medium text-fg-muted leading-4 truncate whitespace-nowrap overflow-hidden">
+                {group.label}
+              </div>
+              {groupIdx > 0 && (
+                <div className="sidebar-rail-only absolute inset-x-2 top-1/2 -translate-y-1/2 border-t border-border" />
+              )}
+            </div>
+
+            <div
+              className="flex flex-col"
+              style={{ gap: 'var(--sb-row-gap, 2px)' }}
+            >
+              {group.sections.map((sec) => {
+                const Icon = SETTINGS_ICONS[sec.slug] || Settings;
+                const isSecActive = activeSettingsSection === sec.slug;
+
+                return (
+                  <Tooltip
+                    key={sec.slug}
+                    delayDuration={300}
+                    open={behavior === 'collapsed' ? undefined : false}
+                    disableHoverableContent={behavior === 'hover'}
+                  >
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        data-nav-key={sec.slug}
+                        onClick={() => onSelectSettingsSection?.(sec.slug)}
+                        className={cn(
+                          'w-full pl-[14px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap transition-colors cursor-pointer select-none text-[13px] leading-5 focus-visible:focus-ring',
+                          isSecActive
+                            ? 'bg-accent-soft text-accent-text font-medium'
+                            : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
+                        )}
+                        style={{ height: 'var(--sb-row-h, 34px)' }}
+                        aria-current={isSecActive ? 'page' : undefined}
+                        aria-label={sec.label}
+                      >
+                        <Icon
+                          size={16}
+                          className={cn('shrink-0', isSecActive ? 'text-accent-text' : 'text-fg-muted')}
+                        />
+                        <span className="sidebar-label ml-2.5 truncate font-medium">
+                          {sec.label}
+                        </span>
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">{sec.label}</TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </nav>
+      </div>
+
+      {/* 3. Bottom Area (§8.1, §8.7) - ONLY Settings and User Block */}
+      <div className="mt-auto shrink-0 select-none">
+        {/* Settings nav item */}
+        <Tooltip
+          delayDuration={300}
+          open={behavior === 'collapsed' ? undefined : false}
+          disableHoverableContent={behavior === 'hover'}
+        >
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-nav-key="settings"
+              onMouseEnter={() => prefetchView('settings')}
+              onClick={() => {
+                onSelectView('settings');
+                if (onSelectSettingsSection) onSelectSettingsSection('profile');
+              }}
+              className={cn(
+                'w-full pl-[13px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap transition-colors cursor-pointer select-none group focus-visible:focus-ring',
+                currentView === 'settings'
+                  ? 'bg-accent-soft text-accent-text font-medium'
+                  : 'text-fg-2 hover:bg-hover hover:text-fg'
+              )}
+              style={{ height: 'var(--sb-row-h, 34px)' }}
+              aria-label="Settings"
+              aria-current={currentView === 'settings' ? 'page' : undefined}
+            >
+              <Settings
+                size={18}
+                className={cn(
+                  'shrink-0',
+                  currentView === 'settings' ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
+                )}
+              />
+              <span className="sidebar-label ml-2.5 text-[13px] font-medium truncate leading-5 text-left">
+                Settings
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            <span>Settings</span>
+          </TooltipContent>
+        </Tooltip>
 
         {/* User Block + DropdownMenu (§8.3, §8.7) */}
-        <div className="border-t border-border mt-2 pt-2.5">
-          <DropdownMenu>
+        <div
+          className="border-t border-border"
+          style={{
+            marginTop: 'var(--sb-bottom-mt, 8px)',
+            paddingTop: 'var(--sb-bottom-pt, 8px)',
+          }}
+        >
+          <DropdownMenu onOpenChange={(open) => setOverlayOpen('user', open)}>
             <DropdownMenuTrigger asChild>
-              {!isCollapsed ? (
-                <button
-                  type="button"
-                  className="w-full flex items-center gap-2.5 p-1 rounded-md hover:bg-hover transition-colors cursor-pointer select-none text-left focus-visible:focus-ring"
-                >
-                  <Avatar
-                    name={displayName}
-                    src={user?.avatar_url}
-                    size={32}
-                    className="rounded-full shrink-0"
-                  />
-                  <div className="min-w-0 flex-1 whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
-                    <span className="block text-[13px] font-medium text-fg leading-4 truncate">
-                      {displayName}
-                    </span>
-                    <span className="block text-xs text-fg-muted leading-4 truncate">
-                      {displayRole}
-                    </span>
-                  </div>
-                  <ChevronsUpDown size={16} className="text-fg-muted shrink-0" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="w-10 h-10 mx-auto rounded-full flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer select-none focus-visible:focus-ring"
-                  aria-label="User menu"
-                >
-                  <Avatar
-                    name={displayName}
-                    src={user?.avatar_url}
-                    size={32}
-                    className="rounded-full shrink-0"
-                  />
-                </button>
-              )}
+              <button
+                type="button"
+                data-nav-key="user-menu"
+                aria-label={labelsShown ? undefined : 'User menu'}
+                className="w-full pl-[6px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap hover:bg-hover transition-colors cursor-pointer select-none text-left focus-visible:focus-ring"
+                style={{ height: 'var(--sb-user-h, 40px)' }}
+              >
+                <Avatar
+                  name={displayName}
+                  src={user?.avatar_url}
+                  size={32}
+                  className="rounded-full shrink-0"
+                />
+                <div className="sidebar-label min-w-0 flex-1 ml-2.5 whitespace-nowrap overflow-hidden text-left">
+                  <span className="block text-[13px] font-medium text-fg leading-4 truncate">
+                    {displayName}
+                  </span>
+                  <span className="block text-xs text-fg-muted leading-4 truncate">
+                    {displayRole}
+                  </span>
+                </div>
+                <ChevronsUpDown size={16} className="sidebar-label text-fg-muted shrink-0 ml-1" />
+              </button>
             </DropdownMenuTrigger>
 
             <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-60">
@@ -1348,6 +1467,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </DropdownMenuSubContent>
               </DropdownMenuSub>
 
+              {/* 3b. Sidebar sub-menu */}
+              {!isMobile && behaviorDefined && (
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="text-[13px] gap-2.5 cursor-pointer">
+                    <PanelLeftOpen size={16} className="text-fg-muted" />
+                    <span>Sidebar</span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-48">
+                    <DropdownMenuItem
+                      onClick={() => onBehaviorChange?.('expanded')}
+                      className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <PanelLeft size={14} className="text-fg-muted" />
+                        <span>Expanded</span>
+                      </div>
+                      {behavior === 'expanded' && <Check size={14} className="text-accent" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onBehaviorChange?.('collapsed')}
+                      className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <PanelLeftClose size={14} className="text-fg-muted" />
+                        <span>Collapsed</span>
+                      </div>
+                      {behavior === 'collapsed' && <Check size={14} className="text-accent" />}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => onBehaviorChange?.('hover')}
+                      className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                    >
+                      <div className="flex items-center gap-2">
+                        <PanelLeftOpen size={14} className="text-fg-muted" />
+                        <span>Expand on hover</span>
+                      </div>
+                      {behavior === 'hover' && <Check size={14} className="text-accent" />}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              )}
+
               {/* 4. Keyboard shortcuts */}
               <DropdownMenuItem
                 onClick={() => onOpenShortcuts?.()}
@@ -1373,4 +1534,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
     </aside>
   );
+
+  if (behaviorDefined && !isMobile) {
+    return (
+      <div
+        data-sidebar-rail
+        className={cn(
+          'relative h-full shrink-0 transition-[width] duration-200 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]',
+          behavior === 'expanded'
+            ? 'w-[var(--sidebar-w,224px)]'
+            : 'w-[var(--sidebar-w-collapsed,60px)]'
+        )}
+      >
+        {asideElement}
+      </div>
+    );
+  }
+
+  return asideElement;
 };
