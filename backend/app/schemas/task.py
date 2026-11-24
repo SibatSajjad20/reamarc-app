@@ -629,6 +629,7 @@ class VoiceTaskConfidence(BaseModel):
     ambiguous_candidates: List[Dict[str, Any]] = []
     unrecognized_assignee: Optional[str] = None
     unrecognized_company: Optional[str] = None
+    unrecognized_watchers: List[str] = Field(default_factory=list)
 
 
 class VoiceTaskProposal(BaseModel):
@@ -638,6 +639,8 @@ class VoiceTaskProposal(BaseModel):
     description: str = ""
     assignee_id: Optional[str] = None
     assignee_name: Optional[str] = None
+    watcher_ids: List[str] = Field(default_factory=list)
+    watcher_names: List[str] = Field(default_factory=list)
     company_id: Optional[str] = None
     company_name: Optional[str] = None
     start_date: Optional[str] = None

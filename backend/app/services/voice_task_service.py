@@ -328,15 +328,20 @@ CRITICAL RULES FOR EXTRACTION:
    - If ambiguous (multiple people in the roster match) or if NO ONE in the roster matches, set to null.
 5. "spoken_assignee": Raw name of any person spoken or mentioned for the task (e.g. "Junaid", "John"), or null if no person was mentioned.
 6. "ambiguous_names": If multiple people from the roster match the spoken name (e.g. "Hamza" when there are 2 Hamzas), list their names. Otherwise empty array.
-7. "company_id": If a client or company from the "Active Companies / Workspaces" list is mentioned (e.g. "for Acme", "company Alpha"), output their exact "id". Otherwise null.
-8. "company_name": Exact "name" from the "Active Companies / Workspaces" list corresponding to "company_id", or null.
-9. "spoken_company": Raw name of any client or company spoken in the command (e.g. "Tesla", "Acme"), or null if no company was mentioned.
-10. "start_date": Absolute start date string in "YYYY-MM-DD" format if mentioned (e.g. "starts tomorrow", "starting today", "from Friday"). If not mentioned, null.
-11. "due_date": Absolute date string in "YYYY-MM-DD" format if mentioned (e.g. "today", "tomorrow", "this Friday", "by next Monday"). If not mentioned, null.
-12. "due_time": "HH:MM" in 24-hour format if mentioned (e.g. "5 PM" -> "17:00", "noon" -> "12:00"). If not mentioned, null.
-13. "estimate_hours": Number of expected or estimated hours spoken (e.g. "expected 4 hours", "estimate 2.5 hours", "3 hours"). Float or integer between 0 and 1000. If not mentioned, null.
-14. "priority": One of: "low", "medium", "high", "urgent". Default to "medium". If words like "urgent", "asap", "critical", "top priority" (or Urdu "zaroori", "jaldi") are used, set to "urgent".
-15. "checklist": Array of short string checklist items if mentioned (e.g. ["verify numbers", "send email"]). Otherwise empty array.
+7. "watcher_names": Array of employee names mentioned as watchers, observers, or kept in the loop (e.g. "add Usman as watcher", "keep Sarah in loop", "watchers Bilal and Tariq", "watcher Ali", Urdu/Roman Urdu: "Usman ko watcher bana do", "Bilal ko bhi add karo as watcher", "Tariq ko loop mein rakho").
+   - MUST be chosen STRICTLY from names in the "Active Company Team Roster".
+   - If no watchers are mentioned, return [].
+8. "watcher_ids": Array of string "id"s from the "Active Company Team Roster" corresponding to "watcher_names". If none, return [].
+9. "spoken_watchers": Array of raw spoken names of watchers/observers mentioned (e.g. ["Usman", "Sarah"]), or empty array [] if none.
+10. "company_id": If a client or company from the "Active Companies / Workspaces" list is mentioned (e.g. "for Acme", "company Alpha"), output their exact "id". Otherwise null.
+11. "company_name": Exact "name" from the "Active Companies / Workspaces" list corresponding to "company_id", or null.
+12. "spoken_company": Raw name of any client or company spoken in the command (e.g. "Tesla", "Acme"), or null if no company was mentioned.
+13. "start_date": Absolute start date string in "YYYY-MM-DD" format if mentioned (e.g. "starts tomorrow", "starting today", "from Friday"). If not mentioned, null.
+14. "due_date": Absolute date string in "YYYY-MM-DD" format if mentioned (e.g. "today", "tomorrow", "this Friday", "by next Monday"). If not mentioned, null.
+15. "due_time": "HH:MM" in 24-hour format if mentioned (e.g. "5 PM" -> "17:00", "noon" -> "12:00"). If not mentioned, null.
+16. "estimate_hours": Number of expected or estimated hours spoken (e.g. "expected 4 hours", "estimate 2.5 hours", "3 hours"). Float or integer between 0 and 1000. If not mentioned, null.
+17. "priority": One of: "low", "medium", "high", "urgent". Default to "medium". If words like "urgent", "asap", "critical", "top priority" (or Urdu "zaroori", "jaldi") are used, set to "urgent".
+18. "checklist": Array of short string checklist items if mentioned (e.g. ["verify numbers", "send email"]). Otherwise empty array.
 
 Return ONLY a valid JSON object with these keys:
 {{
@@ -347,6 +352,9 @@ Return ONLY a valid JSON object with these keys:
   "assignee_id": string or null,
   "spoken_assignee": string or null,
   "ambiguous_names": [string],
+  "watcher_names": [string],
+  "watcher_ids": [string],
+  "spoken_watchers": [string],
   "company_id": string or null,
   "company_name": string or null,
   "spoken_company": string or null,
@@ -410,6 +418,9 @@ Return ONLY a valid JSON object with these keys:
             "assignee_id": None,
             "assignee_name": None,
             "ambiguous_names": [],
+            "watcher_names": [],
+            "watcher_ids": [],
+            "spoken_watchers": [],
             "company_id": None,
             "company_name": None,
             "start_date": None,
@@ -472,6 +483,41 @@ Return ONLY a valid JSON object with these keys:
         assignee_id = None
         assignee_name = None
         status_code = "unassigned"
+
+    # Watcher resolution
+    raw_watcher_ids = parsed.get("watcher_ids") or []
+    raw_watcher_names = parsed.get("watcher_names") or []
+    spoken_watchers = parsed.get("spoken_watchers") or []
+
+    final_watcher_ids: List[str] = []
+    final_watcher_names: List[str] = []
+    unrecognized_watchers: List[str] = []
+
+    # 1. Collect from direct valid watcher_ids from the roster
+    for wid in raw_watcher_ids:
+        matched_w = next((u for u in assignable_users if u["id"] == wid), None)
+        if matched_w:
+            if matched_w["id"] != assignee_id and matched_w["id"] not in final_watcher_ids:
+                final_watcher_ids.append(matched_w["id"])
+                final_watcher_names.append(matched_w["name"])
+
+    # 2. Resolve any watcher names or spoken watchers not yet resolved
+    names_to_check = list(raw_watcher_names) + [sw for sw in spoken_watchers if sw not in raw_watcher_names]
+    for w_name in names_to_check:
+        if not w_name or not str(w_name).strip():
+            continue
+        # Check if already matched
+        if any(str(w_name).strip().lower() == wn.lower() for wn in final_watcher_names):
+            continue
+        cands = _find_matching_candidates(str(w_name), assignable_users)
+        if len(cands) == 1:
+            cw = cands[0]
+            if cw["id"] != assignee_id and cw["id"] not in final_watcher_ids:
+                final_watcher_ids.append(cw["id"])
+                final_watcher_names.append(cw["name"])
+        elif len(cands) == 0:
+            if str(w_name).strip() not in unrecognized_watchers:
+                unrecognized_watchers.append(str(w_name).strip())
 
     # Company resolution
     company_id = parsed.get("company_id")
@@ -546,6 +592,8 @@ Return ONLY a valid JSON object with these keys:
             "description": task_description,
             "assignee_id": assignee_id,
             "assignee_name": assignee_name,
+            "watcher_ids": final_watcher_ids,
+            "watcher_names": final_watcher_names,
             "company_id": company_id,
             "company_name": company_name,
             "start_date": start_date,
@@ -560,6 +608,7 @@ Return ONLY a valid JSON object with these keys:
             "ambiguous_candidates": ambiguous_candidates,
             "unrecognized_assignee": unrecognized_assignee,
             "unrecognized_company": unrecognized_company,
+            "unrecognized_watchers": unrecognized_watchers,
         },
     }
 

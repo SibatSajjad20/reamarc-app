@@ -31,7 +31,7 @@ from app.schemas.task import (
     VoiceTaskParseResponse,
 )
 from app.services import task_activity, task_attachments, task_chat, task_comments, task_service, voice_task_service
-from app.services.task_access import can_open_module, is_admin
+from app.services.task_access import can_open_module, can_use_voice_task, is_admin
 from app.services.task_service import require_module_user
 
 router = APIRouter(prefix="/tasks", tags=["Task Manager"])
@@ -291,13 +291,13 @@ async def voice_parse_task(
     current_user: dict = Depends(require_tasks_user),
 ):
     """Parse voice audio or transcript text into a structured task draft.
-    Restricted to administrators only.
+    Restricted to administrators and team leads only.
     Supports both JSON payloads (audio_base64 or text) and multipart/form-data.
     """
-    if not is_admin(current_user):
+    if not can_use_voice_task(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Voice task agent is restricted to administrators only.",
+            detail="Voice task agent is restricted to administrators and team leads only.",
         )
 
     content_type = request.headers.get("content-type", "").lower()

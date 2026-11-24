@@ -432,6 +432,11 @@ def can_assign_to(
     return False
 
 
+def can_use_voice_task(user: Optional[Dict[str, Any]]) -> bool:
+    """Check if user has permission to use voice task commands (Admin & Team Leads)."""
+    return is_admin(user) or is_lead(user)
+
+
 def assignable_users(
     actor: Optional[Dict[str, Any]],
     candidates: Sequence[Dict[str, Any]],

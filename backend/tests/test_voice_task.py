@@ -259,7 +259,7 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(res.status_code, 403, res.text)
 
     async def test_non_admin_user_forbidden(self):
-        """Non-admin user (team member) is blocked with 403 Forbidden."""
+        """Non-admin and non-lead user (team member) is blocked with 403 Forbidden."""
         self.actor = dict(MEMBER_C1)
         async with await self._ac() as ac:
             res = await ac.post(
@@ -267,7 +267,117 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
                 data={"text": "Assign task to Hamza"},
             )
         self.assertEqual(res.status_code, 403, res.text)
-        self.assertIn("administrators only", res.json()["detail"])
+        self.assertIn("administrators and team leads only", res.json()["detail"])
+
+    async def test_team_lead_allowed(self):
+        """Team lead is permitted to use voice task parse."""
+        self.actor = dict(LEAD_CONTENT)
+        with patch("app.services.voice_task_service.extract_task_from_transcript") as mock_extract:
+            mock_extract.return_value = {
+                "transcript": "Write new blog post",
+                "task": {
+                    "title": "Write new blog post",
+                    "description": "Weekly company update",
+                    "assignee_id": MEMBER_C1["id"],
+                    "assignee_name": MEMBER_C1["name"],
+                    "watcher_ids": [],
+                    "watcher_names": [],
+                    "due_date": "2026-11-28",
+                    "priority": "medium",
+                    "checklist": [],
+                },
+                "confidence": {"status": "matched", "ambiguous_candidates": []},
+            }
+            async with await self._ac() as ac:
+                res = await ac.post(
+                    "/api/v1/tasks/voice-parse",
+                    data={"text": "Write new blog post for content team"},
+                )
+            self.assertEqual(res.status_code, 200, res.text)
+            self.assertEqual(res.json()["task"]["title"], "Write new blog post")
+
+    async def test_voice_extracts_watchers(self):
+        """Voice command extracts watchers strictly from the roster."""
+        roster = [
+            {"id": "usr_h1", "name": "Muhammad Hamza", "department": "Design"},
+            {"id": "usr_u1", "name": "Usman Tariq", "department": "Engineering"},
+            {"id": "usr_s1", "name": "Sarah Khan", "department": "Marketing"},
+        ]
+        mock_parsed = {
+            "is_task": True,
+            "title": "Design landing page",
+            "description": "Design responsive landing page with Usman and Sarah as watchers",
+            "assignee_name": "Muhammad Hamza",
+            "assignee_id": "usr_h1",
+            "watcher_names": ["Usman Tariq", "Sarah Khan"],
+            "watcher_ids": ["usr_u1", "usr_s1"],
+            "spoken_watchers": ["Usman", "Sarah"],
+            "due_date": "2026-11-30",
+            "priority": "high",
+            "checklist": [],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": str(mock_parsed).replace("'", '"').replace("True", "true")}}]
+        }
+
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=mock_resp)
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript="Assign landing page to Hamza, add Usman and Sarah as watchers",
+                assignable_users=roster,
+            )
+
+        task = res["task"]
+        self.assertEqual(task["assignee_id"], "usr_h1")
+        self.assertIn("usr_u1", task["watcher_ids"])
+        self.assertIn("usr_s1", task["watcher_ids"])
+        self.assertIn("Usman Tariq", task["watcher_names"])
+        self.assertIn("Sarah Khan", task["watcher_names"])
+
+    async def test_voice_watcher_excludes_assignee(self):
+        """If assignee is spoken as watcher too, they are filtered out of watcher_ids."""
+        roster = [
+            {"id": "usr_h1", "name": "Muhammad Hamza", "department": "Design"},
+            {"id": "usr_u1", "name": "Usman Tariq", "department": "Engineering"},
+        ]
+        mock_parsed = {
+            "is_task": True,
+            "title": "Review codebase",
+            "description": "Code review task",
+            "assignee_name": "Muhammad Hamza",
+            "assignee_id": "usr_h1",
+            "watcher_names": ["Muhammad Hamza", "Usman Tariq"],
+            "watcher_ids": ["usr_h1", "usr_u1"],
+            "spoken_watchers": ["Hamza", "Usman"],
+            "due_date": "2026-11-30",
+            "priority": "medium",
+            "checklist": [],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": str(mock_parsed).replace("'", '"').replace("True", "true")}}]
+        }
+
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=mock_resp)
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript="Assign codebase review to Hamza and keep Hamza and Usman as watchers",
+                assignable_users=roster,
+            )
+
+        task = res["task"]
+        self.assertEqual(task["assignee_id"], "usr_h1")
+        self.assertNotIn("usr_h1", task["watcher_ids"])
+        self.assertIn("usr_u1", task["watcher_ids"])
 
     async def test_unknown_employee_name_is_never_inserted(self):
         """If spoken employee name does not match dropdown roster, assignee must be None, never raw text."""

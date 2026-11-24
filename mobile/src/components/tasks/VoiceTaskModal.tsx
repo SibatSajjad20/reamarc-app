@@ -324,6 +324,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [assigneeId, setAssigneeId] = useState<string>('');
+  const [watcherIds, setWatcherIds] = useState<string[]>([]);
   const [clientId, setClientId] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [dueDate, setDueDate] = useState<string>('');
@@ -391,6 +392,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setStatus('todo');
     setPriority('medium');
     setAssigneeId('');
+    setWatcherIds([]);
     setClientId('');
     setStartDate('');
     setDueDate('');
@@ -502,6 +504,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setStatus('todo');
     setPriority(res.task?.priority || 'medium');
     setAssigneeId(res.task?.assignee_id || '');
+    setWatcherIds(res.task?.watcher_ids || []);
     setClientId(res.task?.client_id || res.task?.company_id || '');
     setStartDate(res.task?.start_date || '');
     setDueDate(res.task?.due_date || '');
@@ -534,6 +537,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
       };
 
       if (assigneeId) payload.assignee_id = assigneeId;
+      if (watcherIds.length > 0) payload.watcher_ids = watcherIds;
       if (clientId) payload.client_id = clientId;
       if (startDate) payload.start_date = startDate;
       if (dueDate) payload.due_date = dueDate;
@@ -1056,6 +1060,63 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                     searchable
                     placeholder="Select company..."
                   />
+                </View>
+
+                {/* Form: Watchers */}
+                <View style={styles.fieldGroup}>
+                  <SelectField
+                    label="Watchers"
+                    value=""
+                    placeholder="+ Add watcher..."
+                    options={[
+                      { value: '', label: '+ Add watcher...' },
+                      ...assignees
+                        .filter((u) => !watcherIds.includes(u.id) && u.id !== assigneeId)
+                        .map((u) => ({
+                          value: u.id,
+                          label: u.name,
+                          hint: u.department || u.role,
+                        })),
+                    ]}
+                    onChange={(val) => {
+                      if (val && !watcherIds.includes(val)) {
+                        setWatcherIds((prev) => [...prev, val]);
+                      }
+                    }}
+                    searchable
+                  />
+                  {watcherIds.length > 0 ? (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                      {watcherIds.map((id) => {
+                        const u = assignees.find((x) => x.id === id);
+                        return (
+                          <View
+                            key={id}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              backgroundColor: theme.bgSubtle,
+                              borderRadius: 16,
+                              paddingHorizontal: 10,
+                              paddingVertical: 5,
+                              borderWidth: 1,
+                              borderColor: theme.border,
+                            }}
+                          >
+                            <Text style={{ fontSize: 13, color: theme.text, marginRight: 6 }}>
+                              {u?.name || id}
+                            </Text>
+                            <Pressable
+                              onPress={() => setWatcherIds((prev) => prev.filter((x) => x !== id))}
+                              hitSlop={8}
+                            >
+                              <Text style={{ fontSize: 15, fontWeight: '700', color: theme.textMuted }}>×</Text>
+                            </Pressable>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Form: Start Date */}

@@ -15,6 +15,8 @@ export interface VoiceTaskProposal {
   description: string;
   assignee_id: string | null;
   assignee_name: string | null;
+  watcher_ids?: string[];
+  watcher_names?: string[];
   company_id?: string | null;
   company_name?: string | null;
   client_id?: string | null;

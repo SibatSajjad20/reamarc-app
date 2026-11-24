@@ -26,6 +26,14 @@ export function isAdmin(user?: TaskActor | null): boolean {
   return roleOf(user) === 'admin';
 }
 
+export function isLead(user?: TaskActor | null): boolean {
+  return roleOf(user) === 'team_lead';
+}
+
+export function canUseVoiceTask(user?: TaskActor | null): boolean {
+  return isAdmin(user) || isLead(user);
+}
+
 function deptSet(user?: TaskActor | null): Set<string> {
   const out = new Set<string>();
   const push = (v?: string) => {

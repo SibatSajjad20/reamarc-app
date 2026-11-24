@@ -62,7 +62,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { useTaskCounts } from '@/hooks/useTaskCounts';
-import { canTransitionTo, isAdmin, stageChangeNeedsReason } from '@/utils/taskAccess';
+import { canTransitionTo, canUseVoiceTask, isAdmin, stageChangeNeedsReason } from '@/utils/taskAccess';
 import { collapseAssignmentGroups, isSharedStageCard } from '@/utils/taskAssignmentGroup';
 import type { BoardDensity } from '@/components/task-manager/TaskPipelineCard';
 import {
@@ -622,13 +622,13 @@ export const TaskManagerView: React.FC = () => {
               <Upload className="w-3.5 h-3.5 mr-1" />
               Import
             </Button>
-            {isAdmin(actor) && (
+            {canUseVoiceTask(actor) && (
               <Button
                 type="button"
                 variant="secondary"
                 size="sm"
                 onClick={() => setVoiceOpen(true)}
-                title="Assign task by voice command (Admin only)"
+                title="Assign task by voice command (Admin & Team Leads)"
               >
                 <Mic className="w-3.5 h-3.5 mr-1" />
                 Voice task
@@ -943,7 +943,7 @@ export const TaskManagerView: React.FC = () => {
           }
         }}
       />
-      {isAdmin(actor) && (
+      {canUseVoiceTask(actor) && (
         <TaskVoiceModal
           open={voiceOpen}
           onClose={() => setVoiceOpen(false)}

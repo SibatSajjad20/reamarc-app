@@ -7,7 +7,7 @@ import {
   Mic,
   StopCircle,
 } from 'lucide-react';
-import { FormDialog } from '@/components/ui/FormDialogLayout';
+import { FormDialog, FormDialogBody } from '@/components/ui/FormDialogLayout';
 import { Button } from '@/components/ui/button';
 import { taskService } from '@/services/taskService';
 import { useToast } from '@/context/ToastContext';
@@ -44,8 +44,8 @@ export const TaskVoiceModal: React.FC<Props> = ({
   const { workspaces: hookWorkspaces } = useWorkspaces();
   const allWorkspaces = propWorkspaces && propWorkspaces.length > 0 ? propWorkspaces : hookWorkspaces;
 
-  // Admin-only gate
-  if (actor && actor.role !== 'admin') {
+  // Admin & Team Lead gate
+  if (actor && actor.role !== 'admin' && actor.role !== 'team_lead') {
     return null;
   }
 
@@ -60,6 +60,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [assigneeId, setAssigneeId] = useState<string>('');
+  const [watcherIds, setWatcherIds] = useState<string[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
   const [dueDate, setDueDate] = useState<string>('');
@@ -90,6 +91,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setDescription('');
     setStatus('todo');
     setAssigneeId('');
+    setWatcherIds([]);
     setWorkspaceId('');
     setStartDate('');
     setDueDate('');
@@ -212,6 +214,13 @@ export const TaskVoiceModal: React.FC<Props> = ({
     const matchedWs = res.task.company_id ? allWorkspaces.find((w) => w.id === res.task.company_id) : null;
     setWorkspaceId(matchedWs ? matchedWs.id : '');
 
+    // Watchers: filter against assignable dropdown, exclude assignee
+    const rawWatcherIds = res.task.watcher_ids || [];
+    const validWatchers = rawWatcherIds.filter(
+      (id) => assignable.some((u) => u.id === id) && id !== (matched ? matched.id : '')
+    );
+    setWatcherIds(validWatchers);
+
     setStartDate(res.task.start_date || '');
     setDueDate(res.task.due_date || '');
     setDueTime(res.task.due_time || '');
@@ -327,6 +336,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
       };
 
       if (assigneeId) payload.assignee_id = assigneeId;
+      if (watcherIds.length > 0) payload.watcher_ids = watcherIds;
       if (startDate) payload.start_date = startDate;
       if (dueDate) payload.due_date = dueDate;
       if (dueTime) payload.due_time = dueTime;
@@ -384,7 +394,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
       }
       subtitle="Dictate your assignment or type details below"
     >
-      <div className="p-6 space-y-5">
+      <FormDialogBody className="space-y-5 custom-scrollbar">
         {errorMsg && (
           <div className="flex items-start gap-2.5 p-3.5 text-sm text-danger-fg bg-danger-bg border border-danger-bd rounded-lg">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -712,6 +722,58 @@ export const TaskVoiceModal: React.FC<Props> = ({
                 </div>
               </div>
 
+              {/* Watchers */}
+              <div>
+                <label className="block text-xs font-medium text-fg-muted mb-1.5">
+                  Watchers <span className="text-fg-muted/70 font-normal">(optional, keeps team members informed)</span>
+                </label>
+                <div className="space-y-2">
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v && !watcherIds.includes(v)) {
+                        setWatcherIds((prev) => [...prev, v]);
+                      }
+                    }}
+                    className="w-full h-9 px-3 rounded-md bg-subtle border border-border text-sm text-fg focus:border-accent focus:outline-hidden"
+                  >
+                    <option value="">+ Add watcher...</option>
+                    {assignable
+                      .filter((u) => !watcherIds.includes(u.id) && u.id !== assigneeId)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name} {u.department ? `(${u.department})` : ''}
+                        </option>
+                      ))}
+                  </select>
+
+                  {watcherIds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {watcherIds.map((id) => {
+                        const u = assignable.find((x) => x.id === id);
+                        return (
+                          <span
+                            key={id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-subtle text-fg border border-border"
+                          >
+                            <span>{u?.name || id}</span>
+                            <button
+                              type="button"
+                              onClick={() => setWatcherIds((prev) => prev.filter((x) => x !== id))}
+                              className="text-fg-muted hover:text-danger-fg transition-colors font-bold text-sm leading-none ml-0.5"
+                              title="Remove watcher"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               {/* Start Date, Due Date, Due Time & Expected Hours */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                 <div>
@@ -785,7 +847,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2.5 pt-3 border-t border-border">
+            <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs py-3 border-t border-border flex justify-end gap-2.5 shrink-0 z-10 -mx-6 -mb-5 px-6 mt-4">
               <Button type="button" variant="secondary" onClick={onClose}>
                 Cancel
               </Button>
@@ -810,7 +872,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
             </div>
           </div>
         )}
-      </div>
+      </FormDialogBody>
     </FormDialog>
   );
 };

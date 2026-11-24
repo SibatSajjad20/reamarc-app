@@ -46,6 +46,7 @@ export default function TasksScreen() {
   const tabOffset = useTabBarOffset();
   const canCreate = canAccessTasks(user) && (!user?.permissions?.view_only || user?.role === 'operations');
   const isAdmin = user?.role === 'admin';
+  const canUseVoice = user?.role === 'admin' || user?.role === 'team_lead' || user?.role === 'lead';
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
@@ -156,7 +157,7 @@ export default function TasksScreen() {
         right={
           canCreate ? (
             <View style={styles.headerRightGroup}>
-              {isAdmin ? (
+              {canUseVoice ? (
                 <Pressable
                   onPress={() => setVoiceOpen(true)}
                   style={({ pressed }) => [
@@ -267,7 +268,7 @@ export default function TasksScreen() {
           void load(true);
         }}
       />
-      {isAdmin && voiceOpen ? (
+      {canUseVoice && voiceOpen ? (
         <VoiceTaskModal
           visible={voiceOpen}
           onClose={() => setVoiceOpen(false)}
