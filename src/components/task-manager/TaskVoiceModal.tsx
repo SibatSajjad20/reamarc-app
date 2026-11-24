@@ -293,6 +293,11 @@ export const TaskVoiceModal: React.FC<Props> = ({
       return;
     }
 
+    if (description.trim().length > 10000) {
+      setErrorMsg('Task description cannot exceed 10,000 characters.');
+      return;
+    }
+
     if (startDate && dueDate && startDate > dueDate) {
       setErrorMsg('Start date cannot be after due date.');
       return;
@@ -599,6 +604,19 @@ export const TaskVoiceModal: React.FC<Props> = ({
                   onChange={(e) => setTitle(e.target.value)}
                   className="w-full h-9 px-3 rounded-md bg-subtle border border-border text-sm text-fg focus:border-accent focus:outline-hidden"
                   placeholder="Task title..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-fg-muted mb-1.5">
+                  Task Description <span className="text-fg-muted/70 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  rows={3}
+                  className="w-full p-2.5 rounded-md bg-subtle border border-border text-sm text-fg focus:border-accent focus:outline-hidden resize-y min-h-[72px]"
+                  placeholder="Task description, context, or instructions..."
                 />
               </div>
 

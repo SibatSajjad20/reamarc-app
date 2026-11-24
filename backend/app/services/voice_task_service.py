@@ -320,7 +320,7 @@ Active Companies / Workspaces:
 CRITICAL RULES FOR EXTRACTION:
 0. "is_task": boolean. Set to true if the voice command is a genuine instruction or request to create, assign, or track a task. Set to false if the speech is casual conversational talk (e.g. "how are you", "what's the weather today"), testing phrases ("hello testing 1 2 3", "mic check"), random chatter, or questions with no actionable task intent.
 1. "title": Short, imperative, professional summary of the task in English (e.g. "Design social media banners", "Review financial audit"). Max 200 chars. Required. If the voice command was in Urdu, translate the action into a concise professional English title.
-2. "description": Any additional instructions, details, or notes spoken. Can be empty string.
+2. "description": A clear, comprehensive, and professional task description detailing what needs to be done based on the spoken instruction. Capture the objective, scope, requirements, context, and any specific notes or instructions spoken. ALWAYS generate an informative task description in clear English (if spoken in Urdu or Roman Urdu, translate and articulate clearly in professional English). NEVER leave description empty or blank.
 3. "assignee_name": MUST be chosen STRICTLY from the names in the "Active Company Team Roster" above if a matching employee is mentioned.
    - NEVER invent, guess, or output any name outside this roster.
    - If the spoken person cannot be found in the roster, output null.
@@ -533,11 +533,17 @@ Return ONLY a valid JSON object with these keys:
     raw_checklist = parsed.get("checklist") or []
     checklist_items = [{"text": str(c).strip()} for c in raw_checklist if str(c).strip()]
 
+    task_title = (parsed.get("title") or transcript[:100]).strip()
+    task_description = (parsed.get("description") or "").strip()
+    if not task_description:
+        # Guarantee that task description is always entered and never empty
+        task_description = transcript.strip() if transcript.strip() else task_title
+
     return {
         "transcript": transcript,
         "task": {
-            "title": (parsed.get("title") or transcript[:100]).strip(),
-            "description": (parsed.get("description") or "").strip(),
+            "title": task_title,
+            "description": task_description,
             "assignee_id": assignee_id,
             "assignee_name": assignee_name,
             "company_id": company_id,

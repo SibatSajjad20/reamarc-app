@@ -448,3 +448,71 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(task["due_date"], "2026-11-28")
         self.assertEqual(task["due_time"], "15:00")
         self.assertEqual(task["estimate_hours"], 6.5)
+        self.assertEqual(task["description"], "For client Acme")
+
+    async def test_task_description_fallback_when_empty(self):
+        """Voice agent guarantees task description is entered even if LLM outputs empty description."""
+        roster = [{"id": "usr_h1", "name": "Muhammad Hamza"}]
+        mock_parsed = {
+            "title": "Fix login bug",
+            "description": "",  # Empty from LLM
+            "assignee_name": "Muhammad Hamza",
+            "assignee_id": "usr_h1",
+            "due_date": None,
+            "due_time": None,
+            "priority": "medium",
+            "checklist": [],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": str(mock_parsed).replace("'", '"').replace("None", "null")}}]
+        }
+
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=mock_resp)
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+
+            transcript = "Assign fixing login bug to Hamza"
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript=transcript,
+                assignable_users=roster,
+            )
+
+        task = res["task"]
+        self.assertTrue(bool(task["description"]), "Task description must not be empty")
+        self.assertEqual(task["description"], transcript)
+
+    async def test_task_description_populated_from_detailed_speech(self):
+        """Voice agent preserves rich task description with instructions."""
+        roster = [{"id": "usr_h1", "name": "Muhammad Hamza"}]
+        expected_desc = "Update login endpoint to support OAuth2 for Google and Microsoft. Ensure error logging is in place."
+        mock_parsed = {
+            "title": "OAuth2 Login Integration",
+            "description": expected_desc,
+            "assignee_name": "Muhammad Hamza",
+            "assignee_id": "usr_h1",
+            "due_date": "2026-12-01",
+            "due_time": "18:00",
+            "priority": "high",
+            "checklist": ["Google OAuth", "Microsoft OAuth"],
+        }
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "choices": [{"message": {"content": str(mock_parsed).replace("'", '"')}}]
+        }
+
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=mock_resp)
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript="Hamza, integrate OAuth2 for Google and Microsoft on login and ensure error logging by Dec 1st",
+                assignable_users=roster,
+            )
+
+        task = res["task"]
+        self.assertEqual(task["description"], expected_desc)

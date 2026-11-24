@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
-  Dimensions,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -13,9 +12,7 @@ import {
   Text,
   TextInput,
   View,
-  useWindowDimensions,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   AlertCircle,
@@ -255,8 +252,6 @@ function CalendarModal({
 
 export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
 
   const [hasNativeAudio, setHasNativeAudio] = useState(false);
   const [step, setStep] = useState<Step>('idle');
@@ -286,33 +281,12 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
   >([]);
 
   // Pickers & Modals
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [calTarget, setCalTarget] = useState<'start' | 'due' | null>(null);
   const [showTimeModal, setShowTimeModal] = useState(false);
 
   const timerRef = useRef<any>(null);
   const scrollViewRef = useRef<any>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
-
-  // Track keyboard height accurately across iOS and Android
-  useEffect(() => {
-    const showSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      (e) => {
-        setKeyboardHeight(e.endCoordinates.height);
-      },
-    );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => {
-        setKeyboardHeight(0);
-      },
-    );
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
-  }, []);
 
   // Pulsing animation for active recording
   useEffect(() => {
@@ -490,6 +464,10 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
       setErrorMsg('Task title is required.');
       return;
     }
+    if (description.trim().length > 10000) {
+      setErrorMsg('Task description cannot exceed 10,000 characters.');
+      return;
+    }
 
     setStep('saving');
     setErrorMsg(null);
@@ -592,79 +570,48 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
     [clients],
   );
 
-  // Safe sheet height calculation accounting for keyboard and device insets
-  const screenHeight = Dimensions.get('screen').height;
-  const androidNeedsPadding =
-    Platform.OS === 'android' && keyboardHeight > 0 && Math.abs(screenHeight - windowHeight) < 100;
-
-  const maxSheetHeight = useMemo(() => {
-    const activeKeyboard = Platform.OS === 'ios' ? keyboardHeight : androidNeedsPadding ? keyboardHeight : 0;
-    const available = windowHeight - insets.top - activeKeyboard - 16;
-    return Math.max(300, Math.min(windowHeight * 0.9, available));
-  }, [windowHeight, insets.top, keyboardHeight, androidNeedsPadding]);
-
   return (
     <Modal
       visible={visible}
       animationType="fade"
-      transparent
+      presentationStyle="pageSheet"
       onRequestClose={handleCancel}
-      statusBarTranslucent
     >
       <KeyboardAvoidingView
-        style={[
-          styles.keyboardAvoid,
-          androidNeedsPadding ? { paddingBottom: keyboardHeight } : null,
-        ]}
+        style={[styles.sheet, { backgroundColor: theme.bg }]}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={0}
       >
-        <Pressable style={styles.backdrop} onPress={handleCancel} />
-
-        <View
-          style={[
-            styles.sheet,
-            {
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-              maxHeight: maxSheetHeight,
-            },
-          ]}
-        >
-          {/* Header */}
-          <View style={[styles.header, { borderBottomColor: theme.border }]}>
-            <View style={styles.headerLeft}>
-              <View style={[styles.headerIconBox, { backgroundColor: theme.primaryLight }]}>
-                <Mic size={18} color={theme.primary} />
-              </View>
-              <View style={styles.headerTextGroup}>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>New Task by Voice</Text>
-                <Text style={[styles.headerSubtitle, { color: theme.textMuted }]}>
-                  Dictate your assignment or type details below
-                </Text>
-              </View>
+        {/* Header */}
+        <View style={[styles.header, { borderBottomColor: theme.border, backgroundColor: theme.surface }]}>
+          <View style={styles.headerLeft}>
+            <View style={[styles.headerIconBox, { backgroundColor: theme.primaryLight }]}>
+              <Mic size={18} color={theme.primary} />
             </View>
-
-            <Pressable
-              hitSlop={12}
-              onPress={handleCancel}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                { backgroundColor: theme.bgSubtle, opacity: pressed ? 0.75 : 1 },
-              ]}
-            >
-              <X size={16} color={theme.textMuted} />
-            </Pressable>
+            <View style={styles.headerTextGroup}>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>New Task by Voice</Text>
+              <Text style={[styles.headerSubtitle, { color: theme.textMuted }]}>
+                Dictate your assignment or type details below
+              </Text>
+            </View>
           </View>
 
-          {/* Body Content */}
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.body}
-            contentContainerStyle={[
-              styles.bodyContent,
-              { paddingBottom: Math.max(insets.bottom, 16) + 16 },
+          <Pressable
+            hitSlop={12}
+            onPress={handleCancel}
+            style={({ pressed }) => [
+              styles.closeBtn,
+              { backgroundColor: theme.bgSubtle, opacity: pressed ? 0.75 : 1 },
             ]}
+          >
+            <X size={16} color={theme.textMuted} />
+          </Pressable>
+        </View>
+
+        {/* Body Content */}
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.body}
+          contentContainerStyle={styles.bodyContent}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="interactive"
             showsVerticalScrollIndicator={true}
@@ -962,6 +909,29 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
                   />
                 </View>
 
+                {/* Form: Description */}
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: theme.textMuted }]}>
+                    Description
+                  </Text>
+                  <TextInput
+                    style={[
+                      styles.textInput,
+                      styles.textArea,
+                      {
+                        backgroundColor: theme.surface,
+                        borderColor: theme.border,
+                        color: theme.text,
+                      },
+                    ]}
+                    value={description}
+                    onChangeText={setDescription}
+                    placeholder="Task description, context, or instructions..."
+                    placeholderTextColor={theme.textSubtle}
+                    multiline
+                  />
+                </View>
+
                 {/* Form: Status */}
                 <View style={styles.fieldGroup}>
                   <SelectField
@@ -1204,7 +1174,6 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
               </View>
             )}
           </ScrollView>
-        </View>
       </KeyboardAvoidingView>
 
       {/* Calendar Modal for Start Date / Due Date */}
@@ -1281,28 +1250,16 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
 }
 
 const styles = StyleSheet.create({
-  keyboardAvoid: {
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-  },
   sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    borderLeftWidth: 1,
-    borderRightWidth: 1,
-    overflow: 'hidden',
+    flex: 1,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingTop: Platform.OS === 'android' ? 16 : 14,
+    paddingBottom: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
     gap: 12,
   },
@@ -1340,11 +1297,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   body: {
-    flexGrow: 0,
-    flexShrink: 1,
+    flex: 1,
   },
   bodyContent: {
     padding: 16,
+    paddingBottom: Platform.OS === 'ios' ? 44 : 28,
     gap: 14,
   },
   errorBox: {
@@ -1586,6 +1543,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 12,
     fontSize: 14,
+  },
+  textArea: {
+    minHeight: 76,
+    paddingVertical: 10,
+    textAlignVertical: 'top',
   },
   inputWithIcon: {
     height: 44,
