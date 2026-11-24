@@ -172,6 +172,23 @@ export const TaskDialog: React.FC<Props> = ({
   const [clientError, setClientError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
   const checklistGen = useRef(0);
+  // Desktop: the dialog body is the only scroller; the side pane is sticky and sized to the visible body height.
+  const [bodyEl, setBodyEl] = useState<HTMLDivElement | null>(null);
+  const [paneHeight, setPaneHeight] = useState(0);
+  useEffect(() => {
+    const el = bodyEl;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const measure = () => {
+      const cs = window.getComputedStyle(el);
+      const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+      const next = Math.max(0, Math.floor(el.clientHeight - pad));
+      setPaneHeight((cur) => (cur === next ? cur : next));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [bodyEl]);
   const pendingTempDeletes = useRef(new Set<string>());
   const tempToReal = useRef(new Map<string, string>());
 
@@ -646,8 +663,13 @@ export const TaskDialog: React.FC<Props> = ({
           void onPrimary();
         }}
       >
-        <FormDialogBody className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-1 lg:items-stretch gap-6 overflow-y-auto lg:overflow-hidden">
-          <div className="lg:col-span-7 space-y-4 lg:min-h-0 lg:overflow-y-auto" data-testid="task-dialog-form">
+        <FormDialogBody
+          ref={setBodyEl}
+          className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 lg:items-start gap-6 overflow-y-auto overflow-x-hidden"
+          style={paneHeight ? ({ '--task-dialog-pane-h': `${paneHeight}px` } as React.CSSProperties) : undefined}
+          data-testid="task-dialog-body"
+        >
+          <div className="lg:col-span-7 min-w-0 space-y-4" data-testid="task-dialog-form">
             <FormField label="Title" required error={!draft.title.trim() && serverError ? 'Title is required' : undefined}>
               {(props) => (
                 <input
@@ -1169,7 +1191,7 @@ export const TaskDialog: React.FC<Props> = ({
           </div>
 
           <div
-            className="lg:col-span-5 min-h-[280px] lg:min-h-0 lg:flex lg:flex-col lg:overflow-hidden"
+            className="lg:col-span-5 min-h-[280px] lg:min-h-0 lg:sticky lg:top-6 lg:h-[var(--task-dialog-pane-h,480px)] lg:flex lg:flex-col lg:overflow-hidden"
             data-testid="task-dialog-side"
           >
             <Tabs defaultValue="discussion" className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">

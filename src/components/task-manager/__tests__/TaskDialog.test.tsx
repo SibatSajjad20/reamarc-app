@@ -63,7 +63,9 @@ describe('TaskDialog', () => {
     vi.mocked(taskService.changeStage).mockReset();
     vi.mocked(taskService.remove).mockReset();
   });
-  it('keeps the discussion pane from scrolling with the form on desktop', () => {
+  // Desktop layout: the dialog body is the single scroller (the form column no longer scrolls on its
+  // own) and the side pane is sticky, sized to the visible body height, so Discussion stays pinned.
+  it('scrolls the dialog body as one and pins the discussion pane on desktop', () => {
     render(
       <TaskDialog
         open
@@ -73,10 +75,16 @@ describe('TaskDialog', () => {
         onSaved={vi.fn()}
       />,
     );
-    const body = screen.getByTestId('task-dialog-form').parentElement as HTMLElement;
-    expect(body.className).toMatch(/lg:overflow-hidden/);
-    expect(screen.getByTestId('task-dialog-form').className).toMatch(/lg:overflow-y-auto/);
-    expect(screen.getByTestId('task-dialog-side').className).toMatch(/lg:overflow-hidden/);
+    const body = screen.getByTestId('task-dialog-body');
+    expect(screen.getByTestId('task-dialog-form').parentElement).toBe(body);
+    expect(body.className).toMatch(/(^|\s)overflow-y-auto(\s|$)/);
+    expect(body.className).not.toMatch(/lg:overflow-hidden/);
+    expect(screen.getByTestId('task-dialog-form').className).not.toMatch(/overflow-y-auto/);
+    const side = screen.getByTestId('task-dialog-side');
+    expect(side.className).toMatch(/lg:sticky/);
+    expect(side.className).toMatch(/lg:top-6/);
+    expect(side.className).toMatch(/lg:h-\[var\(--task-dialog-pane-h/);
+    expect(side.className).toMatch(/lg:overflow-hidden/);
     expect(screen.getByRole('tablist').className).toMatch(/shrink-0/);
   });
 
