@@ -267,3 +267,37 @@ export type TaskActor = {
   department?: string;
   is_active?: boolean;
 };
+
+export interface VoiceTaskConfidence {
+  status: 'matched' | 'needs_selection' | 'unassigned';
+  ambiguous_candidates: Array<{
+    id: string;
+    name: string;
+    department?: string;
+    role?: string;
+  }>;
+  unrecognized_assignee?: string | null;
+  unrecognized_company?: string | null;
+}
+
+export interface VoiceTaskProposal {
+  title: string;
+  description: string;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  company_id?: string | null;
+  company_name?: string | null;
+  start_date?: string | null;
+  due_date: string | null;
+  due_time: string | null;
+  estimate_hours?: number | null;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  checklist: Array<{ text: string }>;
+}
+
+export interface VoiceTaskParseResponse {
+  transcript: string;
+  task: VoiceTaskProposal;
+  confidence: VoiceTaskConfidence;
+}
+

@@ -14,6 +14,7 @@ import type {
   TaskOverview,
   TaskSavedView,
   TaskSettings,
+  VoiceTaskParseResponse,
 } from '../types/task';
 import type { DrivePickerConfig, DrivePickedFile } from '../types/contentCalendar';
 
@@ -235,5 +236,16 @@ export const taskService = {
   async getTaskLogs(id: string): Promise<DailyLogEntry[]> {
     const res = await apiClient.get<{ logs: DailyLogEntry[] }>(`/tasks/${id}/logs`);
     return res.logs || [];
+  },
+  async voiceParseTask(data: { audio?: Blob | File; text?: string }): Promise<VoiceTaskParseResponse> {
+    const form = new FormData();
+    if (data.audio) {
+      const file = data.audio instanceof File ? data.audio : new File([data.audio], 'voice.webm', { type: data.audio.type || 'audio/webm' });
+      form.append('audio', file);
+    }
+    if (data.text) {
+      form.append('text', data.text);
+    }
+    return apiClient.upload<VoiceTaskParseResponse>('/tasks/voice-parse', form);
   },
 };

@@ -8,7 +8,7 @@ import { fileURLToPath, URL } from 'url'
 const securityHeaders = {
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'geolocation=(self), camera=(), microphone=(), payment=()',
+  'Permissions-Policy': 'geolocation=(self), camera=(), microphone=(self), payment=()',
 }
 
 // https://vite.dev/config/

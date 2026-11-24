@@ -18,6 +18,7 @@
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "OneWorkLane uses your location to confirm you are at the office when you check in or out.",
         "NSFaceIDUsageDescription": "OneWorkLane uses Face ID to confirm it is you before check-in and check-out.",
+        "NSMicrophoneUsageDescription": "OneWorkLane uses your microphone to record voice commands for quick task assignment.",
         "NSLocalNetworkUsageDescription": "OneWorkLane uses the local network to reach the office API on your computer during development.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": false,
@@ -41,7 +42,8 @@
         "ACCESS_FINE_LOCATION",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "RECORD_AUDIO"
       ]
     },
     "plugins": [

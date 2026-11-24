@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ChevronRight, Plus, Search, X } from 'lucide-react-native';
+import { ChevronRight, Mic, Plus, Search, X } from 'lucide-react-native';
 import { useAuth } from '../../src/context/AuthContext';
 import { useTheme } from '../../src/theme';
 import { Card } from '../../src/ui/Card';
@@ -21,6 +21,7 @@ import { TaskListSkeleton } from '../../src/ui/Skeleton';
 import { useTabBarOffset } from '../../src/ui/layout';
 import { peekModuleCache, setModuleCache } from '../../src/lib/moduleCache';
 import { TaskFormModal } from '../../src/components/tasks/TaskFormModal';
+import { VoiceTaskModal } from '../../src/components/tasks/VoiceTaskModal';
 import { canAccessTasks } from '../../src/lib/roles';
 import {
   filterTaskList,
@@ -44,9 +45,11 @@ export default function TasksScreen() {
   const { user } = useAuth();
   const tabOffset = useTabBarOffset();
   const canCreate = canAccessTasks(user) && (!user?.permissions?.view_only || user?.role === 'operations');
+  const isAdmin = user?.role === 'admin';
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [formOpen, setFormOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const cacheKey = 'tasks:all';
   const [items, setItems] = useState<Task[]>(() => peekModuleCache<Task[]>(cacheKey) || []);
   const [loading, setLoading] = useState(() => !peekModuleCache<Task[]>(cacheKey));
@@ -152,13 +155,40 @@ export default function TasksScreen() {
         title="Tasks"
         right={
           canCreate ? (
-            <Pressable
-              onPress={() => setFormOpen(true)}
-              style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            >
-              <Plus size={16} color="#fff" />
-              <Text style={styles.addBtnText}>Add</Text>
-            </Pressable>
+            <View style={styles.headerRightGroup}>
+              {isAdmin ? (
+                <Pressable
+                  onPress={() => setVoiceOpen(true)}
+                  style={({ pressed }) => [
+                    styles.headerBtn,
+                    styles.voiceBtn,
+                    {
+                      backgroundColor: theme.surface,
+                      borderColor: theme.border,
+                      opacity: pressed ? 0.75 : 1,
+                    },
+                  ]}
+                >
+                  <Mic size={15} color={theme.primary} />
+                  <Text style={[styles.headerBtnText, { color: theme.text }]}>Voice</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => setFormOpen(true)}
+                style={({ pressed }) => [
+                  styles.headerBtn,
+                  styles.addBtn,
+                  {
+                    backgroundColor: theme.primary,
+                    borderColor: theme.primary,
+                    opacity: pressed ? 0.75 : 1,
+                  },
+                ]}
+              >
+                <Plus size={15} color="#fff" />
+                <Text style={[styles.headerBtnText, { color: '#fff' }]}>Add</Text>
+              </Pressable>
+            </View>
           ) : null
         }
       />
@@ -237,12 +267,43 @@ export default function TasksScreen() {
           void load(true);
         }}
       />
+      {isAdmin ? (
+        <VoiceTaskModal
+          visible={voiceOpen}
+          onClose={() => setVoiceOpen(false)}
+          onSaved={() => {
+            setVoiceOpen(false);
+            void load(true);
+          }}
+        />
+      ) : null}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    height: 36,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  headerBtnText: {
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  voiceBtn: {},
+  addBtn: {},
   topBar: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, gap: 10 },
   searchBox: {
     flexDirection: 'row',
@@ -284,13 +345,4 @@ const styles = StyleSheet.create({
   viewRow: { flexDirection: 'row', alignItems: 'center' },
   viewText: { fontSize: 13, fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 36, paddingHorizontal: 24 },
-  addBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  addBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
 });

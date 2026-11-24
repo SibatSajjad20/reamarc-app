@@ -8,6 +8,7 @@ import {
   Kanban,
   LayoutDashboard,
   List,
+  Mic,
   Plus,
   Rows3,
   Rows4,
@@ -48,6 +49,7 @@ import { TaskCalendarView } from '@/components/task-manager/TaskCalendarView';
 import { TaskFollowUpView } from '@/components/task-manager/TaskFollowUpView';
 import { TaskOverviewTab } from '@/components/task-manager/TaskOverviewTab';
 import { TaskDialog } from '@/components/task-manager/TaskDialog';
+import { TaskVoiceModal } from '@/components/task-manager/TaskVoiceModal';
 import { TaskLogTimeModal } from '@/components/task-manager/TaskLogTimeModal';
 import { TaskCompanyActivity } from '@/components/task-manager/TaskCompanyActivity';
 import {
@@ -179,6 +181,7 @@ export const TaskManagerView: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [logTimeTask, setLogTimeTask] = useState<Task | null>(null);
   const [defaultDue, setDefaultDue] = useState<string | undefined>();
@@ -619,6 +622,18 @@ export const TaskManagerView: React.FC = () => {
               <Upload className="w-3.5 h-3.5 mr-1" />
               Import
             </Button>
+            {isAdmin(actor) && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setVoiceOpen(true)}
+                title="Assign task by voice command (Admin only)"
+              >
+                <Mic className="w-3.5 h-3.5 mr-1" />
+                Voice task
+              </Button>
+            )}
             <Button type="button" variant="primary" size="sm" onClick={() => openCreate()}>
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Add task
@@ -928,6 +943,19 @@ export const TaskManagerView: React.FC = () => {
           }
         }}
       />
+      {isAdmin(actor) && (
+        <TaskVoiceModal
+          open={voiceOpen}
+          onClose={() => setVoiceOpen(false)}
+          assignable={assignable}
+          actor={actor}
+          workspaces={workspaces.map((w) => ({ id: w.id, name: w.name }))}
+          onSaved={() => {
+            taskManagerViewCache.invalidateLists();
+            void load();
+          }}
+        />
+      )}
       <TaskLogTimeModal
         task={logTimeTask}
         isOpen={Boolean(logTimeTask)}

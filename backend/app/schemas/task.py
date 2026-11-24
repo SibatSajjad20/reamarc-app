@@ -620,3 +620,38 @@ class TaskBulkImportResponse(BaseModel):
     inserted_count: int
     updated_count: int
     errors: List[str] = []
+
+
+class VoiceTaskConfidence(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    status: str = "unassigned"  # matched, needs_selection, unassigned
+    ambiguous_candidates: List[Dict[str, Any]] = []
+    unrecognized_assignee: Optional[str] = None
+    unrecognized_company: Optional[str] = None
+
+
+class VoiceTaskProposal(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = ""
+    description: str = ""
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    company_id: Optional[str] = None
+    company_name: Optional[str] = None
+    start_date: Optional[str] = None
+    due_date: Optional[str] = None
+    due_time: Optional[str] = None
+    estimate_hours: Optional[float] = None
+    priority: str = "medium"
+    checklist: List[Dict[str, Any]] = []
+
+
+class VoiceTaskParseResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    transcript: str
+    task: VoiceTaskProposal
+    confidence: VoiceTaskConfidence
+

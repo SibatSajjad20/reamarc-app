@@ -416,7 +416,7 @@ async def add_security_headers(request: Request, call_next):
             "media_egress kind=%s status=%s bytes=%s",
             kind, response.status_code, response.headers.get("content-length", "stream"),
         )
-    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(self), payment=()"
     if settings.IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response

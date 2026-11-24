@@ -93,12 +93,21 @@ export async function api<T>(
   path: string,
   options: RequestInit & { skipAuth?: boolean } = {},
 ): Promise<T> {
+  const isFormData = Boolean(
+    options.body &&
+      (options.body instanceof FormData ||
+        typeof (options.body as any)?.getParts === 'function' ||
+        typeof (options.body as any)?._parts !== 'undefined'),
+  );
+
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Client': 'mobile',
     // Satisfies production CSRF custom-header check if a prior Set-Cookie is replayed.
     'X-Requested-With': 'XMLHttpRequest',
-    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+    ...(options.body && !isFormData && typeof options.body === 'string'
+      ? { 'Content-Type': 'application/json' }
+      : {}),
     ...(options.headers as Record<string, string> | undefined),
   };
   if (!options.skipAuth) {
