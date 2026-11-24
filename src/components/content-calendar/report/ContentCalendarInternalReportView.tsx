@@ -389,7 +389,7 @@ export const ContentCalendarInternalReportView: React.FC<ContentCalendarInternal
       </Section>
 
       {/* Plan vs posted */}
-      <Section testId="cc-internal-plan" title="Plan vs posted by creative type" hint="Monthly plan from the client's expectations · stories never count · rejected left out">
+      <Section testId="cc-internal-plan" title="Plan vs posted by creative type" hint="Monthly plan from the client's expectations · stories never count · rejected left out · set in Content calendar → Settings">
         {byType.length === 0 ? (
           <p className="text-sm text-fg-muted m-0">No plan and no items this month.</p>
         ) : (

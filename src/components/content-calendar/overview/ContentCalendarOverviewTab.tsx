@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { RefreshCw, ChevronRight, LayoutDashboard, Film, Layers, Play, Sparkles, Image as ImageIcon, FileText } from 'lucide-react';
+import { RefreshCw, ChevronRight, LayoutDashboard, Film, Layers, Play, Sparkles, Image as ImageIcon, FileText, Settings2 } from 'lucide-react';
+import { useAuth } from '../../../context/AuthContext';
+import { canEditContentCalendarFields } from '../../../utils/settingsAccess';
 import type { ContentCalendarItem, ContentCalendarViewMode } from '../../../types/contentCalendar';
 import type { ContentExpectations } from '../../../types';
 import {
@@ -43,6 +45,7 @@ interface Props {
   onSelectItem: (item: ContentCalendarItem) => void;
   onRefresh: () => void;
   onAddContent?: () => void;
+  onOpenSettings?: (clientId?: string) => void;
   /** Open the sheet filtered to one matrix cell. */
   onDrill?: (drill: OverviewDrill) => void;
   /** Open the sheet with the Overdue quick filter. */
@@ -174,10 +177,13 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
   onSelectItem,
   onRefresh,
   onAddContent,
+  onOpenSettings,
   onDrill,
   onShowOverdue,
   now: nowProp,
 }) => {
+  const { user } = useAuth();
+  const canEdit = useMemo(() => canEditContentCalendarFields(user), [user]);
   const now = useMemo(() => nowProp || new Date(), [nowProp]);
   const [period, setPeriod] = useState<OverviewPeriod>(() => {
     try {
@@ -377,7 +383,23 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
                     <span className="text-2xl font-semibold">{kpis.posted}</span>
                     <span className="text-base text-fg-muted"> of {kpis.total}</span>
                   </div>
-                  <div className="text-xs text-fg-muted mt-0.5">{month ? 'No monthly plan set' : 'Plan shows for a single month'}</div>
+                  <div className="text-xs text-fg-muted mt-0.5">
+                    {month ? (
+                      canEdit && onOpenSettings ? (
+                        <button
+                          type="button"
+                          onClick={() => onOpenSettings()}
+                          className="text-accent-text hover:underline cursor-pointer"
+                        >
+                          No monthly plan set
+                        </button>
+                      ) : (
+                        'No monthly plan set'
+                      )
+                    ) : (
+                      'Plan shows for a single month'
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -604,7 +626,30 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
             title="Plan progress by client"
             hint={`Monthly expectations vs posted · ${longMonth(planMonth)} · broken down by creative type where a plan is set`}
             right={
-              clientRows.some((r) => r.types.length > 0) ? (
+              canEdit && onOpenSettings ? (
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="cc-plan-edit"
+                    onClick={() => onOpenSettings()}
+                  >
+                    <Settings2 className="w-3.5 h-3.5 mr-1" />
+                    <span>Edit expectations</span>
+                  </Button>
+                  {clientRows.some((r) => r.types.length > 0) ? (
+                    <button
+                      type="button"
+                      data-testid="cc-plan-toggle-all"
+                      className="text-xs font-medium text-accent-text hover:underline cursor-pointer min-h-[36px] sm:min-h-0"
+                      onClick={() => setCollapsed(allCollapsed ? new Set() : new Set(clientRows.filter((r) => r.types.length).map((r) => r.id)))}
+                    >
+                      {allCollapsed ? 'Show creative types' : 'Hide creative types'}
+                    </button>
+                  ) : null}
+                </div>
+              ) : clientRows.some((r) => r.types.length > 0) ? (
                 <button
                   type="button"
                   data-testid="cc-plan-toggle-all"
@@ -617,7 +662,22 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
             }
           >
             {clientRows.length === 0 ? (
-              <p className="text-sm text-fg-muted m-0">No client plans or items for {longMonth(planMonth)}.</p>
+              <p className="text-sm text-fg-muted m-0">
+                No client plans or items for {longMonth(planMonth)}.
+                {canEdit && onOpenSettings ? (
+                  <>
+                    {' '}
+                    <button
+                      type="button"
+                      data-testid="cc-plan-empty-set"
+                      onClick={() => onOpenSettings()}
+                      className="text-accent-text hover:underline font-medium cursor-pointer"
+                    >
+                      Set client expectations
+                    </button>
+                  </>
+                ) : null}
+              </p>
             ) : (
               <>
                 <div className="hidden md:block overflow-x-auto">
@@ -665,7 +725,28 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
                             <td className="py-2 px-2 text-right tabular-nums">{r.inProgress}</td>
                             <td className="py-2 px-2 text-right tabular-nums">{r.gap ?? '–'}</td>
                             <td className="py-2 px-2 text-right tabular-nums">{r.pct != null ? `${r.pct}%` : '–'}</td>
-                            <td className="py-2 px-2 pl-4">{r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted">No plan</span>}</td>
+                            <td className="py-2 px-2 pl-4">
+                              {r.expected != null ? (
+                                <PlanPill status={r.status} />
+                              ) : canEdit && onOpenSettings ? (
+                                <span className="text-xs text-fg-muted">
+                                  No plan ·{' '}
+                                  <button
+                                    type="button"
+                                    data-testid={`cc-plan-set-${r.id}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onOpenSettings(r.id);
+                                    }}
+                                    className="text-accent-text hover:underline text-xs font-medium cursor-pointer"
+                                  >
+                                    Set plan
+                                  </button>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-fg-muted">No plan</span>
+                              )}
+                            </td>
                             <td className="py-2 px-2 text-fg-muted text-xs">{attentionNote(r)}</td>
                           </tr>
                           {open &&
@@ -697,18 +778,62 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
                     const open = r.types.length > 0 && !collapsed.has(r.id);
                     return (
                       <li key={r.id} className="rounded-xl border border-border p-3">
-                        <button type="button" className="w-full text-left cursor-pointer" onClick={() => onSelectClientFilter(r.name)}>
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="inline-flex items-center gap-2 font-semibold min-w-0"><Avatar name={r.name} /><span className="truncate">{r.name}</span></span>
-                            {r.expected != null ? <PlanPill status={r.status} /> : <span className="text-xs text-fg-muted shrink-0">No plan</span>}
+                        {r.expected == null && canEdit && onOpenSettings ? (
+                          <div className="w-full text-left">
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-2 font-semibold min-w-0 text-left cursor-pointer hover:underline min-h-[44px]"
+                                onClick={() => onSelectClientFilter(r.name)}
+                              >
+                                <Avatar name={r.name} />
+                                <span className="truncate">{r.name}</span>
+                              </button>
+                              <span className="text-xs text-fg-muted shrink-0">
+                                No plan ·{' '}
+                                <button
+                                  type="button"
+                                  data-testid={`cc-plan-set-${r.id}`}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    onOpenSettings(r.id);
+                                  }}
+                                  className="text-accent-text hover:underline text-xs font-medium cursor-pointer"
+                                >
+                                  Set plan
+                                </button>
+                              </span>
+                            </div>
+                            <div className="text-sm text-fg-2 tabular-nums mt-1.5">
+                              {`Posted ${r.posted} · ${r.inProgress} in progress`}
+                            </div>
+                            <div className="text-xs text-fg-muted mt-1">{attentionNote(r)}</div>
                           </div>
-                          <div className="text-sm text-fg-2 tabular-nums mt-1.5">
-                            {r.expected != null
-                              ? `Posted ${r.posted} of ${r.expected} · ${r.inProgress} in progress · gap ${r.gap} · ${r.pct}%`
-                              : `Posted ${r.posted} · ${r.inProgress} in progress`}
-                          </div>
-                          <div className="text-xs text-fg-muted mt-1">{attentionNote(r)}</div>
-                        </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="w-full text-left cursor-pointer"
+                            onClick={() => onSelectClientFilter(r.name)}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="inline-flex items-center gap-2 font-semibold min-w-0">
+                                <Avatar name={r.name} />
+                                <span className="truncate">{r.name}</span>
+                              </span>
+                              {r.expected != null ? (
+                                <PlanPill status={r.status} />
+                              ) : (
+                                <span className="text-xs text-fg-muted shrink-0">No plan</span>
+                              )}
+                            </div>
+                            <div className="text-sm text-fg-2 tabular-nums mt-1.5">
+                              {r.expected != null
+                                ? `Posted ${r.posted} of ${r.expected} · ${r.inProgress} in progress · gap ${r.gap} · ${r.pct}%`
+                                : `Posted ${r.posted} · ${r.inProgress} in progress`}
+                            </div>
+                            <div className="text-xs text-fg-muted mt-1">{attentionNote(r)}</div>
+                          </button>
+                        )}
                         {r.types.length > 0 && (
                           <>
                             <button

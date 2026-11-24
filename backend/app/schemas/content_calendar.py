@@ -3,10 +3,11 @@ Pydantic schemas and option definitions for Content Calendar module.
 Mirrors all fields and options from 'Apex Campaign Content Plan.xlsx'.
 """
 import re
+import math
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from urllib.parse import urlparse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 
 from app.services.content_calendar_workflow import (
     ACTIONS,
@@ -679,4 +680,68 @@ class DrivePickerConfigResponse(BaseModel):
     app_id: str
     folder_id: Optional[str] = None
     root_folder_id: Optional[str] = None
+
+
+class ClientExpectationLineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    creative_type: str = Field(..., min_length=1, max_length=40)
+    expected: Optional[int] = Field(None, ge=0, le=500)   # None/blank = remove this type from the plan
+
+    @model_validator(mode="before")
+    @classmethod
+    def sanitize_inputs(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            cleaned = {}
+            for k, val in data.items():
+                if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                    cleaned[k] = "NaN"
+                else:
+                    cleaned[k] = val
+            return cleaned
+        return data
+
+    @field_validator("creative_type", mode="before")
+    @classmethod
+    def validate_creative_type(cls, v: Any) -> str:
+        if not isinstance(v, str):
+            raise ValueError("Creative type must be a string.")
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Creative type cannot be empty.")
+        if len(stripped) > 40:
+            raise ValueError("Creative type must be at most 40 characters.")
+        canonical = canonicalize_creative_type(stripped)
+        if canonical.lower() == "story":
+            raise ValueError("Stories never count toward the plan.")
+        return canonical
+
+    @field_validator("expected", mode="before")
+    @classmethod
+    def validate_expected(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, bool):
+            raise ValueError("Expected count must be an integer, not boolean.")
+        if not isinstance(v, int):
+            raise ValueError("Expected count must be an integer.")
+        if v < 0 or v > 500:
+            raise ValueError("Expected count must be between 0 and 500.")
+        return v
+
+
+class ClientExpectationsUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    lines: List[ClientExpectationLineIn] = Field(default_factory=list, max_length=30)
+
+    @field_validator("lines")
+    @classmethod
+    def validate_lines(cls, lines: List[ClientExpectationLineIn]) -> List[ClientExpectationLineIn]:
+        seen = set()
+        for line in lines:
+            c = canonicalize_creative_type(line.creative_type).lower()
+            if c in seen:
+                raise ValueError(f"Duplicate creative type '{line.creative_type}'.")
+            seen.add(c)
+        return lines
+
 

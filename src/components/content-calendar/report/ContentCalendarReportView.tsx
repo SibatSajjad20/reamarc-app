@@ -454,6 +454,9 @@ const ClientReportView: React.FC<ContentCalendarReportViewProps> = ({ report, he
                 </li>
               ))}
             </ul>
+            {!report.has_plan && (
+              <p className="text-xs text-fg-muted mt-2 mb-0">No monthly plan is set for this client yet.</p>
+            )}
           </>
         )}
       </Section>

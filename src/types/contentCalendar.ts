@@ -120,7 +120,7 @@ export interface ContentCalendarConstants {
   design_owners?: string[];
 }
 
-export type ContentCalendarViewMode = 'overview' | 'table' | 'pipeline' | 'calendar';
+export type ContentCalendarViewMode = 'overview' | 'table' | 'pipeline' | 'calendar' | 'settings';
 
 export interface ContentCalendarFilter {
   search?: string;
@@ -237,4 +237,32 @@ export interface DrivePickerConfig {
   folder_id?: string;
   root_folder_id?: string;
 }
+
+export interface ClientExpectationClient {
+  workspace_id: string;
+  name: string;
+  initials?: string | null;
+  logo_url?: string | null;
+  brandColor?: string | null;
+  proposal_url?: string | null;
+  proposal_name?: string | null;
+  content_expectations?: {
+    period?: string;
+    lines?: {
+      creative_type: string;
+      expected?: number | null;
+      expected_max?: number | null;
+      included?: boolean | null;
+      layout?: string | null;
+      skip_months?: string[] | null;
+    }[];
+  } | null;
+}
+
+export interface ClientExpectationsResponse {
+  creative_types: string[];
+  can_edit: boolean;
+  clients: ClientExpectationClient[];
+}
+
 

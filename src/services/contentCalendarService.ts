@@ -22,6 +22,8 @@ import type {
   ImportJob,
   DrivePickedFile,
   DrivePickerConfig,
+  ClientExpectationClient,
+  ClientExpectationsResponse,
 } from '../types/contentCalendar';
 import type { ContentCalendarReport } from '../types/contentCalendarReport';
 
@@ -278,6 +280,20 @@ export const contentCalendarService = {
     ccItemsCache.clear();
     emitInvalidation(['content-calendar', 'dashboard']);
     return res;
+  },
+
+  async getClientExpectations(): Promise<ClientExpectationsResponse> {
+    return apiClient.get<ClientExpectationsResponse>('/content-calendar/expectations');
+  },
+
+  async saveClientExpectations(
+    workspaceId: string,
+    lines: { creative_type: string; expected: number | null }[],
+  ): Promise<ClientExpectationClient> {
+    return apiClient.put<ClientExpectationClient>(
+      `/content-calendar/expectations/${encodeURIComponent(workspaceId)}`,
+      { lines },
+    );
   },
 
   getCachedItems(filterKey: string): CacheEntry<ContentCalendarListResponse> | undefined {

@@ -14,6 +14,7 @@ import {
   Briefcase,
   User,
   Trash2,
+  Settings2,
 } from 'lucide-react';
 import type {
   ContentCalendarItem,
@@ -32,6 +33,7 @@ import { ContentCalendarDrawer } from '../content-calendar/ContentCalendarDrawer
 import { ContentCalendarModal } from '../content-calendar/ContentCalendarModal';
 import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarImportModal';
 import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
+import { ContentCalendarSettingsTab } from '../content-calendar/settings/ContentCalendarSettingsTab';
 import { ClientExpectationsBanner } from '../content-calendar/overview/ClientExpectationsCards';
 import {
   calculateClientExpectationSummary,
@@ -74,6 +76,7 @@ export const ContentCalendarView: React.FC = () => {
   const { addToast } = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
+  const isSettingsDirtyRef = React.useRef(false);
   const { workspaces } = useWorkspaces();
   const resolveClient = useClientLookup();
   const stageColumns = React.useMemo(() => visiblePipelineStages(user), [user]);
@@ -111,10 +114,11 @@ export const ContentCalendarView: React.FC = () => {
   const [viewMode, setViewMode] = useState<ContentCalendarViewMode>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_view_mode') as ContentCalendarViewMode;
-      if (saved && ['overview', 'table', 'pipeline', 'calendar'].includes(saved)) return saved;
-    } catch (e) {}
+      if (saved && ['overview', 'table', 'pipeline', 'calendar', 'settings'].includes(saved)) return saved;
+    } catch {}
     return 'table';
   });
+  const [settingsClientId, setSettingsClientId] = useState<string | null>(null);
 
   // Filter State
   const [filter, setFilter] = useState<ContentCalendarFilter>({
@@ -565,8 +569,19 @@ export const ContentCalendarView: React.FC = () => {
             <SegmentedControl
               size="sm"
               value={viewMode}
-              onValueChange={(val) => {
+              onValueChange={async (val) => {
                 const mode = val as ContentCalendarViewMode;
+                if (mode === viewMode) return;
+                if (viewMode === 'settings' && isSettingsDirtyRef.current) {
+                  const ok = await confirm({
+                    title: 'Discard unsaved changes?',
+                    description: 'You have unsaved changes to this client plan. If you switch clients, your changes will be lost.',
+                    confirmLabel: 'Discard',
+                    cancelLabel: 'Keep editing',
+                    tone: 'danger',
+                  });
+                  if (!ok) return;
+                }
                 setViewMode(mode);
                 try {
                   localStorage.setItem('reamarc_cc_view_mode', mode);
@@ -577,10 +592,11 @@ export const ContentCalendarView: React.FC = () => {
                 { value: 'table', label: 'Sheet', icon: Table },
                 { value: 'pipeline', label: 'Pipeline', icon: Kanban },
                 { value: 'calendar', label: 'Calendar', icon: Calendar },
+                { value: 'settings', label: 'Settings', icon: Settings2 },
               ]}
             />
 
-            {viewMode !== 'overview' && (
+            {viewMode !== 'overview' && viewMode !== 'settings' && (
               <GenerateReportButton
                 mode="staff"
                 defaultWorkspaceId={
@@ -607,7 +623,7 @@ export const ContentCalendarView: React.FC = () => {
         </div>
 
         {/* Row 2: Search, Filters & Secondary Actions (Sheet/Pipeline/Calendar specific) */}
-        {viewMode !== 'overview' && (
+        {viewMode !== 'overview' && viewMode !== 'settings' && (
           <div className="px-3 sm:px-5 py-2.5 flex items-center justify-between gap-2 overflow-visible flex-wrap">
             {/* Left: Search & Filter Controls */}
             <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
@@ -827,6 +843,28 @@ export const ContentCalendarView: React.FC = () => {
             onAddContent={() => {
               setEditingItem(null);
               setIsModalOpen(true);
+            }}
+            onOpenSettings={(clientId?: string) => {
+              setSettingsClientId(clientId ?? null);
+              setViewMode('settings');
+              try {
+                localStorage.setItem('reamarc_cc_view_mode', 'settings');
+              } catch {}
+            }}
+          />
+        )}
+
+        {viewMode === 'settings' && (
+          <ContentCalendarSettingsTab
+            initialClientId={settingsClientId}
+            onDirtyChange={(dirty) => {
+              isSettingsDirtyRef.current = dirty;
+            }}
+            onOpenOverview={() => {
+              setViewMode('overview');
+              try {
+                localStorage.setItem('reamarc_cc_view_mode', 'overview');
+              } catch {}
             }}
           />
         )}

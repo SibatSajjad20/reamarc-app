@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field
-from typing import Optional, List
+import re
+from typing import Optional, List, Literal
+from pydantic import BaseModel, Field, field_validator
 
 
 class ContentExpectationLine(BaseModel):
@@ -14,6 +15,32 @@ class ContentExpectationLine(BaseModel):
 class ContentExpectations(BaseModel):
     period: str = "month"
     lines: List[ContentExpectationLine] = Field(default_factory=list)
+
+
+class ContentExpectationLineIn(BaseModel):
+    creative_type: str = Field(..., max_length=40)
+    expected: Optional[int] = Field(None, ge=0, le=500)
+    expected_max: Optional[int] = Field(None, ge=0, le=500)
+    included: Optional[bool] = False
+    layout: Optional[str] = Field(None, max_length=20)
+    skip_months: Optional[List[str]] = Field(None, max_length=24)
+
+    @field_validator("skip_months")
+    @classmethod
+    def validate_skip_months(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        pattern = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+        for m in v:
+            if not isinstance(m, str) or not pattern.match(m):
+                raise ValueError(f"Invalid skip_month format: {m}. Expected YYYY-MM.")
+        return v
+
+
+class ContentExpectationsIn(BaseModel):
+    period: Literal["month"] = "month"
+    lines: List[ContentExpectationLineIn] = Field(default_factory=list, max_length=30)
+
 
 
 class WorkspaceCreate(BaseModel):
@@ -37,7 +64,7 @@ class WorkspaceCreate(BaseModel):
     billing_email: Optional[str] = None
     billing_phone: Optional[str] = None
     brandGuidelines: Optional[str] = None
-    content_expectations: Optional[ContentExpectations] = None
+    content_expectations: Optional[ContentExpectationsIn] = None
 
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
@@ -60,7 +87,7 @@ class WorkspaceUpdate(BaseModel):
     billing_email: Optional[str] = None
     billing_phone: Optional[str] = None
     brandGuidelines: Optional[str] = None
-    content_expectations: Optional[ContentExpectations] = None
+    content_expectations: Optional[ContentExpectationsIn] = None
 
 class GuidelinesUpdate(BaseModel):
     guidelines_text: str = Field(..., example="Brand voice, tone, guidelines...")
