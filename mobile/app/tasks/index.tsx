@@ -268,7 +268,7 @@ export default function TasksScreen() {
           void load(true);
         }}
       />
-      {canUseVoice && voiceOpen ? (
+      {canUseVoice ? (
         <VoiceTaskModal
           visible={voiceOpen}
           onClose={() => setVoiceOpen(false)}

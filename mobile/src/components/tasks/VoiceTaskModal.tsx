@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react-native';
 import { useTheme } from '../../theme';
+import { getModuleCache, setModuleCache } from '../../lib/moduleCache';
 import { SelectField } from '../../ui/SelectField';
 import {
   VOICE_MAX_SECONDS,
@@ -325,8 +326,12 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Roster & Clients
-  const [assignees, setAssignees] = useState<TaskPerson[]>([]);
-  const [clients, setClients] = useState<TaskClientOption[]>([]);
+  const [assignees, setAssignees] = useState<TaskPerson[]>(
+    () => getModuleCache<TaskPerson[]>('task-assignees') || [],
+  );
+  const [clients, setClients] = useState<TaskClientOption[]>(
+    () => getModuleCache<TaskClientOption[]>('task-clients') || [],
+  );
 
   // Draft fields
   const [title, setTitle] = useState('');
@@ -414,16 +419,21 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setChecklist([]);
     setAmbiguousCandidates([]);
 
+    let cancelled = false;
     Promise.allSettled([listTaskAssignees(), listTaskClients()]).then(([pRes, cRes]) => {
-      if (pRes.status === 'fulfilled' && pRes.value) {
+      if (cancelled) return;
+      if (pRes.status === 'fulfilled' && pRes.value && pRes.value.length > 0) {
         setAssignees(pRes.value);
+        setModuleCache('task-assignees', pRes.value);
       }
-      if (cRes.status === 'fulfilled' && cRes.value) {
+      if (cRes.status === 'fulfilled' && cRes.value && cRes.value.length > 0) {
         setClients(cRes.value);
+        setModuleCache('task-clients', cRes.value);
       }
     });
 
     return () => {
+      cancelled = true;
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -741,34 +751,39 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                     },
                   ]}
                 >
-                  <View style={[styles.micHeroCircle, { backgroundColor: theme.primaryLight }]}>
-                    <Mic size={26} color={theme.primary} />
+                  <View style={[styles.micHeroCircle, { backgroundColor: hasNativeAudio ? theme.primaryLight : theme.bgSubtle }]}>
+                    <Mic size={26} color={hasNativeAudio ? theme.primary : theme.textMuted} />
                   </View>
 
-                  <Text style={[styles.heroTitle, { color: theme.text }]}>Ready to Dictate</Text>
+                  <Text style={[styles.heroTitle, { color: theme.text }]}>
+                    {hasNativeAudio ? 'Ready to Dictate' : 'Microphone Inactive'}
+                  </Text>
                   <Text style={[styles.heroSubtitle, { color: theme.textMuted }]}>
-                    Tap the button below and speak your assignment: state the task, assignee, due
-                    date, and priority.
+                    {hasNativeAudio
+                      ? 'Tap the button below and speak your assignment: state the task, assignee, due date, and priority.'
+                      : 'Live voice recording requires a new APK build on this device. You can dictate using your keyboard or type directly below.'}
                   </Text>
 
-                  <View style={styles.centerBtnWrap}>
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.heroActionBtn,
-                        styles.primaryBtn,
-                        {
-                          backgroundColor: theme.primary,
-                          opacity: pressed ? 0.85 : 1,
-                        },
-                      ]}
-                      onPress={handleStartRecording}
-                    >
-                      <Mic size={18} color="#FFFFFF" />
-                      <Text style={styles.heroActionBtnText} numberOfLines={1}>
-                        Start Speaking
-                      </Text>
-                    </Pressable>
-                  </View>
+                  {hasNativeAudio ? (
+                    <View style={styles.centerBtnWrap}>
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.heroActionBtn,
+                          styles.primaryBtn,
+                          {
+                            backgroundColor: theme.primary,
+                            opacity: pressed ? 0.85 : 1,
+                          },
+                        ]}
+                        onPress={handleStartRecording}
+                      >
+                        <Mic size={18} color="#FFFFFF" />
+                        <Text style={styles.heroActionBtnText} numberOfLines={1}>
+                          Start Speaking
+                        </Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </View>
 
                 {/* Manual typed / dictation box */}
@@ -1406,8 +1421,6 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
 }
 
 export function VoiceTaskModal(props: Props) {
-  if (!props.visible) return null;
-
   return (
     <VoiceTaskErrorBoundary onClose={props.onClose}>
       <VoiceTaskModalInner {...props} />

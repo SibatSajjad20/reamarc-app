@@ -49,21 +49,38 @@ let activeRecording: any = null;
 /**
  * Safely check and load native audio library.
  * Supports modern expo-audio (SDK 52/58) and legacy expo-av.
+ * Guards against crashing standalone APKs when native module is missing.
  */
 export function getAudioLibrary(): { type: 'expo-audio' | 'expo-av'; lib: any } | null {
   try {
-    const ExpoAudio = require('expo-audio');
-    if (ExpoAudio && (ExpoAudio.AudioModule || ExpoAudio.useAudioRecorder)) {
-      return { type: 'expo-audio', lib: ExpoAudio };
+    const g = globalThis as any;
+    const hasNativeExpoAudio = Boolean(
+      g?.expo?.modules?.ExpoAudio ||
+      g?.ExpoModules?.ExpoAudio ||
+      g?.nativeExpoModules?.ExpoAudio
+    );
+    if (hasNativeExpoAudio) {
+      const ExpoAudio = require('expo-audio');
+      if (ExpoAudio && (ExpoAudio.AudioModule || ExpoAudio.useAudioRecorder)) {
+        return { type: 'expo-audio', lib: ExpoAudio };
+      }
     }
   } catch {
-    /* expo-audio not available */
+    /* expo-audio native module not linked or failed to load */
   }
 
   try {
-    const ExpoAv = require('expo-av');
-    if (ExpoAv && ExpoAv.Audio) {
-      return { type: 'expo-av', lib: ExpoAv.Audio };
+    const g = globalThis as any;
+    const hasNativeExpoAv = Boolean(
+      g?.expo?.modules?.ExponentAV ||
+      g?.ExpoModules?.ExponentAV ||
+      g?.nativeExpoModules?.ExponentAV
+    );
+    if (hasNativeExpoAv) {
+      const ExpoAv = require('expo-av');
+      if (ExpoAv && ExpoAv.Audio) {
+        return { type: 'expo-av', lib: ExpoAv.Audio };
+      }
     }
   } catch {
     /* expo-av not available */
