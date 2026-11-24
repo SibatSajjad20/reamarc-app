@@ -87,7 +87,8 @@ def recipients_for(
             return _clean_ids(list(extra), exclude)
         return _clean_ids([assigner, creator], exclude)
     if k == "task_completed":
-        return _clean_ids([assignee, creator, *chain_from_ids(task), *watchers], exclude)
+        lead_owner = str(task.get("lead_owner_id") or "").strip() if task.get("parent_id") else ""
+        return _clean_ids([assignee, creator, *chain_from_ids(task), *watchers, lead_owner], exclude)
     if k == "task_sent_back":
         return _clean_ids([assignee, *(extra or [])], exclude)
     if k == "task_blocked":

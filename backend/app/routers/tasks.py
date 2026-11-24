@@ -18,6 +18,7 @@ from app.schemas.task import (
     TaskCommentCreate,
     TaskCommentPatch,
     TaskCreate,
+    CollectiveTaskCreate,
     TaskDriveAttachment,
     TaskLinkAttachment,
     TaskSavedViewCreate,
@@ -356,6 +357,25 @@ async def create_task(
     if payload.checklist:
         data["checklist"] = [c.model_dump() for c in payload.checklist]
     return await task_service.create_task(db, data, current_user)
+
+
+@router.post("/collective", status_code=status.HTTP_201_CREATED)
+@limiter.limit("30/minute")
+async def create_collective_task(
+    request: Request,
+    payload: CollectiveTaskCreate,
+    current_user: dict = Depends(require_tasks_user),
+):
+    """Main task owned by a team lead plus its sub-tasks (admins and team leads only)."""
+    db = _db()
+    await task_service.ensure_task_indexes(db)
+    main = payload.main.model_dump()
+    if payload.main.related:
+        main["related"] = payload.main.related.model_dump()
+    main["recurrence"] = None
+    main["checklist"] = [c.model_dump() for c in payload.main.checklist] if payload.main.checklist else []
+    data = {"main": main, "subtasks": [s.model_dump() for s in payload.subtasks]}
+    return await task_service.create_collective(db, data, current_user)
 
 
 @router.get("/{task_id}/mentionable")

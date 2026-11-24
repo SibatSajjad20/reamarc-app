@@ -108,6 +108,15 @@ export interface Task {
   comments_count?: number;
   subtasks_count?: number;
   subtasks_done?: number;
+  /** Completed / non-cancelled sub-tasks (0-100); null when the task has no sub-tasks. */
+  subtask_progress?: number | null;
+  /** Main task's own hours when logged_hours also includes sub-task hours. */
+  own_logged_hours?: number;
+  subtasks_logged_hours?: number;
+  /** Sub-task only: the main task's assignee (lead owner). */
+  lead_owner_id?: string | null;
+  /** Sub-task only: short summary of its main task. */
+  parent?: { id: string; serial?: string; title?: string; assignee_name?: string } | null;
   subtasks?: Task[];
   completed_at?: string | null;
   cancelled_at?: string | null;
@@ -296,6 +305,33 @@ export interface VoiceTaskProposal {
   estimate_hours?: number | null;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   checklist: Array<{ text: string }>;
+  is_collective?: boolean;
+  subtasks?: VoiceSubtaskProposal[];
+}
+
+export interface VoiceSubtaskProposal {
+  title: string;
+  description?: string;
+  assignee_id: string | null;
+  assignee_name: string | null;
+  assignee_status?: 'matched' | 'needs_selection' | 'unassigned';
+  ambiguous_candidates?: VoiceTaskConfidence['ambiguous_candidates'];
+  unrecognized_assignee?: string | null;
+  due_date?: string | null;
+  estimate_hours?: number | null;
+}
+
+export interface CollectiveSubtaskInput {
+  title: string;
+  assignee_id: string;
+  description?: string;
+  due_date?: string | null;
+  estimate_hours?: number | null;
+}
+
+export interface CollectiveTaskInput {
+  main: Record<string, unknown>;
+  subtasks: CollectiveSubtaskInput[];
 }
 
 export interface VoiceTaskParseResponse {

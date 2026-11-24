@@ -248,7 +248,12 @@ export const TaskPipelineCard: React.FC<Props> = ({
           ))}
         </div>
       )}
-      {(task.progress || 0) > 0 && (
+      {(task.subtasks_count || 0) > 0 ? (
+        <div className="mt-2.5 flex items-center gap-2" data-testid="task-subtask-progress">
+          <Progress value={task.subtask_progress ?? 0} className="flex-1" aria-label="Sub-task progress" />
+          <span className="text-micro font-numeric text-fg-muted">{task.subtask_progress ?? 0}%</span>
+        </div>
+      ) : (task.progress || 0) > 0 && (
         <div className="mt-2.5 flex items-center gap-2">
           <Progress value={task.progress || 0} className="flex-1" />
           <span className="text-micro font-numeric text-fg-muted">{task.progress}%</span>

@@ -50,7 +50,7 @@ function involved(user: TaskActor | null | undefined, task: Task): boolean {
   const id = uid(user);
   if (!id) return false;
   if ((task.involved_ids || []).includes(id)) return true;
-  return [task.creator_id, task.assignee_id, task.assigner_id, ...(task.watcher_ids || [])].includes(id);
+  return [task.creator_id, task.assignee_id, task.assigner_id, task.lead_owner_id, ...(task.watcher_ids || [])].includes(id);
 }
 
 export function canViewTask(user: TaskActor | null | undefined, task: Task): boolean {
@@ -102,6 +102,8 @@ export function isApprover(user: TaskActor | null | undefined, task: Task): bool
   }
   // Members (and a lead assigned by another lead) cannot approve their own work.
   if (id === task.assignee_id) return false;
+  // Sub-task of a collective task: the main task's lead owner approves it.
+  if (task.parent_id && task.lead_owner_id && id === task.lead_owner_id) return true;
   // Lead → another lead: only the assigner (admin may still override).
   if (assigneeIsLead(task) && !isSelfAssigned(task) && !assignerIsAdmin(task)) {
     return id === task.assigner_id || isAdmin(user);
@@ -131,6 +133,28 @@ export function stageChangeNeedsReason(from: TaskStatus, to: TaskStatus): boolea
   return from === 'in_review' && to === 'in_progress';
 }
 
+/** Main task with open sub-tasks cannot go to review or completion (server enforces too). */
+export function subtasksBlockClose(task: Task, to: TaskStatus): boolean {
+  if (to !== 'in_review' && to !== 'completed') return false;
+  if (task.parent_id) return false;
+  const total = task.subtasks_count || 0;
+  return total > 0 && (task.subtasks_done || 0) < total;
+}
+
+/** Admins, the main task's assignee (lead owner) or its assigner can add sub-tasks. */
+export function canAddSubtask(user: TaskActor | null | undefined, task: Task): boolean {
+  if (!user || !task || task.parent_id) return false;
+  if (!canViewTask(user, task) || task.status === 'cancelled') return false;
+  if (isAdmin(user)) return true;
+  const id = uid(user);
+  return id === task.assignee_id || id === task.assigner_id;
+}
+
+/** Collective tasks (main + sub-tasks) are created by admins and team leads. */
+export function canCreateCollective(user: TaskActor | null | undefined): boolean {
+  return isAdmin(user) || isLead(user);
+}
+
 export function canTransitionTo(
   user: TaskActor | null | undefined,
   task: Task,
@@ -142,6 +166,7 @@ export function canTransitionTo(
   const current = task.status;
   if (dest === current) return true;
   if (current === 'cancelled') return false;
+  if (subtasksBlockClose(task, dest)) return false;
   const admin = isAdmin(user);
   const id = uid(user);
   const creator = id === task.creator_id;

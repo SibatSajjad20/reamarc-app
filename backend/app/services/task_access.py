@@ -182,7 +182,7 @@ def involved_ids_of(task: Optional[Dict[str, Any]]) -> Set[str]:
     if not task:
         return set()
     ids: Set[str] = set()
-    for key in ("creator_id", "assignee_id", "assigner_id"):
+    for key in ("creator_id", "assignee_id", "assigner_id", "lead_owner_id"):
         val = str(task.get(key) or "").strip()
         if val:
             ids.add(val)
@@ -219,6 +219,14 @@ def is_assignee(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]]) 
 
 def is_assigner(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]]) -> bool:
     return bool(uid_of(user)) and uid_of(user) == str((task or {}).get("assigner_id") or "")
+
+
+def is_lead_owner(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]]) -> bool:
+    """Sub-task only: the parent (collective) task's assignee, who reviews and approves it."""
+    uid = uid_of(user)
+    if not uid or not task or not task.get("parent_id"):
+        return False
+    return uid == str(task.get("lead_owner_id") or "")
 
 
 def is_self_assigned(task: Optional[Dict[str, Any]]) -> bool:
@@ -287,6 +295,8 @@ def is_approver(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], 
         return True
     if is_assignee(user, task):
         return False
+    if is_lead_owner(user, task):
+        return True
     if assignee_is_lead(task) and not is_self_assigned(task) and not assigner_is_admin(task):
         return is_assigner(user, task) or is_admin(user)
     if is_admin(user):

@@ -126,6 +126,19 @@ export async function createTask(payload: TaskWritePayload): Promise<Task> {
   return normalizeTask(row);
 }
 
+/** Main task (assigned to a team lead) plus its sub-tasks in one request. */
+export async function createCollectiveTask(payload: {
+  main: TaskWritePayload;
+  subtasks: { title: string; assignee_id: string }[];
+}): Promise<Task> {
+  const row = await api<any>('/tasks/collective', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+  bustTaskCaches();
+  return normalizeTask(row);
+}
+
 export async function updateTask(taskId: string, payload: Partial<TaskWritePayload>): Promise<Task> {
   const row = await api<any>(`/tasks/${encodeURIComponent(taskId)}`, {
     method: 'PATCH',

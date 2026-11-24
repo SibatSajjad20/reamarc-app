@@ -220,6 +220,44 @@ class TaskCreate(BaseModel):
         return self
 
 
+class CollectiveSubtaskCreate(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field("", max_length=10000)
+    assignee_id: str = Field(..., min_length=1, max_length=100)
+    priority: Optional[str] = None
+    due_date: Optional[str] = None
+    estimate_hours: Optional[float] = Field(None, ge=0, le=1000)
+
+    @field_validator("title")
+    @classmethod
+    def strip_title(cls, v: str) -> str:
+        t = (v or "").strip()
+        if not t:
+            raise ValueError("Title is required")
+        return t
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, v: Optional[str]) -> Optional[str]:
+        return validate_priority_value(v) if v else None
+
+    @field_validator("due_date")
+    @classmethod
+    def validate_dates(cls, v: Optional[str], info) -> Optional[str]:
+        return parse_ymd(v, info.field_name)
+
+
+class CollectiveTaskCreate(BaseModel):
+    """Main task (assignee = lead owner) plus its sub-tasks, created in one request."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    main: TaskCreate
+    subtasks: List[CollectiveSubtaskCreate] = Field(..., min_length=1, max_length=15)
+
+
 class TaskUpdate(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -512,12 +550,17 @@ class TaskResponse(BaseModel):
     progress: int = 0
     checklist: List[Dict[str, Any]] = Field(default_factory=list)
     parent_id: Optional[str] = None
+    lead_owner_id: Optional[str] = None
     related: Optional[Dict[str, Any]] = None
     recurrence: Optional[Dict[str, Any]] = None
     recurrence_source_id: Optional[str] = None
     attachments_count: int = 0
     comments_count: int = 0
     subtasks_count: int = 0
+    subtasks_done: int = 0
+    subtask_progress: Optional[int] = None
+    own_logged_hours: Optional[float] = None
+    subtasks_logged_hours: Optional[float] = None
     completed_at: Optional[str] = None
     completed_by: Optional[str] = None
     cancelled_at: Optional[str] = None
@@ -649,6 +692,25 @@ class VoiceTaskProposal(BaseModel):
     estimate_hours: Optional[float] = None
     priority: str = "medium"
     checklist: List[Dict[str, Any]] = []
+    is_collective: bool = False
+    subtasks: List["VoiceSubtaskProposal"] = Field(default_factory=list)
+
+
+class VoiceSubtaskProposal(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    title: str = ""
+    description: str = ""
+    assignee_id: Optional[str] = None
+    assignee_name: Optional[str] = None
+    assignee_status: str = "unassigned"  # matched, needs_selection, unassigned
+    ambiguous_candidates: List[Dict[str, Any]] = Field(default_factory=list)
+    unrecognized_assignee: Optional[str] = None
+    due_date: Optional[str] = None
+    estimate_hours: Optional[float] = None
+
+
+VoiceTaskProposal.model_rebuild()
 
 
 class VoiceTaskParseResponse(BaseModel):

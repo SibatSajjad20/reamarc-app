@@ -37,6 +37,8 @@ from app.services.task_access import (
     dept_set,
     display_name,
     is_admin,
+    is_assignee,
+    is_assigner,
     is_lead,
     role_of,
     is_self_assigned,
@@ -113,7 +115,7 @@ def progress_from_checklist(checklist: Optional[Sequence[Dict[str, Any]]], fallb
 def rebuild_involved(task: Dict[str, Any]) -> List[str]:
     ids: List[str] = []
     seen = set()
-    for key in ("creator_id", "assignee_id", "assigner_id"):
+    for key in ("creator_id", "assignee_id", "assigner_id", "lead_owner_id"):
         val = str(task.get(key) or "").strip()
         if val and val not in seen:
             seen.add(val)
@@ -423,30 +425,53 @@ async def _attach_assignment_groups(
         }
 
 
-async def _attach_subtask_counts(db, items: List[Dict[str, Any]]) -> None:
+def subtask_progress(done: int, total: int) -> Optional[int]:
+    """Collective progress: completed / non-cancelled sub-tasks. None when there are no sub-tasks."""
+    if total <= 0:
+        return None
+    return int(round(100 * max(0, min(done, total)) / total))
+
+
+async def _attach_subtask_counts(db, items: List[Dict[str, Any]]) -> Dict[str, List[str]]:
+    """One query for every sub-task of the page. Returns parent id -> sub-task ids (cancelled included)."""
     ids = [t.get("id") for t in items if t.get("id")]
     if not ids:
-        return
-    cursor = db.tasks.find({"parent_id": {"$in": ids}, "status": {"$ne": "cancelled"}}, {"parent_id": 1, "status": 1})
+        return {}
+    cursor = db.tasks.find({"parent_id": {"$in": ids}}, {"id": 1, "parent_id": 1, "status": 1})
     counts: Dict[str, int] = {}
     done: Dict[str, int] = {}
+    children: Dict[str, List[str]] = {}
     async for row in cursor:
         pid = row.get("parent_id")
-        if pid:
-            counts[pid] = counts.get(pid, 0) + 1
-            if row.get("status") == "completed":
-                done[pid] = done.get(pid, 0) + 1
+        if not pid:
+            continue
+        if row.get("id"):
+            children.setdefault(pid, []).append(row["id"])
+        if row.get("status") == "cancelled":
+            continue
+        counts[pid] = counts.get(pid, 0) + 1
+        if row.get("status") == "completed":
+            done[pid] = done.get(pid, 0) + 1
     for item in items:
         item["subtasks_count"] = counts.get(item.get("id"), item.get("subtasks_count") or 0)
         item["subtasks_done"] = done.get(item.get("id"), item.get("subtasks_done") or 0)
+        item["subtask_progress"] = subtask_progress(item["subtasks_done"], item["subtasks_count"])
+    return children
 
 
-async def _attach_logged_hours(db, items: List[Dict[str, Any]]) -> None:
+async def _attach_logged_hours(
+    db,
+    items: List[Dict[str, Any]],
+    children: Optional[Dict[str, List[str]]] = None,
+) -> None:
+    """One aggregate for the page. A main task's logged_hours includes its sub-tasks' hours."""
     ids = [t.get("id") for t in items if t.get("id")]
     if not ids:
         return
+    children = children or {}
+    all_ids = list(dict.fromkeys(ids + [c for pid in ids for c in children.get(pid, [])]))
     pipeline = [
-        {"$match": {"task_id": {"$in": ids}}},
+        {"$match": {"task_id": {"$in": all_ids}}},
         {"$group": {"_id": "$task_id", "total_hours": {"$sum": "$hours_utilized"}, "count": {"$sum": 1}}},
     ]
     cursor = db.daily_log_entries.aggregate(pipeline)
@@ -459,24 +484,26 @@ async def _attach_logged_hours(db, items: List[Dict[str, Any]]) -> None:
             count_map[tid] = int(row.get("count") or 0)
     for item in items:
         item_id = item.get("id")
-        item["logged_hours"] = round(hours_map.get(item_id, 0.0), 2)
-        item["logs_count"] = count_map.get(item_id, 0)
+        own = hours_map.get(item_id, 0.0)
+        kids = children.get(item_id, [])
+        sub_hours = sum(hours_map.get(c, 0.0) for c in kids)
+        item["logged_hours"] = round(own + sub_hours, 2)
+        item["logs_count"] = count_map.get(item_id, 0) + sum(count_map.get(c, 0) for c in kids)
+        if kids:
+            item["own_logged_hours"] = round(own, 2)
+            item["subtasks_logged_hours"] = round(sub_hours, 2)
 
 
-async def _insert_one_task(
-    db,
+def _build_task_doc(
     payload: Dict[str, Any],
     actor: Dict[str, Any],
-    cfg: Dict[str, Any],
     assignee: Dict[str, Any],
     *,
+    parent: Optional[Dict[str, Any]] = None,
     assignment_group_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """Task document without a serial. A sub-task records its parent's assignee as lead_owner_id."""
     parent_id = payload.get("parent_id")
-    if parent_id:
-        parent = await get_visible_or_404(db, parent_id, actor, cfg)
-        if parent.get("parent_id"):
-            raise HTTPException(status_code=422, detail="Subtasks cannot have subtasks")
     watchers = [str(w) for w in (payload.get("watcher_ids") or []) if str(w).strip()]
     now = _now_iso()
     checklist = []
@@ -527,6 +554,7 @@ async def _insert_one_task(
         "checklist": checklist,
         "progress": progress_from_checklist(checklist, payload.get("progress") or 0),
         "parent_id": parent_id,
+        "lead_owner_id": (str(parent.get("assignee_id") or "") or None) if parent_id and parent else None,
         "assignment_group_id": assignment_group_id,
         "related": payload.get("related") if isinstance(payload.get("related"), dict) else (payload.get("related").model_dump() if hasattr(payload.get("related"), "model_dump") else payload.get("related")),
         "recurrence": payload.get("recurrence") if not hasattr(payload.get("recurrence"), "model_dump") else payload["recurrence"].model_dump(),
@@ -547,6 +575,10 @@ async def _insert_one_task(
         doc["related"] = doc["related"].model_dump()
     doc["involved_ids"] = rebuild_involved(doc)
 
+    return doc
+
+
+async def _persist_task_doc(db, doc: Dict[str, Any]) -> None:
     last_error = None
     for _attempt in range(3):
         doc.pop("_id", None)
@@ -564,18 +596,35 @@ async def _insert_one_task(
     if last_error:
         raise last_error
 
+
+async def _insert_one_task(
+    db,
+    payload: Dict[str, Any],
+    actor: Dict[str, Any],
+    cfg: Dict[str, Any],
+    assignee: Dict[str, Any],
+    *,
+    assignment_group_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    parent_id = payload.get("parent_id")
+    parent = None
+    if parent_id:
+        parent = await get_visible_or_404(db, parent_id, actor, cfg)
+        if parent.get("parent_id"):
+            raise HTTPException(status_code=422, detail="Subtasks cannot have subtasks")
+    doc = _build_task_doc(payload, actor, assignee, parent=parent, assignment_group_id=assignment_group_id)
+    await _persist_task_doc(db, doc)
+    actor_id = uid_of(actor)
+
     await log_task_activity(db, doc, "created", actor, f"Created {doc['serial']} — {doc['title']}")
     if uid_of(assignee) != actor_id:
         await log_task_activity(
             db, doc, "assigned", actor, f"Assigned to {display_name(assignee)}", meta={"to": uid_of(assignee)}
         )
         await task_notify.notify_assigned(doc, actor)
-    if parent_id:
-        parent = await db.tasks.find_one({"id": parent_id})
-        if parent:
-            await log_task_activity(db, parent, "subtask_added", actor, f"Subtask {doc['serial']} added")
+    if parent:
+        await log_task_activity(db, parent, "subtask_added", actor, f"Subtask {doc['serial']} added")
     return decorate(doc, actor, cfg)
-
 
 async def create_task(db, payload: Dict[str, Any], actor: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cfg = settings if settings is not None else await get_task_settings(db)
@@ -596,6 +645,8 @@ async def create_task(db, payload: Dict[str, Any], actor: Dict[str, Any], settin
         parent = await get_visible_or_404(db, payload.get("parent_id"), actor, cfg)
         if parent.get("parent_id"):
             raise HTTPException(status_code=422, detail="Subtasks cannot have subtasks")
+        if not (is_admin(actor) or is_assignee(actor, parent) or is_assigner(actor, parent)):
+            raise HTTPException(status_code=403, detail="Only the task's lead or an admin can add sub-tasks")
         if len(assignees) > 1:
             raise HTTPException(status_code=422, detail="A subtask can only have one assignee")
     group_id = _new_id("tag") if len(assignees) > 1 else None
@@ -608,6 +659,199 @@ async def create_task(db, payload: Dict[str, Any], actor: Dict[str, Any], settin
     return first
 
 
+MAX_COLLECTIVE_SUBTASKS = 15
+
+
+async def reserve_serial_block(db, count: int) -> List[str]:
+    """Reserve `count` consecutive serials with one counter update (collective create)."""
+    count = max(1, int(count))
+    counter = db.task_counters
+    counter_id = company_singleton_id("task_serial")
+    try:
+        existing = await counter.find_one({"_id": counter_id})
+        if existing is None:
+            max_num = await _scan_max_serial(db.tasks)
+            try:
+                await counter.update_one({"_id": counter_id}, {"$setOnInsert": {"seq": max_num}}, upsert=True)
+            except Exception:
+                pass
+        res = await counter.find_one_and_update(
+            {"_id": counter_id},
+            {"$inc": {"seq": count}},
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
+        )
+        end_num = int((res or {}).get("seq") or count)
+    except Exception:
+        end_num = await _scan_max_serial(db.tasks) + count
+    return [f"T-{n:04d}" for n in range(end_num - count + 1, end_num + 1)]
+
+
+def _activity_doc(task: Dict[str, Any], act_type: str, actor: Dict[str, Any], body: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    from app.services.task_activity import log_id
+
+    return {
+        "id": log_id(),
+        "task_id": task.get("id"),
+        "serial": task.get("serial"),
+        "type": act_type,
+        "actor_id": uid_of(actor) or None,
+        "actor_name": display_name(actor) or "System",
+        "body": body or "",
+        "meta": meta or {},
+        "created_at": _now_iso(),
+    }
+
+
+async def create_collective(db, payload: Dict[str, Any], actor: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Main task (owned by a team lead) plus sub-tasks, created together.
+
+    All assignees are checked against one roster fetch with the normal assignment rules
+    before anything is written. Writes are batched so the round trips do not grow with
+    the number of sub-tasks.
+    """
+    cfg = settings if settings is not None else await get_task_settings(db)
+    if not can_open_module(actor, cfg):
+        raise HTTPException(status_code=403, detail="You do not have access to Tasks")
+    if not (is_admin(actor) or is_lead(actor)):
+        raise HTTPException(status_code=403, detail="Only admins and team leads can create collective tasks")
+    main = dict(payload.get("main") or {})
+    subs = [dict(s) for s in (payload.get("subtasks") or [])]
+    if not subs:
+        raise HTTPException(status_code=422, detail="Add at least one sub-task")
+    if len(subs) > MAX_COLLECTIVE_SUBTASKS:
+        raise HTTPException(status_code=422, detail=f"A collective task can have at most {MAX_COLLECTIVE_SUBTASKS} sub-tasks")
+
+    roster = {uid_of(u): u for u in await list_candidate_users(db) if uid_of(u)}
+    lead_id = str(main.get("assignee_id") or "").strip() or uid_of(actor)
+    lead = roster.get(lead_id) or (actor if lead_id == uid_of(actor) else None)
+    if not lead:
+        raise HTTPException(status_code=422, detail="Lead owner not found")
+    if not (is_lead(lead) or is_admin(lead)):
+        raise HTTPException(status_code=422, detail="The main task must be assigned to a team lead")
+    if not can_assign_to(actor, lead, cfg):
+        raise HTTPException(status_code=403, detail=f"You cannot assign {display_name(lead) or 'this person'}")
+    sub_people: List[Dict[str, Any]] = []
+    for sub in subs:
+        sid = str(sub.get("assignee_id") or "").strip()
+        person = roster.get(sid)
+        if not sid or not person:
+            raise HTTPException(status_code=422, detail="Every sub-task needs an assignee from your team")
+        if not can_assign_to(actor, person, cfg):
+            raise HTTPException(status_code=403, detail=f"You cannot assign {display_name(person) or 'this person'}")
+        sub_people.append(person)
+
+    main.pop("assignee_ids", None)
+    main["parent_id"] = None
+    main_doc = _build_task_doc(main, actor, lead)
+    await _persist_task_doc(db, main_doc)
+
+    sub_docs: List[Dict[str, Any]] = []
+    for sub, person in zip(subs, sub_people):
+        sub_payload = {
+            "title": sub["title"],
+            "description": sub.get("description") or "",
+            "priority": sub.get("priority") or main_doc.get("priority") or "medium",
+            "due_date": sub.get("due_date") or main_doc.get("due_date"),
+            "estimate_hours": sub.get("estimate_hours"),
+            "related": main_doc.get("related"),
+            "parent_id": main_doc["id"],
+        }
+        sub_docs.append(_build_task_doc(sub_payload, actor, person, parent=main_doc))
+    serials = await reserve_serial_block(db, len(sub_docs))
+    for doc, serial in zip(sub_docs, serials):
+        doc["serial"] = serial
+    try:
+        await db.tasks.insert_many([dict(d) for d in sub_docs], ordered=False)
+    except Exception as exc:
+        logger.warning("Collective sub-task bulk insert fell back to single inserts: %s", type(exc).__name__)
+        stored = await db.tasks.find({"parent_id": main_doc["id"]}, {"id": 1}).to_list(MAX_COLLECTIVE_SUBTASKS + 5)
+        have = {r.get("id") for r in stored}
+        for doc in sub_docs:
+            if doc["id"] not in have:
+                await _persist_task_doc(db, doc)
+    for doc in sub_docs:
+        doc.pop("_id", None)
+
+    actor_id = uid_of(actor)
+    acts = [_activity_doc(main_doc, "created", actor, f"Created {main_doc['serial']} — {main_doc['title']}")]
+    if uid_of(lead) != actor_id:
+        acts.append(_activity_doc(main_doc, "assigned", actor, f"Assigned to {display_name(lead)}", {"to": uid_of(lead)}))
+    for doc, person in zip(sub_docs, sub_people):
+        acts.append(_activity_doc(doc, "created", actor, f"Created {doc['serial']} — {doc['title']}"))
+        if uid_of(person) != actor_id:
+            acts.append(_activity_doc(doc, "assigned", actor, f"Assigned to {display_name(person)}", {"to": uid_of(person)}))
+        acts.append(_activity_doc(main_doc, "subtask_added", actor, f"Subtask {doc['serial']} added"))
+    try:
+        await db.task_activities.insert_many(acts, ordered=False)
+    except Exception:
+        logger.warning("Failed to log collective task activity", exc_info=True)
+    if uid_of(lead) != actor_id:
+        await task_notify.notify_assigned(main_doc, actor)
+    for doc, person in zip(sub_docs, sub_people):
+        if uid_of(person) != actor_id:
+            await task_notify.notify_assigned(doc, actor)
+
+    out = decorate(main_doc, actor, cfg)
+    out["subtasks"] = [_public(d) for d in sub_docs]
+    out["subtasks_count"] = len(sub_docs)
+    out["subtasks_done"] = 0
+    out["subtask_progress"] = 0
+    out["logged_hours"] = 0.0
+    out["logs_count"] = 0
+    out["own_logged_hours"] = 0.0
+    out["subtasks_logged_hours"] = 0.0
+    return out
+
+
+def can_log_time_on(user: Optional[Dict[str, Any]], task: Optional[Dict[str, Any]], settings: Optional[Dict[str, Any]] = None) -> bool:
+    """Daily log link: your own assigned task or sub-task (the lead owner is the main task's assignee). Admins may log on any task they can see."""
+    if not can_view(user, task, settings):
+        return False
+    return is_admin(user) or is_assignee(user, task)
+
+
+async def assert_can_log_on_task(db, task_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    cfg = await get_task_settings(db)
+    task = await get_visible_or_404(db, task_id, user, cfg)
+    if not can_log_time_on(user, task, cfg):
+        raise HTTPException(status_code=403, detail="You can only log time on tasks assigned to you")
+    return task
+
+
+async def sync_stage_from_log(db, task_id: str, requested: Optional[str], actor: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Daily-log 'update task stage' goes through the normal stage rules.
+
+    'completed' from an assignee who cannot approve becomes a review request; asking for the
+    stage a task is already past is a no-op. Anything else the rules forbid raises 422.
+    """
+    want = str(requested or "").strip().lower()
+    if want not in ("todo", "in_progress", "in_review", "completed"):
+        return None
+    cfg = await get_task_settings(db)
+    task = await get_visible_or_404(db, task_id, actor, cfg)
+    current = str(task.get("status") or "todo")
+    if current == want or current == "cancelled":
+        return None
+    if want == "in_progress":
+        if current != "todo":
+            return None
+        return await change_stage(db, task_id, "in_progress", actor)
+    if want == "completed":
+        ok, _ = can_transition(actor, task, "completed", None, cfg)
+        if ok:
+            return await change_stage(db, task_id, "completed", actor)
+        if current == "in_review":
+            return None
+        reviewed = await change_stage(db, task_id, "in_review", actor)
+        ok, _ = can_transition(actor, reviewed, "completed", None, cfg)
+        if ok:
+            # Self-approvers (e.g. a lead's own task) finish in one step; everyone else waits for review.
+            return await change_stage(db, task_id, "completed", actor)
+        return reviewed
+    return await change_stage(db, task_id, want, actor)
+
+
 async def get_task(db, task_id: str, user: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cfg = settings if settings is not None else await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, user, cfg)
@@ -616,7 +860,20 @@ async def get_task(db, task_id: str, user: Dict[str, Any], settings: Optional[Di
     visible = [s for s in subtasks if can_view(user, s, cfg)]
     out["subtasks"] = [_public(s) for s in visible]
     out["subtasks_count"] = len(visible)
-    await _attach_logged_hours(db, [out])
+    children: Dict[str, List[str]] = {}
+    if subtasks:
+        sees_all = len(visible) == len(subtasks)
+        basis = subtasks if sees_all else visible
+        open_subs = [s for s in basis if s.get("status") != "cancelled"]
+        out["subtasks_count"] = len(open_subs)
+        out["subtasks_done"] = sum(1 for s in open_subs if s.get("status") == "completed")
+        out["subtask_progress"] = subtask_progress(out["subtasks_done"], out["subtasks_count"])
+        children = {task_id: [s.get("id") for s in basis if s.get("id")]}
+    elif task.get("parent_id"):
+        parent = await db.tasks.find_one({"id": task.get("parent_id")}, {"_id": 0, "id": 1, "serial": 1, "title": 1, "assignee_name": 1})
+        if parent:
+            out["parent"] = {k: parent.get(k) for k in ("id", "serial", "title", "assignee_name")}
+    await _attach_logged_hours(db, [out], children)
     await _attach_assignment_groups(db, [out], user, cfg)
     return out
 
@@ -735,8 +992,8 @@ async def list_tasks(
     cursor = db.tasks.find(query).sort([("due_date", ASCENDING), ("created_at", DESCENDING)]).skip((page - 1) * limit).limit(limit)
     rows = await cursor.to_list(limit)
     items = [decorate(r, user, cfg) for r in rows]
-    await _attach_subtask_counts(db, items)
-    await _attach_logged_hours(db, items)
+    children = await _attach_subtask_counts(db, items)
+    await _attach_logged_hours(db, items, children)
     await _attach_assignment_groups(db, items, user, cfg)
     counts_query = visibility_query(user, cfg)
     counts_query = _and(counts_query, _scope_clause(scope, user))
@@ -961,6 +1218,8 @@ async def review_recipient_ids(
     """
     cfg = await get_task_settings(db)
     ids = set(chain_from_ids(task))
+    if task.get("parent_id") and task.get("lead_owner_id"):
+        ids.add(str(task.get("lead_owner_id")))
     dept = canonical_department(str(task.get("department") or ""))
     for u in await list_candidate_users(db):
         if is_lead(u) and dept and dept in dept_set(u):
@@ -1048,6 +1307,24 @@ async def patch_task(db, task_id: str, payload: Dict[str, Any], actor: Dict[str,
     return decorate(task, actor, cfg)
 
 
+SUBTASK_GATED_STAGES = ("in_review", "completed")
+
+
+async def assert_subtasks_complete(db, task: Dict[str, Any], dest: str) -> None:
+    """A main task cannot go to review or completion until every non-cancelled sub-task is completed."""
+    if dest not in SUBTASK_GATED_STAGES or task.get("parent_id"):
+        return
+    pending = await db.tasks.count_documents(
+        {"parent_id": task.get("id"), "status": {"$nin": ["completed", "cancelled"]}}
+    )
+    if pending:
+        noun = "sub-task" if pending == 1 else "sub-tasks"
+        raise HTTPException(
+            status_code=422,
+            detail=f"Complete all sub-tasks first ({pending} {noun} still open)",
+        )
+
+
 async def change_stage(db, task_id: str, dest: str, actor: Dict[str, Any], reason: Optional[str] = None) -> Dict[str, Any]:
     cfg = await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, actor, cfg)
@@ -1055,6 +1332,8 @@ async def change_stage(db, task_id: str, dest: str, actor: Dict[str, Any], reaso
     if not ok:
         raise HTTPException(status_code=422, detail=message)
     current = str(task.get("status") or "todo")
+    if dest != current:
+        await assert_subtasks_complete(db, task, dest)
     if dest == current:
         out = decorate(task, actor, cfg)
         await _attach_assignment_groups(db, [out], actor, cfg)
@@ -1102,6 +1381,17 @@ async def change_stage(db, task_id: str, dest: str, actor: Dict[str, Any], reaso
     return out
 
 
+async def _sync_subtask_lead_owner(db, parent_id: str, lead_id: str) -> None:
+    """Main task reassigned: its sub-tasks follow the new lead owner (visibility + approval)."""
+    subs = await db.tasks.find({"parent_id": parent_id}).to_list(200)
+    for sub in subs:
+        sub["lead_owner_id"] = lead_id or None
+        await db.tasks.update_one(
+            {"id": sub.get("id")},
+            {"$set": {"lead_owner_id": sub["lead_owner_id"], "involved_ids": rebuild_involved(sub)}},
+        )
+
+
 async def assign_task(db, task_id: str, assignee_id: str, actor: Dict[str, Any], note: Optional[str] = None) -> Dict[str, Any]:
     cfg = await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, actor, cfg)
@@ -1147,6 +1437,8 @@ async def assign_task(db, task_id: str, assignee_id: str, actor: Dict[str, Any],
     updates["involved_ids"] = rebuild_involved(task)
     await db.tasks.update_one({"id": task_id}, {"$set": updates})
     task.update(updates)
+    if not task.get("parent_id") and old_assignee != uid_of(target):
+        await _sync_subtask_lead_owner(db, task_id, uid_of(target))
     was_on_me = old_assignee == actor_id
     act = "delegated" if was_on_me else "reassigned"
     await log_task_activity(db, task, act, actor, f"{act.capitalize()} to {display_name(target)}", meta={"to": uid_of(target), "note": note})

@@ -9,6 +9,7 @@ import { CustomSelect } from '@/components/ui/CustomSelect';
 import { CustomDatePicker } from '@/components/ui/CustomDatePicker';
 import { CustomDateTimePicker } from '@/components/ui/CustomDateTimePicker';
 import { NumberStepper } from '@/components/ui/NumberStepper';
+import { Progress } from '@/components/ui/progress';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { TaskDescriptionEditor } from '@/components/daily-log/TaskDescriptionEditor';
 import { TaskDescriptionHtml } from '@/components/daily-log/TaskDescriptionHtml';
@@ -25,6 +26,13 @@ import { useToast } from '@/context/ToastContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { taskService } from '@/services/taskService';
 import { TaskLogTimeModal } from './TaskLogTimeModal';
+import { CollectiveSubtaskRows } from './CollectiveSubtaskRows';
+import {
+  collectiveRowsError,
+  isLeadOwnerCandidate,
+  newCollectiveRow,
+  type CollectiveSubtaskRow,
+} from '@/utils/collectiveTask';
 import type { DailyLogEntry } from '@/types/dailyLog';
 import {
   TASK_PRIORITY_OPTIONS,
@@ -40,7 +48,9 @@ import {
 } from '@/types/task';
 import {
   allowedTransitions,
+  canAddSubtask,
   canAddWatcher,
+  canCreateCollective,
   canEditChecklist,
   canEditTask,
   canReassign,
@@ -147,6 +157,18 @@ export const TaskDialog: React.FC<Props> = ({
   const [taskLogs, setTaskLogs] = useState<DailyLogEntry[]>([]);
   const [logTimeOpen, setLogTimeOpen] = useState(false);
   const [loggedHours, setLoggedHours] = useState<number>(task?.logged_hours || 0);
+  const [rollup, setRollup] = useState<Pick<Task, 'subtasks_count' | 'subtasks_done' | 'subtask_progress' | 'own_logged_hours' | 'subtasks_logged_hours' | 'parent'>>(() => ({
+    subtasks_count: task?.subtasks_count,
+    subtasks_done: task?.subtasks_done,
+    subtask_progress: task?.subtask_progress,
+    own_logged_hours: task?.own_logged_hours,
+    subtasks_logged_hours: task?.subtasks_logged_hours,
+    parent: task?.parent,
+  }));
+  const [collective, setCollective] = useState(false);
+  const [collectiveRows, setCollectiveRows] = useState<CollectiveSubtaskRow[]>([]);
+  const [newSubTitle, setNewSubTitle] = useState('');
+  const [newSubAssignee, setNewSubAssignee] = useState('');
   const [clientError, setClientError] = useState<string | null>(null);
   const [fileBusy, setFileBusy] = useState(false);
   const checklistGen = useRef(0);
@@ -172,6 +194,18 @@ export const TaskDialog: React.FC<Props> = ({
     setWatchersBaseline(task?.watcher_ids || []);
     setUnsavedOpen(false);
     setSubtasks(task?.subtasks || []);
+    setCollective(false);
+    setCollectiveRows([]);
+    setNewSubTitle('');
+    setNewSubAssignee('');
+    setRollup({
+      subtasks_count: task?.subtasks_count,
+      subtasks_done: task?.subtasks_done,
+      subtask_progress: task?.subtask_progress,
+      own_logged_hours: task?.own_logged_hours,
+      subtasks_logged_hours: task?.subtasks_logged_hours,
+      parent: task?.parent,
+    });
   }, [open, task?.id, defaultDue, defaultStage, parentId]);
 
   useEffect(() => {
@@ -216,6 +250,14 @@ export const TaskDialog: React.FC<Props> = ({
       }
       setSubtasks(full.subtasks || []);
       setLoggedHours(full.logged_hours || 0);
+      setRollup({
+        subtasks_count: full.subtasks_count,
+        subtasks_done: full.subtasks_done,
+        subtask_progress: full.subtask_progress,
+        own_logged_hours: full.own_logged_hours,
+        subtasks_logged_hours: full.subtasks_logged_hours,
+        parent: full.parent,
+      });
       const nextWatchers = full.watcher_ids || [];
       setWatchers(nextWatchers);
       setWatchersBaseline(nextWatchers);
@@ -226,9 +268,15 @@ export const TaskDialog: React.FC<Props> = ({
   const canEdit = isCreate || (task ? canEditTask(actor, task) : false);
   const canChangeAssignee = isCreate || (task ? canReassign(actor, task) : false);
   const canCheck = isCreate || (task ? canEditChecklist(actor, task) : false);
+  // Daily-log rule (server-enforced): only the assignee, or an admin, logs time on a task.
+  const canLogTime = Boolean(task && actor && (isAdmin(actor) || actor.id === task.assignee_id));
+  const allowCollective = isCreate && !parentId && canCreateCollective(actor);
+  const isCollective = allowCollective && collective;
+  const leadOptions = pickerUsers.filter(isLeadOwnerCandidate);
   const dirty =
     JSON.stringify(draft) !== JSON.stringify(baseline) ||
-    JSON.stringify(watchers) !== JSON.stringify(watchersBaseline);
+    JSON.stringify(watchers) !== JSON.stringify(watchersBaseline) ||
+    (isCollective && collectiveRows.some((r) => r.title.trim() || r.assignee_id));
   const { confirmDiscard } = useUnsavedChangesGuard(dirty && open);
   const showFieldSave = Boolean(!isCreate && dirty && !viewOnly);
 
@@ -310,7 +358,11 @@ export const TaskDialog: React.FC<Props> = ({
   const validateClient = (): string | null => {
     const title = draft.title.trim();
     if (!title) return 'Title is required';
-    if (isCreate && !(draft.assignee_ids || []).length) return 'Assigned person is required';
+    if (isCreate && !(draft.assignee_ids || []).length) return isCollective ? 'Lead owner is required' : 'Assigned person is required';
+    if (isCollective) {
+      const rowsErr = collectiveRowsError(collectiveRows);
+      if (rowsErr) return rowsErr;
+    }
     if (title.length > 200) return 'Title must be 1–200 characters';
     if ((draft.description || '').length > 10000) return 'Description must be 10,000 characters or fewer';
     if (draft.due_time && !draft.due_date) return 'Due time requires a due date';
@@ -333,6 +385,19 @@ export const TaskDialog: React.FC<Props> = ({
     setServerError(null);
     setClientError(null);
     try {
+      if (isCreate && isCollective) {
+        const main = payloadFromDraft() as Record<string, unknown>;
+        delete main.assignee_ids;
+        delete main.recurrence;
+        delete main.parent_id;
+        const created = await taskService.createCollective({
+          main: { ...main, assignee_id: draft.assignee_ids[0] },
+          subtasks: collectiveRows.map((r) => ({ title: r.title.trim(), assignee_id: r.assignee_id })),
+        });
+        addToast('Collective task created', `${created.serial} · ${collectiveRows.length} sub-tasks`, 'success');
+        onSaved(created);
+        return created;
+      }
       if (isCreate) {
         const created = await taskService.createTask(payloadFromDraft());
         const peerIds = (created.assignment_group?.peers || []).map((p) => p.id).filter((id) => id && id !== created.id);
@@ -613,7 +678,40 @@ export const TaskDialog: React.FC<Props> = ({
                 options={TASK_PRIORITY_OPTIONS}
               />
             </div>
-            {isCreate ? (
+            {allowCollective && (
+              <label className="flex items-center gap-2 text-sm text-fg" data-testid="collective-toggle">
+                <input
+                  type="checkbox"
+                  checked={collective}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setCollective(on);
+                    set({ assignee_ids: [], assignee_id: '', recurrence_freq: '' });
+                    setCollectiveRows(on ? [newCollectiveRow(), newCollectiveRow()] : []);
+                  }}
+                />
+                Collective task (one main task for a team lead, sub-tasks for team members)
+              </label>
+            )}
+            {isCollective ? (
+              <div className="space-y-3">
+                <CustomSelect
+                  label="Lead owner"
+                  required
+                  id="task-assignee-picker"
+                  searchable
+                  value={draft.assignee_ids[0] || ''}
+                  onChange={(v) => set({ assignee_ids: v ? [v] : [], assignee_id: v || '' })}
+                  error={!draft.assignee_ids.length && serverError ? 'Lead owner is required' : undefined}
+                  options={leadOptions.map((u) => ({
+                    value: u.id,
+                    label: u.name,
+                    description: [u.department, u.role].filter(Boolean).join(' · '),
+                  }))}
+                />
+                <CollectiveSubtaskRows rows={collectiveRows} users={pickerUsers} disabled={busy} onChange={setCollectiveRows} />
+              </div>
+            ) : isCreate ? (
               <div className="space-y-1.5">
                 <CustomSelect
                   label="Assigned people"
@@ -750,9 +848,14 @@ export const TaskDialog: React.FC<Props> = ({
                     {draft.estimate_hours > 0 ? (
                       <span className="text-fg-muted"> of {draft.estimate_hours}h estimated</span>
                     ) : null}
+                    {rollup.subtasks_logged_hours !== undefined && (
+                      <span className="block text-micro text-fg-muted" data-testid="task-hours-breakdown">
+                        {rollup.own_logged_hours ?? 0}h on this task · {rollup.subtasks_logged_hours}h on sub-tasks
+                      </span>
+                    )}
                   </div>
                 </div>
-                {task.status !== 'cancelled' && (
+                {task.status !== 'cancelled' && canLogTime && (
                   <Button
                     type="button"
                     size="sm"
@@ -806,7 +909,7 @@ export const TaskDialog: React.FC<Props> = ({
               <CustomSelect
                 label="Recurrence"
                 value={draft.recurrence_freq}
-                disabled={!canEdit}
+                disabled={!canEdit || isCollective}
                 onChange={(v) => set({ recurrence_freq: v })}
                 options={[
                   { value: '', label: 'None' },
@@ -937,60 +1040,117 @@ export const TaskDialog: React.FC<Props> = ({
                 }
               }}
             />
-            {task && (
+            {task && rollup.parent && (
+              <p className="text-xs text-fg-muted" data-testid="task-parent-link">
+                Part of{' '}
+                <span className="font-mono text-fg">{rollup.parent.serial}</span>
+                {rollup.parent.title ? ` · ${rollup.parent.title}` : ''}
+                {rollup.parent.assignee_name ? ` (lead: ${rollup.parent.assignee_name})` : ''}
+              </p>
+            )}
+            {task && !task.parent_id && (
               <div className="space-y-2">
-                <label className="text-xs font-medium text-fg-muted">Subtasks of {task.serial}</label>
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-medium text-fg-muted">Subtasks of {task.serial}</label>
+                  {(rollup.subtasks_count || 0) > 0 && (
+                    <span className="text-micro font-numeric text-fg-muted" data-testid="subtask-progress-label">
+                      {rollup.subtasks_done || 0}/{rollup.subtasks_count} done · {rollup.subtask_progress ?? 0}%
+                    </span>
+                  )}
+                </div>
+                {(rollup.subtasks_count || 0) > 0 && (
+                  <Progress value={rollup.subtask_progress ?? 0} aria-label="Sub-task progress" data-testid="subtask-progress" />
+                )}
                 <ul className="space-y-1">
                   {subtasks.map((s) => (
                     <li key={s.id} className="text-sm text-fg flex items-center justify-between gap-2" data-subtask-id={s.id}>
-                      <span>
+                      <button
+                        type="button"
+                        className="text-left min-w-0 truncate hover:underline"
+                        disabled={!onOpenTask || s.id.startsWith('tmp_')}
+                        onClick={() => onOpenTask?.(s)}
+                      >
                         <span className="font-mono text-micro text-fg-muted" data-subtask-serial={s.serial}>
                           {s.serial || s.id}
                         </span>
                         {' · '}
                         {s.title}
-                      </span>
+                        {s.assignee_name ? <span className="text-fg-muted"> — {s.assignee_name}</span> : null}
+                      </button>
                       <TaskStagePill status={s.status} />
                     </li>
                   ))}
                 </ul>
-                {canEdit && (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      const title = await prompt({ title: 'Add subtask', label: 'Title' });
-                      if (!title) return;
-                      const temp: Task = {
-                        id: `tmp_sub_${Date.now()}`,
-                        serial: '…',
-                        title,
-                        status: 'todo',
-                        priority: task.priority || 'medium',
-                        parent_id: task.id,
-                      };
-                      setSubtasks((cur) => [...cur, temp]);
-                      try {
-                        const created = await taskService.createTask({
+                {canAddSubtask(actor, task) && (
+                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start" data-testid="add-subtask-row">
+                    <input
+                      aria-label="New sub-task name"
+                      value={newSubTitle}
+                      maxLength={200}
+                      placeholder="New sub-task"
+                      onChange={(e) => setNewSubTitle(e.target.value)}
+                      className="sm:col-span-6 w-full h-9 px-3 rounded-md bg-subtle border border-border text-sm text-fg focus:border-accent focus:outline-hidden"
+                    />
+                    <div className="sm:col-span-4">
+                      <CustomSelect
+                        aria-label="New sub-task assignee"
+                        searchable
+                        value={newSubAssignee}
+                        placeholder="Assign to…"
+                        onChange={(v) => setNewSubAssignee(v)}
+                        options={pickerUsers.map((u) => ({
+                          value: u.id,
+                          label: u.name,
+                          description: [u.department, u.role].filter(Boolean).join(' · '),
+                        }))}
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      className="sm:col-span-2 h-9"
+                      disabled={!newSubTitle.trim()}
+                      onClick={async () => {
+                        const title = newSubTitle.trim();
+                        if (!title) return;
+                        const assignee = newSubAssignee || draft.assignee_id;
+                        const temp: Task = {
+                          id: `tmp_sub_${Date.now()}`,
+                          serial: '…',
                           title,
+                          status: 'todo',
+                          priority: task.priority || 'medium',
                           parent_id: task.id,
-                          assignee_id: draft.assignee_id,
-                        });
-                        setSubtasks((cur) => cur.map((row) => (row.id === temp.id ? created : row)));
-                        onSaved(
-                          { ...task, subtasks_count: (task.subtasks_count || 0) + 1 },
-                          { refreshList: false },
-                        );
-                      } catch (err: any) {
-                        setSubtasks((cur) => cur.filter((row) => row.id !== temp.id));
-                        addToast('Could not add subtask', err?.message || 'Try again', 'error');
-                      }
-                    }}
-                  >
-                    <Plus className="w-3.5 h-3.5 mr-1" />
-                    Add subtask
-                  </Button>
+                        };
+                        setSubtasks((cur) => [...cur, temp]);
+                        try {
+                          const created = await taskService.createTask({
+                            title,
+                            parent_id: task.id,
+                            assignee_id: assignee,
+                          });
+                          setSubtasks((cur) => cur.map((row) => (row.id === temp.id ? created : row)));
+                          setNewSubTitle('');
+                          setNewSubAssignee('');
+                          const count = (rollup.subtasks_count || 0) + 1;
+                          const done = rollup.subtasks_done || 0;
+                          const progress = Math.round((100 * done) / count);
+                          setRollup((r) => ({ ...r, subtasks_count: count, subtasks_done: done, subtask_progress: progress }));
+                          onSaved(
+                            { ...task, subtasks_count: count, subtasks_done: done, subtask_progress: progress },
+                            { refreshList: false },
+                          );
+                        } catch (err: any) {
+                          setSubtasks((cur) => cur.filter((row) => row.id !== temp.id));
+                          addToast('Could not add subtask', err?.message || 'Try again', 'error');
+                        }
+                      }}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" />
+                      Add subtask
+                    </Button>
+                  </div>
                 )}
               </div>
             )}
@@ -1050,7 +1210,7 @@ export const TaskDialog: React.FC<Props> = ({
                       <div className="text-xs text-fg-muted">
                         Total logged: <strong className="text-fg">{loggedHours}h</strong>
                       </div>
-                      {task.status !== 'cancelled' && (
+                      {task.status !== 'cancelled' && canLogTime && (
                         <Button
                           type="button"
                           size="sm"

@@ -25,6 +25,7 @@ import {
   addTaskComment,
   asCommentList,
   assignmentPeers,
+  canLogTimeOn,
   changeTaskStage,
   deleteTask,
   getTask,
@@ -32,6 +33,7 @@ import {
   nextAllowedStage,
   stageLabel,
   stageTone,
+  subtaskProgressLabel,
   type Task,
 } from '../../src/lib/tasks';
 
@@ -81,6 +83,8 @@ export default function TaskDetailScreen() {
   );
 
   const canEdit = Boolean(task && !task.view_only);
+  // Daily-log rule (server-enforced): only the assignee, or an admin, logs time on a task.
+  const canLog = Boolean(task && user && canLogTimeOn(user, task));
   const upcoming = task ? nextAllowedStage(user, task) : null;
 
   const confirmAdvance = () => {
@@ -183,12 +187,14 @@ export default function TaskDetailScreen() {
             ) : null}
           </View>
           <View style={styles.actions}>
-            <Pressable
-              onPress={() => setLogModalOpen(true)}
-              style={[styles.iconBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
-            >
-              <Clock size={20} color={theme.primary} strokeWidth={2.2} />
-            </Pressable>
+            {canLog ? (
+              <Pressable
+                onPress={() => setLogModalOpen(true)}
+                style={[styles.iconBtn, { backgroundColor: theme.primaryLight, borderColor: theme.primary }]}
+              >
+                <Clock size={20} color={theme.primary} strokeWidth={2.2} />
+              </Pressable>
+            ) : null}
             {canEdit ? (
               <Pressable
                 onPress={() => setFormOpen(true)}
@@ -305,11 +311,66 @@ export default function TaskDetailScreen() {
             <Text style={{ color: theme.primary, fontWeight: '800' }}>{task.logged_hours || 0}h</Text>
             {task.estimate_hours != null ? ` / ${task.estimate_hours}h estimated` : ' logged'}
           </Text>
+          {task.subtasks_logged_hours != null ? (
+            <Text style={[styles.peerSerial, { color: theme.textMuted }]}>
+              {task.own_logged_hours || 0}h on this task · {task.subtasks_logged_hours}h on sub-tasks
+            </Text>
+          ) : null}
           <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Related client</Text>
           <Text style={[styles.value, { color: theme.text }]}>{task.client_name || 'None'}</Text>
           <Text style={[styles.label, { color: theme.textMuted, marginTop: 12 }]}>Priority</Text>
           <Text style={[styles.value, { color: theme.text, textTransform: 'capitalize' }]}>{task.priority}</Text>
         </Card>
+
+        {task.parent ? (
+          <Card>
+            <Text style={[styles.label, { color: theme.textMuted }]}>Part of</Text>
+            <Text style={[styles.value, { color: theme.text }]}>
+              {task.parent.serial ? `${task.parent.serial} · ` : ''}
+              {task.parent.title || ''}
+              {task.parent.assignee_name ? ` (lead: ${task.parent.assignee_name})` : ''}
+            </Text>
+          </Card>
+        ) : null}
+
+        {subtaskProgressLabel(task) ? (
+          <Card>
+            <Text style={[styles.label, { color: theme.textMuted }]}>Sub-tasks</Text>
+            <View style={[styles.subProgressTrack, { backgroundColor: theme.bgSubtle }]} testID="task-subtask-progress">
+              <View
+                style={[
+                  styles.subProgressFill,
+                  { backgroundColor: theme.primary, width: `${Math.max(0, Math.min(100, task.subtask_progress ?? 0))}%` },
+                ]}
+              />
+            </View>
+            <Text style={[styles.peerSerial, { color: theme.textMuted, marginBottom: 8 }]}>{subtaskProgressLabel(task)}</Text>
+            {(task.subtasks || []).map((sub) => {
+              const tone = stageTone(sub.status);
+              return (
+                <Pressable
+                  key={sub.id}
+                  onPress={() => router.push(`/tasks/${sub.id}`)}
+                  style={[styles.peerRow, { backgroundColor: theme.surface, borderColor: theme.border }]}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.peerName, { color: theme.text }]} numberOfLines={1}>
+                      {sub.title}
+                    </Text>
+                    <Text style={[styles.peerSerial, { color: theme.textMuted }]}>
+                      {sub.serial ? `${sub.serial} · ` : ''}
+                      {sub.assignee_name || 'Unassigned'}
+                    </Text>
+                  </View>
+                  <View style={[styles.peerStatusBadge, { backgroundColor: tone.bg }]}>
+                    <View style={[styles.peerStatusDot, { backgroundColor: tone.color }]} />
+                    <Text style={[styles.peerStatusText, { color: tone.color }]}>{stageLabel(sub.status)}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </Card>
+        ) : null}
 
         {task.description ? (
           <Card>
@@ -401,6 +462,8 @@ export default function TaskDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  subProgressTrack: { height: 6, borderRadius: 3, overflow: 'hidden', marginTop: 6, marginBottom: 4 },
+  subProgressFill: { height: 6, borderRadius: 3 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   pad: { padding: 16, gap: 12 },
   topRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },

@@ -13,6 +13,13 @@ import { taskService } from '@/services/taskService';
 import { useToast } from '@/context/ToastContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
 import { canUseVoiceTask } from '@/utils/taskAccess';
+import { CollectiveSubtaskRows } from './CollectiveSubtaskRows';
+import {
+  collectiveRowsError,
+  isLeadOwnerCandidate,
+  newCollectiveRow,
+  type CollectiveSubtaskRow,
+} from '@/utils/collectiveTask';
 import type {
   Task,
   TaskActor,
@@ -70,6 +77,8 @@ export const TaskVoiceModal: React.FC<Props> = ({
   const [estimateHours, setEstimateHours] = useState<string>('');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [checklist, setChecklist] = useState<Array<{ text: string }>>([]);
+  const [collectiveDraft, setCollectiveDraft] = useState(false);
+  const [collectiveRows, setCollectiveRows] = useState<CollectiveSubtaskRow[]>([]);
   const [ambiguousCandidates, setAmbiguousCandidates] = useState<
     Array<{ id: string; name: string; department?: string; role?: string }>
   >([]);
@@ -104,6 +113,8 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setEstimateHours('');
     setPriority('medium');
     setChecklist([]);
+    setCollectiveDraft(false);
+    setCollectiveRows([]);
     setAmbiguousCandidates([]);
     setUnrecognizedAssignee(null);
     setUnrecognizedCompany(null);
@@ -248,6 +259,16 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setEstimateHours(res.task.estimate_hours != null ? String(res.task.estimate_hours) : '');
     setPriority((res.task.priority as TaskPriority) || 'medium');
     setChecklist(res.task.checklist || []);
+    const spokenSubs = res.task.is_collective ? res.task.subtasks || [] : [];
+    setCollectiveDraft(spokenSubs.length > 0);
+    setCollectiveRows(
+      spokenSubs.map((sub) =>
+        newCollectiveRow({
+          title: sub.title,
+          assignee_id: sub.assignee_id && assignable.some((u) => u.id === sub.assignee_id) ? sub.assignee_id : '',
+        }),
+      ),
+    );
     setAmbiguousCandidates(res.confidence?.ambiguous_candidates || []);
     setUnrecognizedAssignee(res.confidence?.unrecognized_assignee || null);
     setUnrecognizedCompany(res.confidence?.unrecognized_company || null);
@@ -353,6 +374,19 @@ export const TaskVoiceModal: React.FC<Props> = ({
       }
     }
 
+    if (collectiveDraft) {
+      const lead = assignable.find((u) => u.id === assigneeId);
+      if (!lead || !isLeadOwnerCandidate(lead)) {
+        setErrorMsg('Pick a team lead as the lead owner of a collective task.');
+        return;
+      }
+      const rowsErr = collectiveRowsError(collectiveRows);
+      if (rowsErr) {
+        setErrorMsg(rowsErr);
+        return;
+      }
+    }
+
     setStep('saving');
 
     try {
@@ -379,6 +413,17 @@ export const TaskVoiceModal: React.FC<Props> = ({
       }
       if (checklist.length > 0) {
         payload.checklist = checklist.map((c) => ({ text: c.text }));
+      }
+
+      if (collectiveDraft) {
+        const createdCollective = await taskService.createCollective({
+          main: payload,
+          subtasks: collectiveRows.map((r) => ({ title: r.title.trim(), assignee_id: r.assignee_id })),
+        });
+        addToast('Collective task created', `${createdCollective.serial} · ${collectiveRows.length} sub-tasks`, 'success');
+        onSaved(createdCollective);
+        onClose();
+        return;
       }
 
       const created = await taskService.createTask(payload);
@@ -723,7 +768,7 @@ export const TaskVoiceModal: React.FC<Props> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-fg-muted mb-1.5">
-                    Assignee
+                    {collectiveDraft ? 'Lead owner (team lead)' : 'Assignee'}
                   </label>
                   <select
                     value={assigneeId}
@@ -864,6 +909,25 @@ export const TaskVoiceModal: React.FC<Props> = ({
                   />
                 </div>
               </div>
+
+              {collectiveDraft && (
+                <div className="space-y-2 p-3 bg-subtle border border-border rounded-md" data-testid="voice-collective-draft">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-fg">Collective task: check each sub-task before saving</span>
+                    <button
+                      type="button"
+                      className="text-micro text-fg-muted underline"
+                      onClick={() => {
+                        setCollectiveDraft(false);
+                        setCollectiveRows([]);
+                      }}
+                    >
+                      Make it a single task
+                    </button>
+                  </div>
+                  <CollectiveSubtaskRows rows={collectiveRows} users={assignable} disabled={step === 'saving'} onChange={setCollectiveRows} />
+                </div>
+              )}
 
               {checklist.length > 0 && (
                 <div>

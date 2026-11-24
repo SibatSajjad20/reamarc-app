@@ -68,7 +68,29 @@ export type Task = {
   comments?: TaskComment[];
   comments_count?: number;
   view_only?: boolean;
+  /** Collective tasks: sub-tasks link to their main task; the main task's assignee is the lead owner. */
+  parent_id?: string | null;
+  lead_owner_id?: string | null;
+  parent?: { id: string; serial?: string; title?: string; assignee_name?: string } | null;
+  subtasks?: Task[];
+  subtasks_count?: number;
+  subtasks_done?: number;
+  subtask_progress?: number | null;
+  own_logged_hours?: number | null;
+  subtasks_logged_hours?: number | null;
 };
+
+export type CollectiveSubtaskDraft = { key: string; title: string; assignee_id: string };
+
+export const MAX_COLLECTIVE_SUBTASKS = 15;
+
+export function newSubtaskDraft(seed?: Partial<CollectiveSubtaskDraft>): CollectiveSubtaskDraft {
+  return {
+    key: `sub_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    title: seed?.title || '',
+    assignee_id: seed?.assignee_id || '',
+  };
+}
 
 export type TaskActorLike = {
   id?: string | null;
@@ -236,7 +258,55 @@ export function normalizeTask(row: any): Task {
     assignment_group: row?.assignment_group || null,
     comments,
     comments_count: Number(row?.comments_count ?? comments.length),
+    subtasks_count: Number(row?.subtasks_count || 0),
+    subtasks_done: Number(row?.subtasks_done || 0),
+    subtask_progress: row?.subtask_progress != null ? Number(row.subtask_progress) : null,
+    subtasks: Array.isArray(row?.subtasks) ? row.subtasks.map(normalizeTask) : undefined,
   };
+}
+
+/** Main task with sub-tasks: "1/3 sub-tasks · 33%". Null for ordinary tasks. */
+export function subtaskProgressLabel(task?: Task | null): string | null {
+  const total = Number(task?.subtasks_count || 0);
+  if (!task || total <= 0) return null;
+  const done = Number(task.subtasks_done || 0);
+  const pct = task.subtask_progress != null ? task.subtask_progress : Math.round((100 * done) / total);
+  return `${done}/${total} sub-tasks · ${pct}%`;
+}
+
+/** Main task with open sub-tasks cannot go to review or completion (server enforces too). */
+export function subtasksBlockClose(task: Task, to: TaskStatus): boolean {
+  if (to !== 'review' && to !== 'completed') return false;
+  if (task.parent_id) return false;
+  const total = Number(task.subtasks_count || 0);
+  return total > 0 && Number(task.subtasks_done || 0) < total;
+}
+
+export function canLogTimeOn(user: TaskActorLike | null | undefined, task: Task): boolean {
+  if (!user || !task) return false;
+  return roleOf(user.role) === 'admin' || uidOf(user) === task.assignee_id;
+}
+
+export function canCreateCollective(user?: TaskActorLike | null): boolean {
+  const role = roleOf(user?.role);
+  return role === 'admin' || role === 'team_lead';
+}
+
+export function isLeadOwnerCandidate(person: { role?: string | null }): boolean {
+  const role = roleOf(person?.role);
+  return role === 'admin' || role === 'team_lead';
+}
+
+export function collectiveRowsError(rows: CollectiveSubtaskDraft[]): string | null {
+  if (!rows.length) return 'Add at least one sub-task';
+  if (rows.length > MAX_COLLECTIVE_SUBTASKS) return `At most ${MAX_COLLECTIVE_SUBTASKS} sub-tasks`;
+  for (let i = 0; i < rows.length; i += 1) {
+    const title = rows[i].title.trim();
+    if (!title) return `Sub-task ${i + 1} needs a title`;
+    if (title.length > 200) return `Sub-task ${i + 1} title must be 1–200 characters`;
+    if (!rows[i].assignee_id) return `Sub-task ${i + 1} needs an assignee`;
+  }
+  return null;
 }
 
 export function assignmentPeers(task?: Task | null): TaskAssignmentPeer[] {
@@ -293,6 +363,7 @@ export function isTaskApprover(user: TaskActorLike | null | undefined, task: Tas
     return true;
   }
   if (id === task.assignee_id) return false;
+  if (task.parent_id && task.lead_owner_id && id === task.lead_owner_id) return true;
   if (roleOf(task.assignee_role) === 'team_lead' && !isSelfAssigned(task) && roleOf(task.assigner_role) !== 'admin') {
     return id === task.assigner_id || role === 'admin';
   }
@@ -310,6 +381,7 @@ export function canAdvanceTo(
   const dest = to;
   const current = task.status;
   if (dest === current) return true;
+  if (subtasksBlockClose(task, dest)) return false;
   const role = roleOf(user.role);
   const admin = role === 'admin';
   const id = uidOf(user);

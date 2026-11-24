@@ -36,6 +36,19 @@ export interface VoiceTaskProposal {
   estimate_hours?: number | null;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   checklist: Array<{ text: string }>;
+  /** Collective draft: main task owned by a lead plus sub-tasks. Always confirmed by the user. */
+  is_collective?: boolean;
+  subtasks?: VoiceSubtaskProposal[];
+}
+
+export interface VoiceSubtaskProposal {
+  title: string;
+  description?: string;
+  assignee_id: string | null;
+  assignee_name?: string | null;
+  assignee_status?: 'matched' | 'needs_selection' | 'unassigned';
+  due_date?: string | null;
+  estimate_hours?: number | null;
 }
 
 export interface VoiceTaskParseResponse {

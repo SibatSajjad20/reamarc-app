@@ -50,13 +50,19 @@ import {
   stopVoiceRecording,
   type VoiceTaskParseResponse,
 } from '../../lib/voiceRecording';
+import { CollectiveSubtasksEditor } from './CollectiveSubtasksEditor';
 import {
   changeTaskStage,
+  collectiveRowsError,
+  createCollectiveTask,
   createTask,
+  isLeadOwnerCandidate,
+  newSubtaskDraft,
   listTaskAssignees,
   listTaskClients,
   TASK_PRIORITY_OPTIONS,
   TASK_STAGES,
+  type CollectiveSubtaskDraft,
   type Task,
   type TaskClientOption,
   type TaskPerson,
@@ -339,6 +345,8 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
   const [status, setStatus] = useState<TaskStatus>('todo');
   const [priority, setPriority] = useState<TaskPriority>('medium');
   const [assigneeId, setAssigneeId] = useState<string>('');
+  const [collectiveDraft, setCollectiveDraft] = useState(false);
+  const [collectiveRows, setCollectiveRows] = useState<CollectiveSubtaskDraft[]>([]);
   const [watcherIds, setWatcherIds] = useState<string[]>([]);
   const [clientId, setClientId] = useState<string>('');
   const [startDate, setStartDate] = useState<string>('');
@@ -410,6 +418,8 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setStatus('todo');
     setPriority('medium');
     setAssigneeId('');
+    setCollectiveDraft(false);
+    setCollectiveRows([]);
     setWatcherIds([]);
     setClientId('');
     setStartDate('');
@@ -556,6 +566,17 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     setEstimateHours(res.task?.estimate_hours != null ? String(res.task.estimate_hours) : '');
     setChecklist(res.task?.checklist || []);
     setAmbiguousCandidates(res.confidence?.ambiguous_candidates || []);
+    const subs = res.task?.is_collective ? res.task?.subtasks || [] : [];
+    setCollectiveDraft(subs.length > 0);
+    setCollectiveRows(
+      subs.map((sub) =>
+        newSubtaskDraft({
+          title: sub.title || '',
+          // Only keep roster-matched people; anything else must be picked by hand.
+          assignee_id: sub.assignee_id && assignees.some((a) => a.id === sub.assignee_id) ? sub.assignee_id : '',
+        }),
+      ),
+    );
     setStep('draft');
   }
 
@@ -568,6 +589,19 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
     if (description.trim().length > 10000) {
       setErrorMsg('Task description cannot exceed 10,000 characters.');
       return;
+    }
+
+    if (collectiveDraft) {
+      const lead = assignees.find((a) => a.id === assigneeId);
+      if (!lead || !isLeadOwnerCandidate(lead)) {
+        setErrorMsg('Pick a team lead as the lead owner of the main task.');
+        return;
+      }
+      const rowsError = collectiveRowsError(collectiveRows);
+      if (rowsError) {
+        setErrorMsg(rowsError);
+        return;
+      }
     }
 
     setStep('saving');
@@ -593,7 +627,12 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
         payload.checklist = checklist.map((c) => ({ text: c.text }));
       }
 
-      const created = await createTask(payload);
+      const created = collectiveDraft
+        ? await createCollectiveTask({
+            main: payload,
+            subtasks: collectiveRows.map((r) => ({ title: r.title.trim(), assignee_id: r.assignee_id })),
+          })
+        : await createTask(payload);
 
       let finalTask = created;
       if (status && status !== 'todo') {
@@ -1095,7 +1134,7 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                 {/* Form: Assignee */}
                 <View style={styles.fieldGroup}>
                   <SelectField
-                    label="Assignee"
+                    label={collectiveDraft ? 'Lead owner (team lead)' : 'Assignee'}
                     value={assigneeId}
                     options={assigneeOptions}
                     onChange={(val) => setAssigneeId(val)}
@@ -1103,6 +1142,29 @@ function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
                     placeholder="Select assignee..."
                   />
                 </View>
+
+                {collectiveDraft ? (
+                  <View style={styles.fieldGroup} testID="voice-collective-draft">
+                    <Text style={{ color: theme.text, fontWeight: '700', marginBottom: 6 }}>
+                      Collective task · {collectiveRows.length} sub-task(s)
+                    </Text>
+                    <CollectiveSubtasksEditor
+                      rows={collectiveRows}
+                      people={assignees}
+                      disabled={step === 'saving'}
+                      onChange={setCollectiveRows}
+                    />
+                    <Pressable
+                      onPress={() => {
+                        setCollectiveDraft(false);
+                        setCollectiveRows([]);
+                      }}
+                      style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                    >
+                      <Text style={{ color: theme.primary, fontWeight: '600' }}>Make it a single task</Text>
+                    </Pressable>
+                  </View>
+                ) : null}
 
                 {/* Form: Company / Related Client */}
                 <View style={styles.fieldGroup}>

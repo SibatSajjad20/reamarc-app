@@ -31,15 +31,22 @@ import { SuccessBurst } from '../../ui/motion';
 import { SelectField } from '../../ui/SelectField';
 import { useAuth } from '../../context/AuthContext';
 import { getModuleCache, setModuleCache } from '../../lib/moduleCache';
+import { CollectiveSubtasksEditor } from './CollectiveSubtasksEditor';
 import {
   allowedTaskStages,
+  canCreateCollective,
+  collectiveRowsError,
+  createCollectiveTask,
   createTask,
+  isLeadOwnerCandidate,
+  newSubtaskDraft,
   listTaskAssignees,
   listTaskClients,
   stageLabel,
   TASK_PRIORITY_OPTIONS,
   updateTask,
   validateWorkTaskForm,
+  type CollectiveSubtaskDraft,
   type Task,
   type TaskClientOption,
   type TaskPerson,
@@ -263,6 +270,9 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
   const [cal, setCal] = useState<null | 'start' | 'due'>(null);
   const [showTime, setShowTime] = useState(false);
   const [flashSuccess, setFlashSuccess] = useState(false);
+  const allowCollective = isCreate && canCreateCollective(user);
+  const [collective, setCollective] = useState(false);
+  const [subRows, setSubRows] = useState<CollectiveSubtaskDraft[]>([]);
 
   useEffect(() => {
     if (!visible) return;
@@ -282,6 +292,8 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
     setClientId(task?.client_id || '');
     setPriority(task?.priority || 'medium');
     setDescription(task?.description || '');
+    setCollective(false);
+    setSubRows([]);
   }, [visible, task]);
 
   useEffect(() => {
@@ -309,14 +321,15 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
 
   const filteredAssignees = useMemo(() => {
     const q = assigneeQuery.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter(
+    const pool = collective ? people.filter(isLeadOwnerCandidate) : people;
+    if (!q) return pool;
+    return pool.filter(
       (p) =>
         (p.full_name || p.name || '').toLowerCase().includes(q) ||
         (p.department || '').toLowerCase().includes(q) ||
         (p.role || '').toLowerCase().includes(q),
     );
-  }, [people, assigneeQuery]);
+  }, [people, assigneeQuery, collective]);
 
   const handleSave = async () => {
     const errors = validateWorkTaskForm({ title, estimate });
@@ -340,9 +353,30 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
       estimate_hours: hours,
       client_id: clientId || null,
     };
+    if (collective) {
+      const leadId = assigneeIds[0];
+      const lead = people.find((p) => p.id === leadId);
+      if (!leadId || assigneeIds.length !== 1 || !lead || !isLeadOwnerCandidate(lead)) {
+        Alert.alert('Lead owner needed', 'Pick one team lead to own the main task.');
+        return;
+      }
+      const rowsError = collectiveRowsError(subRows);
+      if (rowsError) {
+        Alert.alert('Check sub-tasks', rowsError);
+        return;
+      }
+    }
     setSaving(true);
     try {
-      const saved = isCreate ? await createTask(payload) : await updateTask(task!.id, payload);
+      const { assignee_ids: _ids, ...mainPayload } = payload;
+      const saved = collective
+        ? await createCollectiveTask({
+            main: { ...mainPayload, assignee_id: assigneeIds[0] },
+            subtasks: subRows.map((r) => ({ title: r.title.trim(), assignee_id: r.assignee_id })),
+          })
+        : isCreate
+          ? await createTask(payload)
+          : await updateTask(task!.id, payload);
       setFlashSuccess(true);
       setTimeout(() => {
         setFlashSuccess(false);
@@ -429,11 +463,36 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
             )
           ) : null}
 
+          {allowCollective ? (
+            <Pressable
+              testID="collective-toggle"
+              onPress={() => {
+                setCollective((on) => {
+                  const next = !on;
+                  if (next) {
+                    setAssigneeIds((ids) => ids.filter((id) => {
+                      const p = people.find((x) => x.id === id);
+                      return p ? isLeadOwnerCandidate(p) : false;
+                    }).slice(0, 1));
+                    setSubRows((rows) => (rows.length ? rows : [newSubtaskDraft()]));
+                  }
+                  return next;
+                });
+              }}
+              style={[styles.field, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}
+            >
+              {collective ? <CheckSquare size={18} color={theme.primary} /> : <Square size={18} color={theme.textMuted} />}
+              <Text style={{ color: theme.text, fontWeight: '600' }}>Collective task (lead + sub-tasks)</Text>
+            </Pressable>
+          ) : null}
+
           {/* Assigned Person(s) */}
           <View style={styles.field}>
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
               <Text style={[styles.label, { color: theme.textMuted }]}>
-                Assigned Person(s) {assigneeIds.length > 1 ? `(${assigneeIds.length})` : ''}
+                {collective
+                  ? 'Lead owner (team lead)'
+                  : `Assigned Person(s) ${assigneeIds.length > 1 ? `(${assigneeIds.length})` : ''}`}
               </Text>
               {assigneeIds.length > 0 ? (
                 <Pressable onPress={() => setAssigneeIds([])} hitSlop={6}>
@@ -487,6 +546,13 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
               <ChevronDown size={16} color={theme.textMuted} />
             </Pressable>
           </View>
+
+          {collective ? (
+            <View style={styles.field}>
+              <Text style={[styles.label, { color: theme.textMuted }]}>Sub-tasks</Text>
+              <CollectiveSubtasksEditor rows={subRows} people={people} disabled={saving} onChange={setSubRows} />
+            </View>
+          ) : null}
 
           <View style={styles.field}>
             <Text style={[styles.label, { color: theme.textMuted }]}>Start Date</Text>
@@ -722,6 +788,11 @@ export function TaskFormModal({ visible, task, onClose, onSaved }: Props) {
                     <Pressable
                       key={p.id}
                       onPress={() => {
+                        if (collective) {
+                          setAssigneeIds([p.id]);
+                          setAssigneePickerOpen(false);
+                          return;
+                        }
                         setAssigneeIds((prev) =>
                           prev.includes(p.id) ? prev.filter((x) => x !== p.id) : [...prev, p.id]
                         );

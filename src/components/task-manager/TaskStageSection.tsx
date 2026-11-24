@@ -230,7 +230,9 @@ export const TaskStageSection: React.FC<Props> = ({
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {task.blocked && <StatusPill variant="danger" label="Blocked" hasDot={false} />}
                         {(task.subtasks_count || 0) > 0 && (
-                          <span className="text-micro text-fg-muted">{task.subtasks_count} sub</span>
+                          <span className="text-micro text-fg-muted" data-testid="task-row-subtask-progress">
+                            {task.subtasks_done || 0}/{task.subtasks_count} sub · {task.subtask_progress ?? 0}%
+                          </span>
                         )}
                         {checklist.length > 0 && (
                           <span className="text-micro text-fg-muted">

@@ -89,15 +89,38 @@ VOICE_TASK_SCHEMA: Dict[str, Any] = {
         "estimate_hours": {"type": ["number", "null"]},
         "priority": {"type": "string", "enum": ["low", "medium", "high", "urgent"]},
         "checklist": _STRING_ARRAY,
+        "is_collective": {"type": "boolean"},
+        "subtasks": {"type": "array", "items": None},
     },
     "required": [
         "is_task", "title", "description", "assignee_name", "assignee_id",
         "spoken_assignee", "ambiguous_names", "watcher_names", "watcher_ids",
         "spoken_watchers", "company_id", "company_name", "spoken_company",
         "start_date", "due_date", "due_time", "estimate_hours", "priority", "checklist",
+        "is_collective", "subtasks",
     ],
     "additionalProperties": False,
 }
+
+MAX_VOICE_SUBTASKS = 10
+
+VOICE_SUBTASK_SCHEMA: Dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "title": {"type": "string"},
+        "description": {"type": "string"},
+        "assignee_name": _NULLABLE_STRING,
+        "assignee_id": _NULLABLE_STRING,
+        "spoken_assignee": _NULLABLE_STRING,
+        "due_date": _NULLABLE_STRING,
+        "estimate_hours": {"type": ["number", "null"]},
+    },
+    "required": ["title", "description", "assignee_name", "assignee_id", "spoken_assignee", "due_date", "estimate_hours"],
+    "additionalProperties": False,
+}
+VOICE_TASK_SCHEMA["properties"]["subtasks"]["items"] = VOICE_SUBTASK_SCHEMA
+
+_COLLECTIVE_WORDS = re.compile(r"\b(collective|project|sub[\s-]?tasks?)\b", re.IGNORECASE)
 
 
 def _get_groq_api_key() -> str:
@@ -439,6 +462,81 @@ def _find_matching_company(
     return None
 
 
+def _valid_ymd(value: Any) -> Optional[str]:
+    text = str(value or "").strip()
+    return text if re.match(r"^\d{4}-\d{2}-\d{2}$", text) else None
+
+
+def _valid_hours(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        val = float(value)
+    except (ValueError, TypeError):
+        return None
+    return round(val, 2) if 0 <= val <= 1000 else None
+
+
+def _resolve_subtask(raw: Dict[str, Any], assignable_users: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Roster-locked assignee for one spoken sub-task (same rules as the main assignee)."""
+    title = str(raw.get("title") or "").strip()[:200]
+    if not title:
+        return None
+    aid = raw.get("assignee_id")
+    aname = raw.get("assignee_name")
+    spoken = raw.get("spoken_assignee") or aname
+    out: Dict[str, Any] = {
+        "title": title,
+        "description": str(raw.get("description") or "").strip()[:10000],
+        "assignee_id": None,
+        "assignee_name": None,
+        "assignee_status": "unassigned",
+        "ambiguous_candidates": [],
+        "unrecognized_assignee": None,
+        "due_date": _valid_ymd(raw.get("due_date")),
+        "estimate_hours": _valid_hours(raw.get("estimate_hours")),
+    }
+    matched = next((u for u in assignable_users if u["id"] == aid), None) if aid else None
+    if matched:
+        out.update(assignee_id=matched["id"], assignee_name=matched["name"], assignee_status="matched")
+        return out
+    lookup = aname or spoken
+    if not lookup:
+        return out
+    cands = _find_matching_candidates(str(lookup), assignable_users)
+    if len(cands) == 1:
+        out.update(assignee_id=cands[0]["id"], assignee_name=cands[0]["name"], assignee_status="matched")
+    elif len(cands) > 1:
+        out["assignee_status"] = "needs_selection"
+        out["ambiguous_candidates"] = [
+            {"id": c["id"], "name": c["name"], "department": c.get("department", ""), "role": c.get("role", "")}
+            for c in cands
+        ]
+    elif spoken and str(spoken).strip():
+        out["unrecognized_assignee"] = str(spoken).strip()
+    return out
+
+
+def _collective_from_parse(parsed: Dict[str, Any], transcript: str, assignable_users: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sub-tasks only when the speaker asked for a collective task or gave 2+ owners with steps."""
+    raw_subs = parsed.get("subtasks") if isinstance(parsed.get("subtasks"), list) else []
+    if not parsed.get("is_collective") or not raw_subs:
+        return []
+    subs = [s for s in (_resolve_subtask(r, assignable_users) for r in raw_subs[:MAX_VOICE_SUBTASKS] if isinstance(r, dict)) if s]
+    if not subs:
+        return []
+    owners = {
+        str(r.get("assignee_id") or r.get("assignee_name") or r.get("spoken_assignee") or "").strip().lower()
+        for r in raw_subs[:MAX_VOICE_SUBTASKS]
+        if isinstance(r, dict)
+    }
+    owners.discard("")
+    explicit = bool(_COLLECTIVE_WORDS.search(transcript or ""))
+    if not explicit and not (len(subs) >= 2 and len(owners) >= 2):
+        return []
+    return subs
+
+
 async def extract_task_from_transcript(
     transcript: str,
     assignable_users: List[Dict[str, Any]],
@@ -514,6 +612,8 @@ CRITICAL RULES FOR EXTRACTION:
 16. "estimate_hours": Number of expected or estimated hours spoken (e.g. "expected 4 hours", "estimate 2.5 hours", "3 hours"). Float or integer between 0 and 1000. If not mentioned, null.
 17. "priority": One of: "low", "medium", "high", "urgent". Default to "medium". If words like "urgent", "asap", "critical", "top priority" (or Urdu "zaroori", "jaldi") are used, set to "urgent".
 18. "checklist": Array of short string checklist items if mentioned (e.g. ["verify numbers", "send email"]). Otherwise empty array.
+19. "is_collective": true ONLY if the speaker explicitly asks for a collective task / project / sub-tasks, OR names two or more different people each with their own piece of work under one goal (e.g. "website developer builds the page, content writer writes the copy"). Otherwise false.
+20. "subtasks": When "is_collective" is true, one object per piece of work (max {MAX_VOICE_SUBTASKS}), each with "title" (short imperative English), "description", "assignee_name"/"assignee_id"/"spoken_assignee" (same strict roster rules as the main assignee), "due_date" ("YYYY-MM-DD" or null) and "estimate_hours" (number or null). For a collective task, the main "assignee_*" fields are the team lead who owns the whole task. When "is_collective" is false, return [].
 
 Return ONLY a valid JSON object with these keys:
 {{
@@ -535,7 +635,9 @@ Return ONLY a valid JSON object with these keys:
   "due_time": string or null,
   "estimate_hours": number or null,
   "priority": "low" | "medium" | "high" | "urgent",
-  "checklist": [string]
+  "checklist": [string],
+  "is_collective": boolean,
+  "subtasks": [{{"title": string, "description": string, "assignee_name": string or null, "assignee_id": string or null, "spoken_assignee": string or null, "due_date": string or null, "estimate_hours": number or null}}]
 }}"""
 
     models_to_try = list(DEFAULT_LLM_MODELS)
@@ -761,6 +863,8 @@ Return ONLY a valid JSON object with these keys:
     raw_checklist = parsed.get("checklist") or []
     checklist_items = [{"text": str(c).strip()} for c in raw_checklist if str(c).strip()]
 
+    subtasks = _collective_from_parse(parsed, transcript, assignable_users)
+
     task_title = (parsed.get("title") or transcript[:100]).strip()
     task_description = (parsed.get("description") or "").strip()
     if not task_description:
@@ -784,6 +888,8 @@ Return ONLY a valid JSON object with these keys:
             "estimate_hours": estimate_hours,
             "priority": priority,
             "checklist": checklist_items,
+            "is_collective": bool(subtasks),
+            "subtasks": subtasks,
         },
         "confidence": {
             "status": status_code,

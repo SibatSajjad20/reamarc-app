@@ -31,6 +31,7 @@ from app.schemas.daily_log import (
 from app.schemas.user import UserLogActivityResponse
 from app.models.user import UserRole
 from app.services.access import is_tracked, effective_access
+from app.services import task_service
 
 
 router = APIRouter(
@@ -1229,19 +1230,12 @@ async def create_entry(
 
     sync_task_status = entry_dict.pop("sync_task_status", None)
     if entry_dict.get("task_id"):
-        if not entry_dict.get("task_serial"):
-            task_doc = await db.tasks.find_one({"id": entry_dict["task_id"]})
-            if task_doc:
-                entry_dict["task_serial"] = task_doc.get("serial", "")
-        if sync_task_status and sync_task_status in ("todo", "in_progress", "in_review", "completed"):
-            t_now = datetime.now(timezone.utc).isoformat()
-            t_update: Dict[str, Any] = {"status": sync_task_status, "updated_at": t_now}
-            if sync_task_status == "completed":
-                t_update["completed_at"] = t_now
-                t_update["completed_by"] = current_user.get("id")
-            elif sync_task_status == "in_review":
-                t_update["review_requested_at"] = t_now
-            await db.tasks.update_one({"id": entry_dict["task_id"]}, {"$set": t_update})
+        # Only your own assigned task / sub-task (the lead owner logs on the main task).
+        task_doc = await task_service.assert_can_log_on_task(db, entry_dict["task_id"], current_user)
+        entry_dict["task_serial"] = task_doc.get("serial", "")
+        if sync_task_status:
+            # Same stage and review rules as the Task pipeline (no completing others' work, no skipping review).
+            await task_service.sync_stage_from_log(db, entry_dict["task_id"], sync_task_status, current_user)
 
     await db.daily_log_entries.insert_one(entry_dict)
     _schedule_background_score_recompute(
@@ -1372,19 +1366,15 @@ async def update_entry(
 
     sync_task_status = update_data.pop("sync_task_status", None)
     linked_tid = update_data.get("task_id") or existing_entry.get("task_id")
-    if update_data.get("task_id") and not update_data.get("task_serial"):
-        task_doc = await db.tasks.find_one({"id": update_data["task_id"]})
-        if task_doc:
-            update_data["task_serial"] = task_doc.get("serial", "")
-    if sync_task_status and linked_tid and sync_task_status in ("todo", "in_progress", "in_review", "completed"):
-        t_now = datetime.now(timezone.utc).isoformat()
-        t_update: Dict[str, Any] = {"status": sync_task_status, "updated_at": t_now}
-        if sync_task_status == "completed":
-            t_update["completed_at"] = t_now
-            t_update["completed_by"] = current_user.get("id")
-        elif sync_task_status == "in_review":
-            t_update["review_requested_at"] = t_now
-        await db.tasks.update_one({"id": linked_tid}, {"$set": t_update})
+    new_tid = update_data.get("task_id")
+    if new_tid and new_tid != existing_entry.get("task_id"):
+        # Re-linking checks the entry author's right to log on that task.
+        task_doc = await task_service.assert_can_log_on_task(db, new_tid, author_user_doc or current_user)
+        update_data["task_serial"] = task_doc.get("serial", "")
+    else:
+        update_data.pop("task_serial", None)
+    if sync_task_status and linked_tid:
+        await task_service.sync_stage_from_log(db, linked_tid, sync_task_status, current_user)
 
     # Optimistic Concurrency Control (OCC) Check
     if entry_in.version is not None:

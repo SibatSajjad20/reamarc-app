@@ -15,6 +15,7 @@ import type {
   TaskSavedView,
   TaskSettings,
   VoiceTaskParseResponse,
+  CollectiveTaskInput,
 } from '../types/task';
 import type { DrivePickerConfig, DrivePickedFile } from '../types/contentCalendar';
 
@@ -119,6 +120,12 @@ export const taskService = {
   },
   async createTask(payload: Record<string, unknown>): Promise<Task> {
     const created = await apiClient.post<Task>('/tasks', payload);
+    emitTasksChanged();
+    return created;
+  },
+  /** Main task (assigned to a team lead) plus its sub-tasks in one request. */
+  async createCollective(payload: CollectiveTaskInput): Promise<Task> {
+    const created = await apiClient.post<Task>('/tasks/collective', payload);
     emitTasksChanged();
     return created;
   },

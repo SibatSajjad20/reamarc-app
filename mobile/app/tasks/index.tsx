@@ -28,6 +28,7 @@ import {
   listAllTasks,
   stageLabel,
   stageTone,
+  subtaskProgressLabel,
   TASK_STAGES,
   type Task,
   type TaskStatus,
@@ -125,6 +126,19 @@ export default function TasksScreen() {
           <Text style={[styles.title, { color: theme.text }]} numberOfLines={2}>
             {item.title}
           </Text>
+          {subtaskProgressLabel(item) ? (
+            <View style={styles.progressWrap} testID="task-subtask-progress">
+              <View style={[styles.progressTrack, { backgroundColor: theme.bgSubtle }]}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { backgroundColor: theme.primary, width: `${Math.max(0, Math.min(100, item.subtask_progress ?? 0))}%` },
+                  ]}
+                />
+              </View>
+              <Text style={[styles.hoursMeta, { color: theme.textMuted }]}>{subtaskProgressLabel(item)}</Text>
+            </View>
+          ) : null}
           <View style={[styles.cardFooter, { borderTopColor: theme.border }]}>
             <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
               <Text style={[styles.meta, { color: theme.textMuted }]} numberOfLines={1}>
@@ -343,6 +357,9 @@ const styles = StyleSheet.create({
   },
   meta: { flex: 1, fontSize: 12, fontWeight: '400' },
   hoursMeta: { fontSize: 11, fontWeight: '700' },
+  progressWrap: { marginTop: 8, gap: 4 },
+  progressTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: 6, borderRadius: 3 },
   viewRow: { flexDirection: 'row', alignItems: 'center' },
   viewText: { fontSize: 13, fontWeight: '600' },
   empty: { textAlign: 'center', marginTop: 36, paddingHorizontal: 24 },
