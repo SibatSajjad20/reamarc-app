@@ -53,6 +53,8 @@ const FILTER_OPTIONS: SegmentedOption[] = [
   { value: 'Emergency', label: 'Emergency' },
 ];
 
+export const VISIBLE_SERVICE_CHIPS = 3;
+
 function formatContractDate(iso?: string | null): string {
   if (!iso) return '';
   try {
@@ -206,20 +208,19 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
             <tr>
               <TH>Client</TH>
               <TH>Engagement</TH>
-              <TH>Services</TH>
-              <TH>POC</TH>
-              <TH>Health</TH>
+              <TH className="min-w-[240px]">Services</TH>
               <TH>Priority</TH>
+              <TH>Contract start</TH>
               <TH>Contract end</TH>
               <TH className="w-20 text-right pr-4" />
             </tr>
           </THead>
           <TBody>
             {isLoading && workspaces.length === 0 ? (
-              <TableSkeletonRows rows={6} columns={8} />
+              <TableSkeletonRows rows={6} columns={7} />
             ) : filteredWorkspaces.length === 0 ? (
               <TableEmpty
-                colSpan={8}
+                colSpan={7}
                 title="No active clients found"
                 description={
                   searchQuery || activeFilter !== 'All'
@@ -236,8 +237,8 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
             ) : (
               filteredWorkspaces.map((ws) => {
                 const services = ws.services || [];
-                const firstService = services[0];
-                const extraServices = services.slice(1);
+                const visibleServices = services.slice(0, VISIBLE_SERVICE_CHIPS);
+                const remainingCount = services.length - VISIBLE_SERVICE_CHIPS;
                 const isOpen = selectedId === ws.id;
 
                 return (
@@ -267,62 +268,56 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                         {ws.project_cycle || '—'}
                       </span>
                     </TD>
-                    <TD>
-                      <div className="flex items-center gap-1 flex-wrap">
-                        {firstService ? (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
-                            {firstService}
-                          </span>
-                        ) : (
+                    <TD className="min-w-[240px]">
+                      <div className="flex items-center gap-1 flex-nowrap min-w-0">
+                        {services.length === 0 ? (
                           <span className="text-fg-muted text-xs">—</span>
-                        )}
-                        {extraServices.length > 0 && (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
+                        ) : (
+                          <>
+                            {visibleServices.map((service) => (
                               <span
-                                onClick={(e) => e.stopPropagation()}
-                                className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted hover:text-fg hover:border-border-strong cursor-default"
+                                key={service}
+                                title={service}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted max-w-[10rem] min-w-0"
                               >
-                                +{extraServices.length}
+                                <span className="truncate">{service}</span>
                               </span>
-                            </TooltipTrigger>
-                            <TooltipContent side="top" className="flex flex-col gap-1 p-2">
-                              <span className="font-semibold text-caption mb-0.5">Additional Services:</span>
-                              {extraServices.map((service) => (
-                                <span key={service} className="text-caption">
-                                  • {service}
-                                </span>
-                              ))}
-                            </TooltipContent>
-                          </Tooltip>
+                            ))}
+                            {remainingCount > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted hover:text-fg hover:border-border-strong cursor-default"
+                                  >
+                                    +{remainingCount}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="flex flex-col gap-1 p-2">
+                                  <span className="font-semibold text-caption mb-0.5">Services</span>
+                                  {services.map((service) => (
+                                    <span key={service} className="text-caption">
+                                      • {service}
+                                    </span>
+                                  ))}
+                                </TooltipContent>
+                              </Tooltip>
+                            )}
+                          </>
                         )}
                       </div>
-                    </TD>
-                    <TD>
-                      {ws.poc_name ? (
-                        <div className="min-w-0">
-                          <div className="text-xs font-medium text-fg truncate">
-                            {ws.poc_name}
-                          </div>
-                          {ws.poc_email && (
-                            <div className="text-xs text-fg-muted truncate">
-                              {ws.poc_email}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-fg-muted text-xs">—</span>
-                      )}
-                    </TD>
-                    <TD>
-                      <HealthBadge health={ws.health} />
                     </TD>
                     <TD>
                       <PriorityBadge priority={ws.priority} />
                     </TD>
                     <TD>
-                      <span className="font-numeric text-xs text-fg-muted">
-                        {ws.contract_end_date || 'Ongoing'}
+                      <span className="font-numeric text-xs text-fg-muted whitespace-nowrap">
+                        {formatContractDate(ws.contract_start_date) || '—'}
+                      </span>
+                    </TD>
+                    <TD>
+                      <span className="font-numeric text-xs text-fg-muted whitespace-nowrap">
+                        {formatContractDate(ws.contract_end_date) || 'Ongoing'}
                       </span>
                     </TD>
                     <TD className="w-20 text-right pr-4">
