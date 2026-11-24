@@ -55,57 +55,59 @@ export function SelectField({
         </Text>
         <ChevronDown size={16} color={theme.textMuted} />
       </Pressable>
-      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
-        <Pressable style={styles.menuBackdrop} onPress={() => setOpen(false)}>
-          <Pressable
-            style={[styles.menuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <Text style={[styles.menuTitle, { color: theme.text }]}>{label}</Text>
-            {showSearch ? (
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="Search…"
-                placeholderTextColor={theme.textMuted}
-                style={[
-                  styles.search,
-                  { color: theme.text, backgroundColor: theme.bgSubtle, borderColor: theme.border },
-                ]}
-              />
-            ) : null}
-            <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
-              {filtered.length === 0 ? (
-                <Text style={[styles.empty, { color: theme.textMuted }]}>{emptyText}</Text>
-              ) : (
-                filtered.map((item) => {
-                  const active = item.value === value;
-                  return (
-                    <Pressable
-                      key={item.value || 'blank'}
-                      style={[
-                        styles.menuRow,
-                        active ? { backgroundColor: theme.primaryLight } : null,
-                      ]}
-                      onPress={() => {
-                        onChange(item.value);
-                        setOpen(false);
-                      }}
-                    >
-                      <Text style={[styles.menuRowText, { color: active ? theme.primary : theme.text }]}>
-                        {item.label}
-                      </Text>
-                      {item.hint ? (
-                        <Text style={[styles.menuHint, { color: theme.textMuted }]}>{item.hint}</Text>
-                      ) : null}
-                    </Pressable>
-                  );
-                })
-              )}
-            </ScrollView>
+      {open ? (
+        <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+          <Pressable style={styles.menuBackdrop} onPress={() => setOpen(false)}>
+            <Pressable
+              style={[styles.menuCard, { backgroundColor: theme.surface, borderColor: theme.border }]}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <Text style={[styles.menuTitle, { color: theme.text }]}>{label}</Text>
+              {showSearch ? (
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search…"
+                  placeholderTextColor={theme.textMuted}
+                  style={[
+                    styles.search,
+                    { color: theme.text, backgroundColor: theme.bgSubtle, borderColor: theme.border },
+                  ]}
+                />
+              ) : null}
+              <ScrollView style={{ maxHeight: 360 }} keyboardShouldPersistTaps="handled">
+                {filtered.length === 0 ? (
+                  <Text style={[styles.empty, { color: theme.textMuted }]}>{emptyText}</Text>
+                ) : (
+                  filtered.map((item) => {
+                    const active = item.value === value;
+                    return (
+                      <Pressable
+                        key={item.value || 'blank'}
+                        style={[
+                          styles.menuRow,
+                          active ? { backgroundColor: theme.primaryLight } : null,
+                        ]}
+                        onPress={() => {
+                          onChange(item.value);
+                          setOpen(false);
+                        }}
+                      >
+                        <Text style={[styles.menuRowText, { color: active ? theme.primary : theme.text }]}>
+                          {item.label}
+                        </Text>
+                        {item.hint ? (
+                          <Text style={[styles.menuHint, { color: theme.textMuted }]}>{item.hint}</Text>
+                        ) : null}
+                      </Pressable>
+                    );
+                  })
+                )}
+              </ScrollView>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      ) : null}
     </View>
   );
 }

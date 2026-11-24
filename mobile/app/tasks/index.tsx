@@ -267,7 +267,7 @@ export default function TasksScreen() {
           void load(true);
         }}
       />
-      {isAdmin ? (
+      {isAdmin && voiceOpen ? (
         <VoiceTaskModal
           visible={voiceOpen}
           onClose={() => setVoiceOpen(false)}

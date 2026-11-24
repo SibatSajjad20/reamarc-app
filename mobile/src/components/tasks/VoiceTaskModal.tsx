@@ -150,6 +150,8 @@ function CalendarModal({
   const monthLabel = cursor.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
   const todayIso = toIsoDate(new Date());
 
+  if (!visible) return null;
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={calStyles.sheetRoot}>
@@ -250,7 +252,59 @@ function CalendarModal({
   );
 }
 
-export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
+class VoiceTaskErrorBoundary extends React.Component<
+  { onClose: () => void; children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { onClose: () => void; children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('VoiceTaskModal ErrorBoundary caught:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Modal visible animationType="fade" transparent onRequestClose={this.props.onClose}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+            <View style={{ width: '100%', maxWidth: 360, backgroundColor: '#FFFFFF', borderRadius: 16, padding: 24, alignItems: 'center' }}>
+              <AlertCircle size={44} color="#E11D48" style={{ marginBottom: 14 }} />
+              <Text style={{ fontSize: 17, fontWeight: '700', marginBottom: 8, color: '#111827', textAlign: 'center' }}>
+                Voice Assistant Unavailable
+              </Text>
+              <Text style={{ fontSize: 13, color: '#6B7280', textAlign: 'center', marginBottom: 20, lineHeight: 18 }}>
+                {this.state.error?.message || 'An unexpected rendering error occurred. Please try typing or reopening.'}
+              </Text>
+              <Pressable
+                onPress={this.props.onClose}
+                style={{
+                  width: '100%',
+                  height: 44,
+                  backgroundColor: '#4F46E5',
+                  borderRadius: 10,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>Dismiss</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function VoiceTaskModalInner({ visible, onClose, onSaved }: Props) {
   const theme = useTheme();
 
   const [hasNativeAudio, setHasNativeAudio] = useState(false);
@@ -1177,16 +1231,18 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
       </KeyboardAvoidingView>
 
       {/* Calendar Modal for Start Date / Due Date */}
-      <CalendarModal
-        visible={calTarget !== null}
-        title={calTarget === 'start' ? 'Select Start Date' : 'Select Due Date'}
-        value={calTarget === 'start' ? startDate : dueDate}
-        onClose={() => setCalTarget(null)}
-        onSelect={(iso) => {
-          if (calTarget === 'start') setStartDate(iso);
-          else if (calTarget === 'due') setDueDate(iso);
-        }}
-      />
+      {calTarget !== null ? (
+        <CalendarModal
+          visible={calTarget !== null}
+          title={calTarget === 'start' ? 'Select Start Date' : 'Select Due Date'}
+          value={calTarget === 'start' ? startDate : dueDate}
+          onClose={() => setCalTarget(null)}
+          onSelect={(iso) => {
+            if (calTarget === 'start') setStartDate(iso);
+            else if (calTarget === 'due') setDueDate(iso);
+          }}
+        />
+      ) : null}
 
       {/* Time Picker Modal */}
       {showTimeModal && Platform.OS === 'android' ? (
@@ -1246,6 +1302,16 @@ export function VoiceTaskModal({ visible, onClose, onSaved }: Props) {
         </Modal>
       ) : null}
     </Modal>
+  );
+}
+
+export function VoiceTaskModal(props: Props) {
+  if (!props.visible) return null;
+
+  return (
+    <VoiceTaskErrorBoundary onClose={props.onClose}>
+      <VoiceTaskModalInner {...props} />
+    </VoiceTaskErrorBoundary>
   );
 }
 
