@@ -1049,49 +1049,61 @@ export const TaskDialog: React.FC<Props> = ({
               </p>
             )}
             {task && !task.parent_id && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-xs font-medium text-fg-muted">Subtasks of {task.serial}</label>
+              <section className="min-w-0 space-y-3" data-testid="subtask-section">
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-fg-muted">Subtasks of {task.serial}</label>
+                    {(rollup.subtasks_count || 0) > 0 && (
+                      <span className="text-micro font-numeric text-fg-muted" data-testid="subtask-progress-label">
+                        {rollup.subtasks_done || 0}/{rollup.subtasks_count} done · {rollup.subtask_progress ?? 0}%
+                      </span>
+                    )}
+                  </div>
                   {(rollup.subtasks_count || 0) > 0 && (
-                    <span className="text-micro font-numeric text-fg-muted" data-testid="subtask-progress-label">
-                      {rollup.subtasks_done || 0}/{rollup.subtasks_count} done · {rollup.subtask_progress ?? 0}%
-                    </span>
+                    <Progress value={rollup.subtask_progress ?? 0} aria-label="Sub-task progress" data-testid="subtask-progress" />
                   )}
                 </div>
-                {(rollup.subtasks_count || 0) > 0 && (
-                  <Progress value={rollup.subtask_progress ?? 0} aria-label="Sub-task progress" data-testid="subtask-progress" />
-                )}
-                <ul className="space-y-1">
-                  {subtasks.map((s) => (
-                    <li key={s.id} className="text-sm text-fg flex items-center justify-between gap-2" data-subtask-id={s.id}>
-                      <button
-                        type="button"
-                        className="text-left min-w-0 truncate hover:underline"
-                        disabled={!onOpenTask || s.id.startsWith('tmp_')}
-                        onClick={() => onOpenTask?.(s)}
-                      >
-                        <span className="font-mono text-micro text-fg-muted" data-subtask-serial={s.serial}>
-                          {s.serial || s.id}
+                {subtasks.length > 0 && (
+                  <ul className="divide-y divide-border rounded-md border border-border bg-surface">
+                    {subtasks.map((s) => (
+                      <li key={s.id} className="flex min-w-0 items-center gap-3 px-3 py-2" data-subtask-id={s.id}>
+                        <button
+                          type="button"
+                          className="group flex min-w-0 flex-1 items-center gap-2 text-left disabled:cursor-default"
+                          disabled={!onOpenTask || s.id.startsWith('tmp_')}
+                          onClick={() => onOpenTask?.(s)}
+                        >
+                          <span
+                            className="shrink-0 rounded-sm bg-subtle px-1.5 py-0.5 font-mono text-micro text-fg-muted"
+                            data-subtask-serial={s.serial}
+                          >
+                            {s.serial || s.id}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm text-fg group-enabled:group-hover:underline">{s.title}</span>
+                            {s.assignee_name ? (
+                              <span className="block truncate text-xs text-fg-muted">{s.assignee_name}</span>
+                            ) : null}
+                          </span>
+                        </button>
+                        <span className="shrink-0">
+                          <TaskStagePill status={s.status} />
                         </span>
-                        {' · '}
-                        {s.title}
-                        {s.assignee_name ? <span className="text-fg-muted"> — {s.assignee_name}</span> : null}
-                      </button>
-                      <TaskStagePill status={s.status} />
-                    </li>
-                  ))}
-                </ul>
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 {canAddSubtask(actor, task) && (
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-start" data-testid="add-subtask-row">
+                  <div className="flex flex-wrap items-center gap-2" data-testid="add-subtask-row">
                     <input
                       aria-label="New sub-task name"
                       value={newSubTitle}
                       maxLength={200}
                       placeholder="New sub-task"
                       onChange={(e) => setNewSubTitle(e.target.value)}
-                      className="sm:col-span-6 w-full h-9 px-3 rounded-md bg-subtle border border-border text-sm text-fg focus:border-accent focus:outline-hidden"
+                      className="h-9 min-w-[10rem] flex-1 basis-40 rounded-md border border-border bg-subtle px-3 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden"
                     />
-                    <div className="sm:col-span-4">
+                    <div className="w-44 shrink-0">
                       <CustomSelect
                         aria-label="New sub-task assignee"
                         searchable
@@ -1107,9 +1119,10 @@ export const TaskDialog: React.FC<Props> = ({
                     </div>
                     <Button
                       type="button"
-                      size="sm"
+                      size="md"
                       variant="secondary"
-                      className="sm:col-span-2 h-9"
+                      icon={Plus}
+                      className="h-9 shrink-0"
                       disabled={!newSubTitle.trim()}
                       onClick={async () => {
                         const title = newSubTitle.trim();
@@ -1147,12 +1160,11 @@ export const TaskDialog: React.FC<Props> = ({
                         }
                       }}
                     >
-                      <Plus className="w-3.5 h-3.5 mr-1" />
                       Add subtask
                     </Button>
                   </div>
                 )}
-              </div>
+              </section>
             )}
           </div>
 

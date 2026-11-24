@@ -127,9 +127,17 @@ export const TaskChecklist: React.FC<Props> = ({ items, disabled, onAdd, onToggl
               submitDraft();
             }}
             placeholder="Add an item"
-            className="flex-1 h-8 px-2.5 rounded-md bg-subtle border border-border text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden"
+            className="flex-1 min-w-0 h-8 px-2.5 rounded-md bg-subtle border border-border text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden"
           />
-          <Button type="button" size="sm" variant="secondary" disabled={!draft.trim()} onClick={submitDraft}>
+          <Button
+            type="button"
+            size="icon"
+            variant="secondary"
+            className="shrink-0"
+            aria-label="Add checklist item"
+            disabled={!draft.trim()}
+            onClick={submitDraft}
+          >
             <Plus className="w-3.5 h-3.5" />
           </Button>
         </div>
