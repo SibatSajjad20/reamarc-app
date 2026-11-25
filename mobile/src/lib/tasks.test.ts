@@ -10,6 +10,8 @@ import {
   nextAllowedStage,
   nextStage,
   countHomeTasks,
+  homeCountsFromStageCounts,
+  remainingTaskPages,
   normalizeClients,
   normalizePeople,
   normalizeTask,
@@ -34,6 +36,28 @@ describe('work task form options', () => {
       normalizeTask({ id: '3', title: 'C', status: 'todo' }),
     ]);
     assert.deepEqual(counts, { todo: 1, progress: 0, review: 1, done: 1 });
+  });
+
+  it('maps server stage counts to the same home tiles as counting the rows', () => {
+    const rows = [
+      normalizeTask({ id: '1', title: 'A', status: 'completed' }),
+      normalizeTask({ id: '2', title: 'B', status: 'in_review' }),
+      normalizeTask({ id: '3', title: 'C', status: 'todo' }),
+      normalizeTask({ id: '4', title: 'D', status: 'in_progress' }),
+    ];
+    assert.deepEqual(
+      homeCountsFromStageCounts({ todo: 1, in_progress: 1, in_review: 1, completed: 1, cancelled: 3 }),
+      countHomeTasks(rows),
+    );
+    assert.deepEqual(homeCountsFromStageCounts(undefined), { todo: 0, progress: 0, review: 0, done: 0 });
+  });
+
+  it('plans the remaining task pages up front, within the cap', () => {
+    assert.deepEqual(remainingTaskPages(120, 120, 500, 2000), []);
+    assert.deepEqual(remainingTaskPages(500, 500, 500, 2000), []);
+    assert.deepEqual(remainingTaskPages(1201, 500, 500, 2000), [2, 3]);
+    assert.deepEqual(remainingTaskPages(9000, 500, 500, 2000), [2, 3, 4]);
+    assert.deepEqual(remainingTaskPages(900, 0, 500, 2000), []);
   });
 
   it('filters by mine and status', () => {

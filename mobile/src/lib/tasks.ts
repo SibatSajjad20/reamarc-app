@@ -5,6 +5,7 @@ import {
   normalizeClients,
   normalizePeople,
   normalizeTask,
+  remainingTaskPages,
   toApiTaskStatus,
   type Task,
   type TaskClientOption,
@@ -56,28 +57,21 @@ export async function listAllTasks(params?: {
   q?: string;
   assignee_id?: string;
 }): Promise<TaskListResponse> {
-  const pageSize = 200;
+  // Server caps a page at 500. Page 1 gives the total; the rest load together.
+  const pageSize = 500;
   const cap = 2000;
-  let page = 1;
-  let items: Task[] = [];
-  let total = 0;
-  let stage_counts: TaskListResponse['stage_counts'];
   const scope = params?.assignee_id ? 'mine' : params?.scope;
-  while (items.length < cap) {
-    const res = await listTasks({
-      scope,
-      stage: params?.status || params?.stage,
-      q: params?.q,
-      page,
-      limit: pageSize,
-    });
-    total = Number(res.total || 0);
-    stage_counts = res.stage_counts;
-    items = items.concat(res.items || []);
-    if (!res.items?.length || items.length >= total || res.items.length < pageSize) break;
-    page += 1;
-  }
-  return { items: items.slice(0, cap), total, page: 1, limit: items.length, stage_counts };
+  const query = { scope, stage: params?.status || params?.stage, q: params?.q, limit: pageSize };
+  const first = await listTasks({ ...query, page: 1 });
+  const total = Number(first.total || 0);
+  const firstItems = first.items || [];
+  const rest = await Promise.all(
+    remainingTaskPages(total, firstItems.length, pageSize, cap).map((page) => listTasks({ ...query, page })),
+  );
+  let items: Task[] = firstItems;
+  for (const res of rest) items = items.concat(res.items || []);
+  const last = rest.length ? rest[rest.length - 1] : first;
+  return { items: items.slice(0, cap), total: rest.length ? Number(last.total || 0) : total, page: 1, limit: items.length, stage_counts: last.stage_counts };
 }
 
 export async function getTask(id: string): Promise<Task> {

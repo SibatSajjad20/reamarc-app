@@ -449,6 +449,28 @@ export function countHomeTasks(items: Task[]): HomeTaskCounts {
   return next;
 }
 
+/** Home tiles from the server's `stage_counts` (same scope and cancelled rule as the list). */
+export function homeCountsFromStageCounts(
+  stageCounts: Partial<Record<string, number>> | null | undefined,
+): HomeTaskCounts {
+  const sc = stageCounts || {};
+  return {
+    todo: Number(sc.todo || 0),
+    progress: Number(sc.in_progress || 0),
+    review: Number(sc.in_review || 0) + Number(sc.review || 0),
+    done: Number(sc.completed || 0),
+  };
+}
+
+/** Pages still needed after page 1, so the rest can load in parallel instead of one by one. */
+export function remainingTaskPages(total: number, firstPageCount: number, pageSize: number, cap: number): number[] {
+  const wanted = Math.min(Math.max(0, Number(total) || 0), cap);
+  if (firstPageCount <= 0 || firstPageCount < pageSize || firstPageCount >= wanted) return [];
+  const pages: number[] = [];
+  for (let page = 2; (page - 1) * pageSize < wanted; page += 1) pages.push(page);
+  return pages;
+}
+
 export function filterTaskList(
   items: Task[],
   opts: { filter: string; search?: string; userId?: string | null },

@@ -42,7 +42,7 @@ import { HomeScreenSkeleton, OverviewAttendanceSkeleton } from '../../src/ui/Ske
 import { formatDisplayDate, formatTime, prettyRole } from '../../src/ui/format';
 import { FadeIn, SuccessBurst } from '../../src/ui/motion';
 import { getModuleCache, setModuleCache } from '../../src/lib/moduleCache';
-import { countHomeTasks, listAllTasks, type HomeTaskCounts } from '../../src/lib/tasks';
+import { homeCountsFromStageCounts, listTasks, type HomeTaskCounts } from '../../src/lib/tasks';
 import {
   computeCheckoutGateType,
   CheckoutGateType,
@@ -723,9 +723,10 @@ function PunchScreen() {
     if (!canAccessTasks(user)) return;
     const cached = getModuleCache<HomeTaskCounts>('home-tasks');
     if (cached) setTaskCounts(cached);
-    void listAllTasks({ scope: 'mine', assignee_id: user?.id })
+    // Tiles only need counts: one small request, the server counts every stage.
+    void listTasks({ scope: 'mine', limit: 1 })
       .then((res) => {
-        const next = countHomeTasks(res.items || []);
+        const next = homeCountsFromStageCounts(res.stage_counts);
         setModuleCache('home-tasks', next);
         setTaskCounts(next);
       })
