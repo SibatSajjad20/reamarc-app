@@ -200,12 +200,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
     panelProps,
     setOverlayOpen,
     onTransitionEnd,
+    closeNow,
   } = useSidebarHoverExpand({
     enabled: hoverExpandEnabled,
     openDelay: 120,
     closeDelay: 250,
     closeAnimMs: 240,
   });
+
+  const collapseHoverPeek = () => {
+    if (hoverExpandEnabled) closeNow();
+  };
 
   const visuallyCollapsed = isMobile
     ? false
@@ -392,6 +397,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   };
 
   const taskSubItems = [
+    { id: 'all', label: 'All tasks', count: taskCounts?.open ?? 0 },
     { id: 'todo', label: 'To Do', count: taskCounts?.todo ?? 0 },
     { id: 'in_progress', label: 'In Progress', count: taskCounts?.in_progress ?? 0 },
     { id: 'in_review', label: 'In Review', count: taskCounts?.in_review ?? 0 },
@@ -577,7 +583,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 label: 'Tasks',
                 icon: CheckSquare,
                 hasSubItems: true,
-                highlightParent: currentView === 'tasks' && activeTaskSection === 'all',
                 onParentSelect: () => applyTaskSection('all'),
                 isExpanded: isTasksExpanded,
                 onToggleExpand: () => setIsTasksExpanded(!isTasksExpanded),
@@ -1005,6 +1010,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         if (!isRailMode && item.hasSubItems && currentView === item.id) {
                           item.onToggleExpand?.();
                         }
+                        collapseHoverPeek();
                       }}
                       aria-current={isItemActive ? 'page' : undefined}
                       aria-label={item.label}
@@ -1083,7 +1089,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   );
 
                   if (isRailMode) {
-                    if (item.hasSubItems && item.subItems) {
+                    // Icon-only preference: a right-side menu is the only way to reach sub-tabs.
+                    if (behavior === 'collapsed' && item.hasSubItems && item.subItems) {
                       return (
                         <DropdownMenu
                           key={item.id}
@@ -1091,8 +1098,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         >
                           <Tooltip
                             delayDuration={300}
-                            open={behavior === 'collapsed' ? undefined : false}
-                            disableHoverableContent={behavior === 'hover'}
+                            open={undefined}
+                            disableHoverableContent={false}
                           >
                             <TooltipTrigger asChild>
                               <DropdownMenuTrigger asChild>
@@ -1109,21 +1116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                               {item.label}
                             </div>
                             <DropdownMenuSeparator />
-                            {(item.id === 'tasks'
-                              ? [
-                                  {
-                                    id: 'all',
-                                    label: 'All tasks',
-                                    isActive: currentView === 'tasks' && activeTaskSection === 'all',
-                                    onSelect: () => {
-                                      onSelectView('tasks');
-                                      applyTaskSection('all');
-                                    },
-                                  },
-                                  ...item.subItems,
-                                ]
-                              : item.subItems
-                            ).map((sub) => (
+                            {item.subItems.map((sub) => (
                               <DropdownMenuItem
                                 key={sub.id}
                                 onClick={sub.onSelect}
@@ -1140,6 +1133,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             ))}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                      );
+                    }
+
+                    if (item.hasSubItems && item.subItems) {
+                      const showSubs = labelsShown && currentView === item.id;
+                      return (
+                        <div key={item.id} className="space-y-0.5">
+                          <Tooltip
+                            delayDuration={300}
+                            open={false}
+                            disableHoverableContent
+                          >
+                            <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+                            <TooltipContent side="right">
+                              <span>{item.label}</span>
+                              {item.badge && item.badge > 0 && <span> ({item.badge})</span>}
+                            </TooltipContent>
+                          </Tooltip>
+                          {showSubs && (
+                            <div
+                              data-sidebar-subitems={item.id}
+                              className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5 whitespace-nowrap overflow-hidden"
+                            >
+                              {item.subItems.map((sub) => (
+                                <button
+                                  key={sub.id}
+                                  type="button"
+                                  data-nav-key={`${item.id}-${sub.id}`}
+                                  onClick={() => {
+                                    sub.onSelect();
+                                    collapseHoverPeek();
+                                  }}
+                                  className={cn(
+                                    'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left focus-visible:focus-ring',
+                                    sub.isActive
+                                      ? 'bg-accent-soft text-accent-text font-medium'
+                                      : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
+                                  )}
+                                >
+                                  <span className="truncate flex-1">{sub.label}</span>
+                                  {sub.badge !== undefined && sub.badge > 0 && (
+                                    <span className="ml-2 text-micro font-numeric text-fg-muted">{sub.badge}</span>
+                                  )}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       );
                     }
 
@@ -1176,14 +1217,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
                       {/* Inline Sub-item List */}
                       {item.hasSubItems && item.isExpanded && item.subItems && (
-                        <div className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5 whitespace-nowrap overflow-hidden">
+                        <div
+                          data-sidebar-subitems={item.id}
+                          className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5 whitespace-nowrap overflow-hidden"
+                        >
                           {item.subItems.map((sub) => (
                             <button
                               key={sub.id}
                               type="button"
+                              data-nav-key={`${item.id}-${sub.id}`}
                               onClick={sub.onSelect}
                               className={cn(
-                                'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left',
+                                'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left focus-visible:focus-ring',
                                 sub.isActive
                                   ? 'bg-accent-soft text-accent-text font-medium'
                                   : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
@@ -1229,7 +1274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 type="button"
                 data-nav-key="back-to-app"
-                onClick={handleBackToApp}
+                onClick={() => { handleBackToApp(); collapseHoverPeek(); }}
                 aria-label="Back to app"
                 className="w-full pl-[14px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer text-xs font-medium focus-visible:focus-ring"
                 style={{ height: 'var(--sb-row-h, 34px)' }}
@@ -1291,7 +1336,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <button
                         type="button"
                         data-nav-key={sec.slug}
-                        onClick={() => onSelectSettingsSection?.(sec.slug)}
+                        onClick={() => { onSelectSettingsSection?.(sec.slug); collapseHoverPeek(); }}
                         className={cn(
                           'w-full pl-[14px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap transition-colors cursor-pointer select-none text-[13px] leading-5 focus-visible:focus-ring',
                           isSecActive
@@ -1337,6 +1382,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               onClick={() => {
                 onSelectView('settings');
                 if (onSelectSettingsSection) onSelectSettingsSection('profile');
+                collapseHoverPeek();
               }}
               className={cn(
                 'w-full pl-[13px] pr-2 rounded-md flex items-center overflow-hidden whitespace-nowrap transition-colors cursor-pointer select-none group focus-visible:focus-ring',

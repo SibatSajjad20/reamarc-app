@@ -58,6 +58,7 @@ export function useSidebarHoverExpand({
 
   const isPointerInsideRef = useRef(false);
   const hasKeyboardFocusRef = useRef(false);
+  const suppressUntilLeaveRef = useRef(false);
   const openOverlaysRef = useRef<Set<string>>(new Set());
 
   // Subscribe to prefers-reduced-motion
@@ -122,6 +123,7 @@ export function useSidebarHoverExpand({
       clearAllTimers();
       isPointerInsideRef.current = false;
       hasKeyboardFocusRef.current = false;
+      suppressUntilLeaveRef.current = false;
       openOverlaysRef.current.clear();
       updatePeekState('closed');
     }
@@ -165,6 +167,7 @@ export function useSidebarHoverExpand({
     (e: React.PointerEvent<HTMLElement>) => {
       if (!enabled) return;
       if (e.pointerType !== 'mouse') return;
+      if (suppressUntilLeaveRef.current) return;
 
       isPointerInsideRef.current = true;
       clearCloseTimers();
@@ -212,6 +215,7 @@ export function useSidebarHoverExpand({
       if (!enabled) return;
       if (e.pointerType !== 'mouse') return;
 
+      suppressUntilLeaveRef.current = false;
       isPointerInsideRef.current = false;
       clearOpenTimer();
       scheduleCloseIfAllowed();
@@ -329,6 +333,7 @@ export function useSidebarHoverExpand({
     clearAllTimers();
     hasKeyboardFocusRef.current = false;
     isPointerInsideRef.current = false;
+    suppressUntilLeaveRef.current = true;
     updatePeekState('closed');
   }, [clearAllTimers, updatePeekState]);
 

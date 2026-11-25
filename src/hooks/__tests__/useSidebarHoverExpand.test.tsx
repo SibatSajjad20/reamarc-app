@@ -477,6 +477,38 @@ describe('useSidebarHoverExpand', () => {
     });
   });
 
+
+  describe('closeNow', () => {
+    it('closes immediately and does not reopen until pointer leaves and re-enters', () => {
+      const { result } = renderHook(() => useSidebarHoverExpand({ enabled: true }));
+
+      act(() => {
+        result.current.panelProps.onPointerEnter({ pointerType: 'mouse' } as React.PointerEvent<HTMLElement>);
+        vi.advanceTimersByTime(120 + 200);
+      });
+      expect(result.current.peekState).toBe('open');
+
+      act(() => {
+        result.current.closeNow();
+      });
+      expect(result.current.peekState).toBe('closed');
+      expect(result.current.isPeeking).toBe(false);
+
+      act(() => {
+        result.current.panelProps.onPointerEnter({ pointerType: 'mouse' } as React.PointerEvent<HTMLElement>);
+        vi.advanceTimersByTime(500);
+      });
+      expect(result.current.peekState).toBe('closed');
+
+      act(() => {
+        result.current.panelProps.onPointerLeave({ pointerType: 'mouse' } as React.PointerEvent<HTMLElement>);
+        result.current.panelProps.onPointerEnter({ pointerType: 'mouse' } as React.PointerEvent<HTMLElement>);
+        vi.advanceTimersByTime(120 + 200);
+      });
+      expect(result.current.peekState).toBe('open');
+    });
+  });
+
   describe('unmount with pending timers', () => {
     it('unmount with pending timers: no warnings, timer count 0', () => {
       const { result, unmount } = renderHook(() => useSidebarHoverExpand({ enabled: true }));

@@ -55,7 +55,7 @@ vi.mock('@/hooks/usePermissions', () => ({
 }));
 
 vi.mock('@/hooks/useTaskCounts', () => ({
-  useTaskCounts: () => ({ counts: { open: 5 }, canSeeTasks: true }),
+  useTaskCounts: () => ({ counts: { open: 5, todo: 3, in_progress: 2, in_review: 1, completed: 4, overdue: 1, today: 1 }, canSeeTasks: true }),
   setTaskCountsEnabled: vi.fn(),
 }));
 
@@ -89,6 +89,7 @@ describe('Sidebar.hoverExpand', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     mockMatchMedia({ reduced: false, fine: true });
+    try { sessionStorage.clear(); } catch { /* ignore */ }
     currentUserState = {
       id: 'cm_test_dv_admin',
       email: 'a@x',
@@ -651,8 +652,7 @@ describe('Sidebar.hoverExpand', () => {
     });
   });
 
-  it('rail sub-items: in hover mode while open, no inline sub-item list is rendered for Tasks and DropdownMenu is used; in expanded mode inline list and chevron work', () => {
-    // 1. Hover mode
+  it('rail sub-items: in hover mode while open, Tasks sub-tabs render inline with counts and no popover; in expanded mode inline list and chevron work', () => {
     const { container, unmount } = render(
       <TooltipProvider>
         <Sidebar
@@ -674,12 +674,23 @@ describe('Sidebar.hoverExpand', () => {
     });
     expect(aside.getAttribute('data-peek')).toBe('open');
 
-    // In hover mode, Tasks row is a DropdownMenu trigger, no inline sub-item list is rendered
-    expect(container.querySelector('.border-l.border-border')).toBeNull();
+    const subList = container.querySelector('[data-sidebar-subitems="tasks"]') as HTMLElement;
+    expect(subList).toBeTruthy();
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByText('All tasks')).toBeTruthy();
+    expect(screen.getByText('To Do')).toBeTruthy();
+    expect(screen.getByText('In Progress')).toBeTruthy();
+    expect(screen.getByText('In Review')).toBeTruthy();
+    expect(screen.getByText('Completed')).toBeTruthy();
+    expect(screen.getByText('Follow-up')).toBeTruthy();
+    expect(subList.textContent).toContain('3');
+    expect(subList.textContent).toContain('2');
+    const allTasks = container.querySelector('[data-nav-key="tasks-all"]') as HTMLElement;
+    expect(allTasks).toBeTruthy();
+    expect(allTasks.className).toContain('bg-accent-soft');
 
     unmount();
 
-    // 2. Expanded mode
     const { container: expandedContainer } = render(
       <TooltipProvider>
         <Sidebar
@@ -694,9 +705,9 @@ describe('Sidebar.hoverExpand', () => {
       </TooltipProvider>
     );
 
-    // In expanded mode, inline chevron button is present
     const chevronBtn = expandedContainer.querySelector('[aria-label="Toggle Tasks sub-items"]');
     expect(chevronBtn).toBeTruthy();
+    expect(expandedContainer.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
   });
 
   it('reduced motion: with prefers-reduced-motion: reduce, goes straight from closed to open with data-labels="shown" (no opening)', () => {
@@ -1102,13 +1113,118 @@ describe('Sidebar.hoverExpand', () => {
     assertPadding();
   });
 
-  it('rail flyout keeps the panel open: Tasks DropdownMenu open prevents closing on pointerleave past close delay', () => {
+  it('hover: clicking a Tasks sub-tab navigates and collapses immediately; no popover is rendered', () => {
+    const onSelectView = vi.fn();
+    const { container } = render(
+      <TooltipProvider>
+        <Sidebar
+          behavior="hover"
+          onBehaviorChange={vi.fn()}
+          currentView="tasks"
+          onSelectView={onSelectView}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const aside = container.querySelector('#app-sidebar') as HTMLElement;
+    act(() => {
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    const todo = container.querySelector('[data-nav-key="tasks-todo"]') as HTMLElement;
+    expect(todo).toBeTruthy();
+    act(() => {
+      fireEvent.click(todo);
+    });
+
+    expect(onSelectView).not.toHaveBeenCalled(); // already on tasks; section changes via sessionStorage
+    expect(aside.getAttribute('data-peek')).toBe('closed');
+    expect(aside.getAttribute('data-collapsed')).toBe('true');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeNull();
+    expect(sessionStorage.getItem('reamarc_tasks_section')).toBe('todo');
+
+    // Pointer still "over" the sidebar must not re-expand until leave + re-enter
+    act(() => {
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('closed');
+
+    act(() => {
+      fireEvent.pointerLeave(aside, { pointerType: 'mouse' });
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    const todoAfter = container.querySelector('[data-nav-key="tasks-todo"]') as HTMLElement;
+    expect(todoAfter).toBeTruthy();
+    expect(todoAfter.className).toContain('bg-accent-soft');
+  });
+
+  it('hover: clicking the Tasks module goes to All tasks and collapses; mouse leave also collapses', () => {
+    const onSelectView = vi.fn();
     const { container } = render(
       <TooltipProvider>
         <Sidebar
           behavior="hover"
           onBehaviorChange={vi.fn()}
           currentView="dashboard"
+          onSelectView={onSelectView}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const aside = container.querySelector('#app-sidebar') as HTMLElement;
+    act(() => {
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    // Not the active module: no Tasks sub-tabs yet, and no popover
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    act(() => {
+      fireEvent.pointerLeave(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(250);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('closing');
+    act(() => {
+      vi.advanceTimersByTime(240);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('closed');
+
+    act(() => {
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('open');
+
+    const tasksRow = container.querySelector('[data-nav-key="tasks"]') as HTMLElement;
+    act(() => {
+      fireEvent.click(tasksRow);
+    });
+    expect(onSelectView).toHaveBeenCalledWith('tasks');
+    expect(sessionStorage.getItem('reamarc_tasks_section')).toBe('all');
+    expect(aside.getAttribute('data-peek')).toBe('closed');
+  });
+
+  it('expanded mode: clicking a sub-tab does not collapse the pinned sidebar', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <Sidebar
+          behavior="expanded"
+          onBehaviorChange={vi.fn()}
+          currentView="tasks"
           onSelectView={vi.fn()}
           onSignOut={vi.fn()}
           theme="light"
@@ -1118,33 +1234,13 @@ describe('Sidebar.hoverExpand', () => {
     );
 
     const aside = container.querySelector('#app-sidebar') as HTMLElement;
-
-    // Open the panel
+    expect(aside.getAttribute('data-collapsed')).toBe('false');
+    const todo = container.querySelector('[data-nav-key="tasks-todo"]') as HTMLElement;
+    expect(todo).toBeTruthy();
     act(() => {
-      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
-      vi.advanceTimersByTime(120 + 200);
+      fireEvent.click(todo);
     });
-    expect(aside.getAttribute('data-peek')).toBe('open');
-
-    // Open the Tasks DropdownMenu
-    const tasksRow = container.querySelector('[data-nav-key="tasks"]') as HTMLElement;
-    expect(tasksRow).toBeTruthy();
-
-    act(() => {
-      fireEvent.pointerDown(tasksRow, { button: 0 });
-      fireEvent.click(tasksRow);
-    });
-
-    expect(screen.getByRole('menu')).toBeTruthy();
-    expect(screen.getByText('All tasks')).toBeTruthy();
-
-    // Fire pointerleave on aside and advance past the close delay (250ms)
-    act(() => {
-      fireEvent.pointerLeave(aside, { pointerType: 'mouse' });
-      vi.advanceTimersByTime(250 + 100);
-    });
-
-    // data-peek must still be open
-    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(aside.getAttribute('data-collapsed')).toBe('false');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
   });
 });
