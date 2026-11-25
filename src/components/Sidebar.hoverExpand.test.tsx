@@ -688,6 +688,9 @@ describe('Sidebar.hoverExpand', () => {
     const allTasks = container.querySelector('[data-nav-key="tasks-all"]') as HTMLElement;
     expect(allTasks).toBeTruthy();
     expect(allTasks.className).toContain('bg-accent-soft');
+    const hoverChevron = container.querySelector('[aria-label="Toggle Tasks sub-items"]') as HTMLElement;
+    expect(hoverChevron).toBeTruthy();
+    expect(hoverChevron.tabIndex).toBe(0);
 
     unmount();
 
@@ -1242,5 +1245,98 @@ describe('Sidebar.hoverExpand', () => {
     });
     expect(aside.getAttribute('data-collapsed')).toBe('false');
     expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
+  });
+
+  it('hover: chevron toggles sub-tabs without navigating or collapsing; several modules can be open', () => {
+    const onSelectView = vi.fn();
+    const { container } = render(
+      <TooltipProvider>
+        <Sidebar
+          behavior="hover"
+          onBehaviorChange={vi.fn()}
+          currentView="tasks"
+          onSelectView={onSelectView}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    const aside = container.querySelector('#app-sidebar') as HTMLElement;
+    const tasksChevron = container.querySelector('[aria-label="Toggle Tasks sub-items"]') as HTMLElement;
+    expect(tasksChevron).toBeTruthy();
+    expect(tasksChevron.tabIndex).toBe(-1);
+
+    act(() => {
+      fireEvent.pointerEnter(aside, { pointerType: 'mouse' });
+      vi.advanceTimersByTime(120 + 200);
+    });
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(tasksChevron.tabIndex).toBe(0);
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
+
+    act(() => {
+      fireEvent.click(tasksChevron);
+    });
+    expect(onSelectView).not.toHaveBeenCalled();
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(aside.getAttribute('data-collapsed')).toBe('false');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeNull();
+    expect(screen.queryByRole('menu')).toBeNull();
+
+    act(() => {
+      fireEvent.keyDown(tasksChevron, { key: 'Enter' });
+    });
+    expect(onSelectView).not.toHaveBeenCalled();
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
+
+    expect(container.querySelector('[data-sidebar-subitems="crm"]')).toBeNull();
+    const crmChevron = container.querySelector('[aria-label="Toggle Sales pipeline sub-items"]') as HTMLElement;
+    expect(crmChevron).toBeTruthy();
+    act(() => {
+      fireEvent.click(crmChevron);
+    });
+    expect(onSelectView).not.toHaveBeenCalled();
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeTruthy();
+    expect(container.querySelector('[data-sidebar-subitems="crm"]')).toBeTruthy();
+
+    act(() => {
+      fireEvent.keyDown(tasksChevron, { key: ' ' });
+    });
+    expect(onSelectView).not.toHaveBeenCalled();
+    expect(aside.getAttribute('data-peek')).toBe('open');
+    expect(container.querySelector('[data-sidebar-subitems="tasks"]')).toBeNull();
+    expect(container.querySelector('[data-sidebar-subitems="crm"]')).toBeTruthy();
+
+    const board = container.querySelector('[data-nav-key="crm-board"]') as HTMLElement;
+    expect(board).toBeTruthy();
+    act(() => {
+      fireEvent.click(board);
+    });
+    expect(onSelectView).toHaveBeenCalledWith('crm');
+    expect(aside.getAttribute('data-peek')).toBe('closed');
+  });
+
+  it('icon-only collapsed mode has no inline chevron and no inline sub-list', () => {
+    const { container } = render(
+      <TooltipProvider>
+        <Sidebar
+          behavior="collapsed"
+          onBehaviorChange={vi.fn()}
+          currentView="tasks"
+          onSelectView={vi.fn()}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      </TooltipProvider>
+    );
+
+    expect(container.querySelector('[data-nav-key="tasks"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Toggle Tasks sub-items"]')).toBeNull();
+    expect(container.querySelector('[data-sidebar-subitems]')).toBeNull();
   });
 });

@@ -1057,8 +1057,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </span>
                       )}
 
-                      {/* Sub-item Chevron (only when !isRailMode) */}
-                      {!isRailMode && item.hasSubItems && (
+                      {/* Sub-item Chevron (omitted in the icon-only collapsed preference) */}
+                      {item.hasSubItems && !(behavior === 'collapsed' && !isMobile) && (
                         <span
                           role="button"
                           tabIndex={labelsShown ? 0 : -1}
@@ -1137,7 +1137,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     }
 
                     if (item.hasSubItems && item.subItems) {
-                      const showSubs = labelsShown && currentView === item.id;
+                      const showSubs = labelsShown && !!item.isExpanded;
                       return (
                         <div key={item.id} className="space-y-0.5">
                           <Tooltip
