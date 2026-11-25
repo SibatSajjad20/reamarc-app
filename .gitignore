@@ -94,6 +94,7 @@ backend/tests/*
 !backend/tests/test_content_calendar_bulk_delete.py
 !backend/tests/test_reused_email_members.py
 !backend/tests/test_voice_task.py
+!backend/tests/test_request_lookup_counts.py
 
 # Audit dumps & PDFs (do not commit)
 SECURITY_AUDIT.pdf

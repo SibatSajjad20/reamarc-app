@@ -632,10 +632,19 @@ def _checkout_reason_from_record(rec: Optional[Dict[str, Any]]) -> str:
     return ""
 
 
-async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -> dict:
+async def _heal_overtime_request_for_record(
+    user: dict,
+    rec: dict,
+    shift: Any,
+    relaxed_for: Optional[Tuple[str, Dict[str, Any]]] = None,
+) -> dict:
     """
     If this day is overtime against the date-resolved shift but checkout used the
     stamped template, move the reason onto overtime and create the missing request.
+
+    relaxed_for: optional (date, mapping) the caller already loaded with
+    bind_relaxed_days(date, date) in this request. Used only when the date matches
+    the record, so per-employee loops do not re-read the calendar for every row.
     """
     db = get_database()
     date_str = str(rec.get("date") or "")
@@ -643,7 +652,10 @@ async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -
     # used to heal before bind_relaxed_days, which dropped count_from_actual_check_in
     # and clamped early arrivals back to shift start on cricket / relaxed days.
     if date_str:
-        await bind_relaxed_days(date_str, date_str)
+        if relaxed_for is not None and relaxed_for[0] == date_str:
+            set_relaxed_by_date(relaxed_for[1])
+        else:
+            await bind_relaxed_days(date_str, date_str)
     cin, cout = record_punch_times(rec)
     if not cin or not cout or not rec.get("user_id") or not rec.get("date"):
         apply_daily_calc_fields(rec, shift)
@@ -2804,9 +2816,11 @@ async def get_today_status(
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
     show_absent_record = record_status == AttendanceStatus.ABSENT.value and shift_ended
-    await bind_relaxed_days(target_date, target_date)
+    relaxed_today = await bind_relaxed_days(target_date, target_date)
     if record_doc and cin:
-        record_doc = await _heal_overtime_request_for_record(user, record_doc, shift)
+        record_doc = await _heal_overtime_request_for_record(
+            user, record_doc, shift, relaxed_for=(target_date, relaxed_today)
+        )
         cin = record_doc.get("check_in") or record_doc.get("punch_in")
         cout = record_doc.get("check_out") or record_doc.get("punch_out")
         check_out_time = cout
@@ -2823,7 +2837,10 @@ async def get_today_status(
             "short_leave_hours": float((record_doc or {}).get("short_leave_hours") or 0.0),
         }
         today_str = record_doc.get("date") if record_doc else get_current_date_str()
-        await bind_relaxed_days(today_str, today_str)
+        if today_str == target_date:
+            set_relaxed_by_date(relaxed_today)
+        else:
+            await bind_relaxed_days(today_str, today_str)
         extra.update(extra_for_record({**(record_doc or {}), "user_id": user.get("id"), "date": today_str, "is_wfh": is_wfh}, shift))
         claimed, settled, gate, ot_buf, ut_buf, _start, shift_end = compute_settled_checkout(
             cin,
@@ -2887,7 +2904,7 @@ async def get_today_status(
             "same_day": bool(sc_doc.get("same_day")),
         }
 
-    await bind_relaxed_days(target_date, target_date)
+    set_relaxed_by_date(relaxed_today)
     relaxed_extra = extra_for_record(
         {**(record_doc or {}), "user_id": user_id, "date": target_date, "is_wfh": is_wfh},
         shift,
@@ -3496,7 +3513,9 @@ async def get_daily_matrix(
 
         if rec:
             if record_punch_times(rec)[0]:
-                rec = await _heal_overtime_request_for_record(u, rec, raw_shift)
+                rec = await _heal_overtime_request_for_record(
+                    u, rec, raw_shift, relaxed_for=(target_date, _relaxed)
+                )
             check_in, check_out = record_punch_times(rec)
             is_wfh_flag = bool(rec.get("is_wfh", False) or auto_wfh or is_shift_wfh or is_leave_wfh)
             is_short_leave_flag = bool(rec.get("is_short_leave", False))

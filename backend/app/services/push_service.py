@@ -67,8 +67,18 @@ async def _unknown_kind_blocked(kind: str, item: Optional[dict] = None) -> bool:
     return False
 
 
-async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Optional[dict] = None) -> List[str]:
-    """Filters recipient user IDs based on effective access and tracking switches for notification kind."""
+async def filter_allowed_recipients(
+    user_ids: List[str],
+    kind: str,
+    item: Optional[dict] = None,
+    lookup_cache: Optional[dict] = None,
+) -> List[str]:
+    """Filters recipient user IDs based on effective access and tracking switches for notification kind.
+
+    lookup_cache: optional per-request dict. Callers that check many kinds for the
+    same recipients (inbox listing) pass one dict so the recipient rows and task
+    settings are read once instead of once per kind.
+    """
     if not user_ids:
         return []
     k = (kind or "").strip().lower()
@@ -142,13 +152,19 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     elif is_task_kind:
         req_module = "tasks"
 
-    users_list = await company_member_users(
-        {"id": {"$in": user_ids}},
-        db=db,
-        include_needs_setup=True,
-        projection={"_id": 0, "hashed_password": 0},
-        limit=len(user_ids) or 1,
-    )
+    users_key = ("users", tuple(user_ids))
+    if lookup_cache is not None and users_key in lookup_cache:
+        users_list = lookup_cache[users_key]
+    else:
+        users_list = await company_member_users(
+            {"id": {"$in": user_ids}},
+            db=db,
+            include_needs_setup=True,
+            projection={"_id": 0, "hashed_password": 0},
+            limit=len(user_ids) or 1,
+        )
+        if lookup_cache is not None:
+            lookup_cache[users_key] = users_list
     user_map = {u.get("id"): u for u in users_list if u.get("id")}
 
     classified = bool(req_module or req_tracking or k in STAFF_ATT_KINDS)
@@ -156,11 +172,16 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Option
     crm_kind = _is_crm_kind(k)
     task_settings = None
     if is_task_kind:
-        try:
-            from app.services.task_service import get_task_settings
-            task_settings = await get_task_settings(db)
-        except Exception:
-            task_settings = None
+        if lookup_cache is not None and "task_settings" in lookup_cache:
+            task_settings = lookup_cache["task_settings"]
+        else:
+            try:
+                from app.services.task_service import get_task_settings
+                task_settings = await get_task_settings(db)
+            except Exception:
+                task_settings = None
+            if lookup_cache is not None:
+                lookup_cache["task_settings"] = task_settings
 
     allowed = []
     for uid in user_ids:
@@ -322,13 +343,14 @@ async def list_notifications(user_id: str, limit: int = 50) -> list:
     )
     allowed_kinds = set()
     denied_kinds = set()
+    lookup_cache: dict = {}
     visible = []
     for doc in docs:
         kind = str(doc.get("kind") or "")
         if kind in denied_kinds:
             continue
         if kind not in allowed_kinds:
-            permitted = await filter_allowed_recipients([user_id], kind)
+            permitted = await filter_allowed_recipients([user_id], kind, lookup_cache=lookup_cache)
             if user_id in permitted:
                 allowed_kinds.add(kind)
             else:
