@@ -803,8 +803,157 @@ class VoiceCollectiveNameAndDescriptionTests(unittest.IsolatedAsyncioTestCase):
         _, mock_post = await self._extract(_collective_parse())
         payload = mock_post.call_args.kwargs["json"]
         prompt = payload["messages"][0]["content"]
-        self.assertIn("Do NOT narrate the assignment", prompt)
+        self.assertIn("keep people's names and the due date/time out of the description", prompt)
         self.assertIn("due date", prompt)
         self.assertIn("Shahmeer/Shamir/Shameer", prompt)
         self.assertIn(payload["model"], voice_task_service.DEFAULT_LLM_MODELS)
         self.assertTrue(payload["response_format"]["json_schema"]["strict"])
+
+
+ROMAN_URDU_COMMAND = (
+    "combined task banao haris ko assign karo ke wo dataviz company ki website complete kare or sub task me "
+    "ai voice agent banao or sibat ko assign karo or aik sub task shahmeer ko assign karo ke wo 6 static post "
+    "banaye saturday 6pm se pehle or watcher me admin ko dalo"
+)
+ROMAN_URDU_ROSTER = TEAM_ROSTER + [{"id": "u_test", "name": "test", "role": "operations", "department": "All"}]
+WORKSPACES = [{"id": "ws_dataviz", "name": "DataViz"}, {"id": "ws_apex", "name": "Apex Transfers"}]
+
+
+def _roman_urdu_parse(filled=True):
+    """LLM JSON for the live Roman Urdu command: filled=True is a correct parse, False is what live returned."""
+    sub = lambda title, name, aid, spoken: {  # noqa: E731
+        "title": title, "description": "", "assignee_name": name if filled else None,
+        "assignee_id": aid if filled else None, "spoken_assignee": spoken if filled else None,
+        "due_date": "2026-11-28" if filled else None, "estimate_hours": None,
+    }
+    return {
+        "is_task": True,
+        "title": "Complete DataViz website",
+        "description": "Develop and launch the full website for the DataViz company, ensuring all pages, functionality, and design are finalized.",
+        "assignee_name": "Muhammad Haris" if filled else None,
+        "assignee_id": "u_haris" if filled else None,
+        "spoken_assignee": "haris" if filled else None,
+        "ambiguous_names": [],
+        "watcher_names": [],
+        "watcher_ids": [],
+        "spoken_watchers": ["admin"] if filled else [],
+        "company_id": "ws_dataviz",
+        "company_name": "DataViz",
+        "spoken_company": "dataviz",
+        "start_date": None,
+        "due_date": "2026-11-28" if filled else None,
+        "due_time": "18:00" if filled else None,
+        "estimate_hours": None,
+        "priority": "medium",
+        "checklist": [],
+        "is_collective": True,
+        "subtasks": [
+            sub("Create AI voice agent", "Sibat Sajjad", "u_sibat", "sibat"),
+            sub("Create 6 static posts", "Shahmeer", None, "shahmeer"),
+        ],
+    }
+
+
+class _FixedNow(voice_task_service.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return voice_task_service.datetime(2026, 11, 25, 16, 30, tzinfo=tz)
+
+
+class VoiceRomanUrduCollectiveTests(unittest.IsolatedAsyncioTestCase):
+    """Live report: lead, sub-task owners, admin watcher and 'saturday 6pm' all came back empty."""
+
+    async def asyncSetUp(self):
+        patch.object(voice_task_service.settings, "GROQ_API_KEY", "test-key").start()
+        patch.object(voice_task_service, "datetime", _FixedNow).start()
+
+    async def asyncTearDown(self):
+        patch.stopall()
+
+    async def _extract(self, parsed):
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=_groq_reply(parsed))
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript=ROMAN_URDU_COMMAND,
+                assignable_users=ROMAN_URDU_ROSTER,
+                workspaces=WORKSPACES,
+                timezone_name="Asia/Karachi",
+            )
+        return res, mock_post
+
+    def _assert_full_draft(self, res):
+        task = res["task"]
+        self.assertEqual(task["company_id"], "ws_dataviz")
+        self.assertEqual(task["assignee_id"], "u_haris")
+        self.assertEqual(res["confidence"]["status"], "matched")
+        self.assertTrue(task["is_collective"])
+        self.assertEqual([s["assignee_id"] for s in task["subtasks"]], ["u_sibat", "u_shamir"])
+        self.assertEqual(task["watcher_ids"], ["u_faizan"])
+        self.assertEqual(task["due_date"], "2026-11-28")
+        self.assertEqual(task["due_time"], "18:00")
+
+    async def test_correct_llm_parse_fills_every_field(self):
+        res, _ = await self._extract(_roman_urdu_parse(filled=True))
+        self._assert_full_draft(res)
+
+    async def test_fields_the_llm_left_empty_are_recovered_from_the_transcript(self):
+        res, _ = await self._extract(_roman_urdu_parse(filled=False))
+        self._assert_full_draft(res)
+
+    async def test_prompt_keeps_the_description_rule_out_of_the_other_fields(self):
+        _, mock_post = await self._extract(_roman_urdu_parse())
+        prompt = mock_post.call_args.kwargs["json"]["messages"][0]["content"]
+        rule2 = next(line for line in prompt.splitlines() if line.startswith('2. "description"'))
+        self.assertIn("still fill", rule2)
+        self.assertNotIn("never mention who", rule2)
+        self.assertIn('"admin"', prompt)
+        self.assertIn("se pehle", prompt)
+
+    async def test_spoken_assignments_follow_transcript_order(self):
+        people = voice_task_service._spoken_assignees(ROMAN_URDU_COMMAND, ROMAN_URDU_ROSTER)
+        self.assertEqual([p["id"] for p in people], ["u_haris", "u_sibat", "u_shamir"])
+        english = voice_task_service._spoken_assignees(COLLECTIVE_COMMAND, TEAM_ROSTER)
+        self.assertEqual([p["id"] for p in english], ["u_haris", "u_sibat", "u_shamir"])
+
+    async def test_spoken_due_dates(self):
+        now = voice_task_service.datetime(2026, 11, 25, 16, 30)  # Wednesday
+        cases = {
+            "saturday 6pm se pehle": ("2026-11-28", "18:00"),
+            "by friday 5:30 pm": ("2026-11-27", "17:30"),
+            "kal tak": ("2026-11-26", None),
+            "by tomorrow 11am": ("2026-11-26", "11:00"),
+            "aaj 12 pm tak": ("2026-11-25", "12:00"),
+            "by wednesday": ("2026-11-25", None),
+            "monday se start karo": (None, None),
+            "6 static posts banaye": (None, None),
+            "by 6pm": (None, None),
+        }
+        for text, expected in cases.items():
+            with self.subTest(text=text):
+                self.assertEqual(voice_task_service._spoken_due(text, now), expected)
+
+    async def test_admin_role_watcher_resolves_to_the_admins(self):
+        roster = ROMAN_URDU_ROSTER + [{"id": "u_admin2", "name": "Masooma Zahra", "role": "admin", "department": "HR"}]
+        parsed = _roman_urdu_parse(filled=True)
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_client.return_value.__aenter__.return_value.post = AsyncMock(return_value=_groq_reply(parsed))
+            res = await voice_task_service.extract_task_from_transcript(
+                transcript=ROMAN_URDU_COMMAND, assignable_users=roster, workspaces=WORKSPACES,
+            )
+        self.assertEqual(sorted(res["task"]["watcher_ids"]), ["u_admin2", "u_faizan"])
+        self.assertEqual(res["confidence"]["unrecognized_watchers"], [])
+
+    async def test_llm_names_are_not_overridden_by_transcript_guesses(self):
+        parsed = _roman_urdu_parse(filled=True)
+        parsed["subtasks"][0].update(assignee_name="Awais", assignee_id="u_awais", spoken_assignee="awais")
+        res, _ = await self._extract(parsed)
+        self.assertEqual([s["assignee_id"] for s in res["task"]["subtasks"]], ["u_awais", "u_shamir"])
+
+    async def test_transcript_fallback_skips_sub_tasks_when_counts_disagree(self):
+        parsed = _roman_urdu_parse(filled=False)
+        parsed["subtasks"].append({"title": "Write copy", "description": "", "assignee_name": None, "assignee_id": None,
+                                   "spoken_assignee": None, "due_date": None, "estimate_hours": None})
+        res, _ = await self._extract(parsed)
+        self.assertEqual(res["task"]["assignee_id"], "u_haris")
+        self.assertEqual([s["assignee_id"] for s in res["task"]["subtasks"]], [None, None, None])

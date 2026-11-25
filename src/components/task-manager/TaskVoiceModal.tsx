@@ -85,6 +85,11 @@ export const TaskVoiceModal: React.FC<Props> = ({
   >([]);
   const [unrecognizedAssignee, setUnrecognizedAssignee] = useState<string | null>(null);
   const [unrecognizedCompany, setUnrecognizedCompany] = useState<string | null>(null);
+  const [unrecognizedWatchers, setUnrecognizedWatchers] = useState<string[]>([]);
+  // Sub-task rows whose spoken name matched several people or nobody, keyed by row key.
+  const [subtaskHints, setSubtaskHints] = useState<
+    Record<string, { spoken: string | null; candidates: Array<{ id: string; name: string; department?: string }> }>
+  >({});
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -119,6 +124,8 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setAmbiguousCandidates([]);
     setUnrecognizedAssignee(null);
     setUnrecognizedCompany(null);
+    setUnrecognizedWatchers([]);
+    setSubtaskHints({});
     return () => {
       cleanup();
     };
@@ -262,17 +269,26 @@ export const TaskVoiceModal: React.FC<Props> = ({
     setChecklist(res.task.checklist || []);
     const spokenSubs = res.task.is_collective ? res.task.subtasks || [] : [];
     setCollectiveDraft(spokenSubs.length > 0);
-    setCollectiveRows(
-      spokenSubs.map((sub) =>
-        newCollectiveRow({
-          title: sub.title,
-          assignee_id: sub.assignee_id && assignable.some((u) => u.id === sub.assignee_id) ? sub.assignee_id : '',
-        }),
-      ),
+    const rows = spokenSubs.map((sub) =>
+      newCollectiveRow({
+        title: sub.title,
+        assignee_id: sub.assignee_id && assignable.some((u) => u.id === sub.assignee_id) ? sub.assignee_id : '',
+      }),
     );
+    const hints: typeof subtaskHints = {};
+    spokenSubs.forEach((sub, i) => {
+      if (rows[i].assignee_id) return;
+      const candidates = (sub.ambiguous_candidates || []).filter((c) => assignable.some((u) => u.id === c.id));
+      if (candidates.length || sub.unrecognized_assignee) {
+        hints[rows[i].key] = { spoken: sub.unrecognized_assignee || null, candidates };
+      }
+    });
+    setCollectiveRows(rows);
+    setSubtaskHints(hints);
     setAmbiguousCandidates(res.confidence?.ambiguous_candidates || []);
     setUnrecognizedAssignee(res.confidence?.unrecognized_assignee || null);
     setUnrecognizedCompany(res.confidence?.unrecognized_company || null);
+    setUnrecognizedWatchers(res.confidence?.unrecognized_watchers || []);
     setStep('draft');
   };
 
@@ -684,6 +700,17 @@ export const TaskVoiceModal: React.FC<Props> = ({
               </div>
             )}
 
+            {/* Unrecognized watchers notice */}
+            {unrecognizedWatchers.length > 0 && (
+              <div className="flex items-start gap-2.5 p-3 border border-warning-bd bg-warning-bg rounded-lg text-xs text-warning-fg">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <div className="font-semibold">
+                  Watcher{unrecognizedWatchers.length > 1 ? 's' : ''} {unrecognizedWatchers.map((w) => `"${w}"`).join(', ')} not
+                  found in the team roster. Add them from the Watchers dropdown below.
+                </div>
+              </div>
+            )}
+
             {/* Task Form Inputs */}
             <div className="space-y-4">
               <div>
@@ -927,6 +954,43 @@ export const TaskVoiceModal: React.FC<Props> = ({
                     </button>
                   </div>
                   <CollectiveSubtaskRows rows={collectiveRows} users={assignable} disabled={step === 'saving'} onChange={setCollectiveRows} />
+                  {collectiveRows.map((row, i) => {
+                    const hint = subtaskHints[row.key];
+                    if (!hint || row.assignee_id) return null;
+                    return (
+                      <div
+                        key={row.key}
+                        className="p-2.5 border border-warning-bd bg-warning-bg rounded-lg space-y-1.5 text-xs text-warning-fg"
+                        data-testid="voice-subtask-pick"
+                      >
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                          <span>
+                            {hint.candidates.length
+                              ? `Sub-task ${i + 1}: several people match${hint.spoken ? ` "${hint.spoken}"` : ''}. Click to select:`
+                              : `Sub-task ${i + 1}: "${hint.spoken}" was not found in the team roster. Pick someone above.`}
+                          </span>
+                        </div>
+                        {hint.candidates.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5">
+                            {hint.candidates.map((c) => (
+                              <button
+                                key={c.id}
+                                type="button"
+                                disabled={step === 'saving'}
+                                onClick={() =>
+                                  setCollectiveRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, assignee_id: c.id } : r)))
+                                }
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-full border bg-surface text-fg border-border hover:bg-subtle transition-colors"
+                              >
+                                {c.name} {c.department ? `(${c.department})` : ''}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
 

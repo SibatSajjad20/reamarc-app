@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TaskVoiceModal, VOICE_MAX_SECONDS, VOICE_MAX_TEXT } from '../TaskVoiceModal';
 import { taskService } from '@/services/taskService';
@@ -14,6 +14,7 @@ vi.mock('@/services/taskService', () => ({
   taskService: {
     voiceParseTask: vi.fn(),
     createTask: vi.fn(),
+    createCollective: vi.fn(),
   },
 }));
 
@@ -173,5 +174,72 @@ describe('TaskVoiceModal security behaviour', () => {
     expect(body).toBeTruthy();
     expect(body.contains(footer)).toBe(false);
     expect(body.nextElementSibling).toBe(footer);
+  });
+
+  it('fills lead, watchers and deadline, and asks for a pick when a sub-task name matches several people', async () => {
+    const people = [
+      { id: 'u_haris', name: 'Muhammad Haris', role: 'team_lead', department: 'Website' },
+      { id: 'u_sibat', name: 'Sibat Sajjad', role: 'team_lead', department: 'AI' },
+      { id: 'u_shamir', name: 'Muhammad Shamir Khan', role: 'team_lead', department: 'Creative' },
+      { id: 'u_shameer', name: 'Shameer Ahmed', role: 'team_member', department: 'SEO' },
+      { id: 'u_faizan', name: 'Faizan Khan', role: 'admin', department: '' },
+    ];
+    (taskService.voiceParseTask as any).mockResolvedValue({
+      transcript: 'combined task banao haris ko assign karo',
+      task: {
+        title: 'Complete DataViz website',
+        description: 'Develop and launch the DataViz website.',
+        assignee_id: 'u_haris',
+        assignee_name: 'Muhammad Haris',
+        watcher_ids: ['u_faizan'],
+        company_id: null,
+        start_date: null,
+        due_date: '2026-11-28',
+        due_time: '18:00',
+        estimate_hours: null,
+        priority: 'medium',
+        checklist: [],
+        is_collective: true,
+        subtasks: [
+          { title: 'Create AI voice agent', assignee_id: 'u_sibat', assignee_name: 'Sibat Sajjad', assignee_status: 'matched' },
+          {
+            title: 'Create 6 static posts',
+            assignee_id: null,
+            assignee_name: null,
+            assignee_status: 'needs_selection',
+            ambiguous_candidates: [
+              { id: 'u_shamir', name: 'Muhammad Shamir Khan', department: 'Creative' },
+              { id: 'u_shameer', name: 'Shameer Ahmed', department: 'SEO' },
+            ],
+          },
+        ],
+      },
+      confidence: { status: 'matched', ambiguous_candidates: [], unrecognized_watchers: ['Zubair'] },
+    });
+    (taskService.createCollective as any).mockResolvedValue({ id: 't1', serial: 'T-1' });
+    render(
+      <TaskVoiceModal open onClose={() => {}} onSaved={() => {}} assignable={people as any} actor={admin} workspaces={[]} />,
+    );
+    fireEvent.change(screen.getByPlaceholderText(/Assign website banner/), { target: { value: 'combined task' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Parse'));
+    });
+    expect(screen.getByText(/"Zubair" not\s+found in the team roster/)).toBeTruthy();
+    const pick = screen.getByTestId('voice-subtask-pick');
+    expect(pick.textContent).toMatch(/Sub-task 2: several people match/);
+    await act(async () => {
+      fireEvent.click(within(pick).getByText('Muhammad Shamir Khan (Creative)'));
+    });
+    expect(screen.queryByTestId('voice-subtask-pick')).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByText('Confirm & Assign Task'));
+    });
+    expect(taskService.createCollective).toHaveBeenCalledTimes(1);
+    const sent = (taskService.createCollective as any).mock.calls[0][0];
+    expect(sent.main.assignee_id).toBe('u_haris');
+    expect(sent.main.watcher_ids).toEqual(['u_faizan']);
+    expect(sent.main.due_date).toBe('2026-11-28');
+    expect(sent.main.due_time).toBe('18:00');
+    expect(sent.subtasks.map((r: any) => r.assignee_id)).toEqual(['u_sibat', 'u_shamir']);
   });
 });

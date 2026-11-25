@@ -7,7 +7,7 @@ import logging
 import re
 import difflib
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
@@ -638,6 +638,66 @@ def _work_description(
     return (parts[0].rstrip(".") + ".\n\n" + parts[1]) if len(parts) > 1 else parts[0]
 
 
+_ROLE_WORDS = {"admin": ("admin", "super_admin"), "admins": ("admin", "super_admin"), "administrator": ("admin", "super_admin")}
+_ASSIGN_PHRASES = re.compile(
+    r"\b([a-z]+)\s+ko\s+(?:assign|de\s*do|sonp|saunp)"
+    r"|\bassign(?:ed)?\s+(?:[a-z]+\s+){0,4}?to\s+([a-z]+)",
+    re.IGNORECASE,
+)
+_WATCHER_PHRASES = re.compile(
+    r"\bwatchers?\s+(?:me|mein|main|par|mai)\s+([a-z]+)\s+ko"
+    r"|\b([a-z]+)\s+ko\s+(?:bhi\s+)?watchers?\b"
+    r"|\badd\s+([a-z]+)\s+as\s+(?:a\s+)?watchers?\b",
+    re.IGNORECASE,
+)
+_WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+
+
+def _role_people(word: str, assignable_users: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """'admin' spoken as a person: the roster users with that role."""
+    roles = _ROLE_WORDS.get(str(word or "").strip().lower())
+    if not roles:
+        return []
+    return [u for u in assignable_users if str(u.get("role") or "").strip().lower() in roles]
+
+
+def _spoken_assignees(transcript: str, assignable_users: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Roster people named in assignment phrases ("haris ko assign", "assign to sibat"), in spoken order.
+
+    Only names with exactly one roster match are returned; anything else is skipped, never guessed.
+    """
+    people: List[Dict[str, Any]] = []
+    for m in _ASSIGN_PHRASES.finditer(transcript or ""):
+        cands = _find_matching_candidates(m.group(1) or m.group(2), assignable_users)
+        if len(cands) == 1:
+            people.append(cands[0])
+    return people
+
+
+def _spoken_due(transcript: str, now: datetime) -> Tuple[Optional[str], Optional[str]]:
+    """(YYYY-MM-DD, HH:MM) from a spoken day ("saturday", "kal", "tomorrow", "aaj") and time ("6pm")."""
+    text = (transcript or "").lower()
+    if not re.search(r"\b(by|due|deadline|before|until|tak|pehle)\b", text):
+        return None, None  # a day without a deadline word may be a start day
+    day: Optional[datetime] = None
+    if re.search(r"\b(today|aaj)\b", text):
+        day = now
+    elif re.search(r"\b(tomorrow|kal)\b", text):
+        day = now + timedelta(days=1)
+    else:
+        m = re.search(r"\b(" + "|".join(_WEEKDAYS) + r")\b", text)
+        if m:
+            day = now + timedelta(days=(_WEEKDAYS.index(m.group(1)) - now.weekday()) % 7)
+    if day is None:
+        return None, None
+    due_time = None
+    t = re.search(r"\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b", text)
+    if t and 1 <= int(t.group(1)) <= 12 and int(t.group(2) or 0) < 60:
+        hour = int(t.group(1)) % 12 + (12 if t.group(3) == "pm" else 0)
+        due_time = f"{hour:02d}:{int(t.group(2) or 0):02d}"
+    return day.strftime("%Y-%m-%d"), due_time
+
+
 async def extract_task_from_transcript(
     transcript: str,
     assignable_users: List[Dict[str, Any]],
@@ -691,17 +751,19 @@ Active Companies / Workspaces:
 CRITICAL RULES FOR EXTRACTION:
 0. "is_task": boolean. Set to true if the voice command is a genuine instruction or request to create, assign, or track a task. Set to false if the speech is casual conversational talk (e.g. "how are you", "what's the weather today"), testing phrases ("hello testing 1 2 3", "mic check"), random chatter, or questions with no actionable task intent.
 1. "title": Short, imperative, professional summary of the task in English (e.g. "Design social media banners", "Review financial audit"). Max 200 chars. Required. If the voice command was in Urdu, translate the action into a concise professional English title.
-2. "description": A clear, professional description of the WORK itself: the objective, scope, deliverables, requirements and any specific details spoken (quantities, formats, platforms, references, e.g. "6 static posts"). Do NOT narrate the assignment: never mention who it is assigned to, the lead owner, sub-task owners or watchers, and never restate the due date, time, priority or estimate, because those are captured in their own fields. Do not just repeat the voice command. For a collective task, describe the overall goal and what the finished whole includes, not who does each part. If nothing beyond the title was said, write one short sentence on what completing the task involves, without inventing requirements. Write in clear English (if spoken in Urdu or Roman Urdu, translate and articulate clearly in professional English). NEVER leave description empty or blank.
+2. "description": A clear, professional description of the WORK itself: the objective, scope, deliverables, requirements and any specific details spoken (quantities, formats, platforms, references, e.g. "6 static posts"). This rule is about the description TEXT only: keep people's names and the due date/time out of the description, because they belong in the "assignee_*", "watcher_*", date and "subtasks" fields below, which you must still fill exactly as rules 3-20 say. Do not just repeat the voice command. For a collective task, describe the overall goal and what the finished whole includes, not who does each part. If nothing beyond the title was said, write one short sentence on what completing the task involves, without inventing requirements. Write in clear English (if spoken in Urdu or Roman Urdu, translate and articulate clearly in professional English). NEVER leave description empty or blank.
 3. "assignee_name": MUST be chosen STRICTLY from the names in the "Active Company Team Roster" above if a matching employee is mentioned.
    - NEVER invent, guess, or output any name outside this roster.
    - If the spoken person cannot be found in the roster, output null.
 4. "assignee_id": If the spoken name matches a person in the roster (taking into account Urdu/Pakistani spelling variations like Mohammad/Muhammad, Usman/Osman, Hamza/Humza, or department hints like "Hamza from design"), output their exact "id" from the roster.
+   - Roman Urdu phrasing: "<name> ko assign karo" means assign to <name> (e.g. "haris ko assign karo" -> Haris).
    - Roman Urdu / transcription spellings of the same name are the same person (e.g. Shahmeer/Shamir/Shameer, Haris/Harris, Naveed/Navid): if exactly ONE roster person matches, output their "id" and exact roster "name".
    - If ambiguous (multiple people in the roster match) or if NO ONE in the roster matches, set to null.
 5. "spoken_assignee": Raw name of any person spoken or mentioned for the task (e.g. "Junaid", "John"), or null if no person was mentioned.
 6. "ambiguous_names": If multiple people from the roster match the spoken name (e.g. "Hamza" when there are 2 Hamzas), list their names. Otherwise empty array.
 7. "watcher_names": Array of employee names mentioned as watchers, observers, or kept in the loop (e.g. "add Usman as watcher", "keep Sarah in loop", "watchers Bilal and Tariq", "watcher Ali", Urdu/Roman Urdu: "Usman ko watcher bana do", "Bilal ko bhi add karo as watcher", "Tariq ko loop mein rakho").
    - MUST be chosen STRICTLY from names in the "Active Company Team Roster".
+   - A role word such as "admin" (e.g. "watcher me admin ko dalo") means the roster people with that role: put their names in "watcher_names" and "admin" in "spoken_watchers".
    - If no watchers are mentioned, return [].
 8. "watcher_ids": Array of string "id"s from the "Active Company Team Roster" corresponding to "watcher_names". If none, return [].
 9. "spoken_watchers": Array of raw spoken names of watchers/observers mentioned (e.g. ["Usman", "Sarah"]), or empty array [] if none.
@@ -709,7 +771,7 @@ CRITICAL RULES FOR EXTRACTION:
 11. "company_name": Exact "name" from the "Active Companies / Workspaces" list corresponding to "company_id", or null.
 12. "spoken_company": Raw name of any client or company spoken in the command (e.g. "Tesla", "Acme"), or null if no company was mentioned.
 13. "start_date": Absolute start date string in "YYYY-MM-DD" format if mentioned (e.g. "starts tomorrow", "starting today", "from Friday"). If not mentioned, null.
-14. "due_date": Absolute date string in "YYYY-MM-DD" format if mentioned (e.g. "today", "tomorrow", "this Friday", "by next Monday"). If not mentioned, null.
+14. "due_date": Absolute date string in "YYYY-MM-DD" format if mentioned (e.g. "today", "tomorrow", "this Friday", "by next Monday", Roman Urdu "aaj", "kal tak", "saturday 6pm se pehle" = by the coming Saturday). A weekday means its next occurrence from the reference date (today if it is today). If not mentioned, null.
 15. "due_time": "HH:MM" in 24-hour format if mentioned (e.g. "5 PM" -> "17:00", "noon" -> "12:00"). If not mentioned, null.
 16. "estimate_hours": Number of expected or estimated hours spoken (e.g. "expected 4 hours", "estimate 2.5 hours", "3 hours"). Float or integer between 0 and 1000. If not mentioned, null.
 17. "priority": One of: "low", "medium", "high", "urgent". Default to "medium". If words like "urgent", "asap", "critical", "top priority" (or Urdu "zaroori", "jaldi") are used, set to "urgent".
@@ -870,6 +932,13 @@ Return ONLY a valid JSON object with these keys:
         assignee_name = None
         status_code = "unassigned"
 
+    # The model left the assignee out entirely: use the first assignment phrase in the transcript.
+    spoken_people = _spoken_assignees(transcript, assignable_users)
+    if status_code == "unassigned" and not unrecognized_assignee and spoken_people:
+        assignee_id = spoken_people[0]["id"]
+        assignee_name = spoken_people[0]["name"]
+        status_code = "matched"
+
     # Watcher resolution
     raw_watcher_ids = parsed.get("watcher_ids") or []
     raw_watcher_names = parsed.get("watcher_names") or []
@@ -889,6 +958,8 @@ Return ONLY a valid JSON object with these keys:
 
     # 2. Resolve any watcher names or spoken watchers not yet resolved
     names_to_check = list(raw_watcher_names) + [sw for sw in spoken_watchers if sw not in raw_watcher_names]
+    if not raw_watcher_ids and not names_to_check:
+        names_to_check = [next(g for g in m.groups() if g) for m in _WATCHER_PHRASES.finditer(transcript)]
     for w_name in names_to_check:
         if not w_name or not str(w_name).strip():
             continue
@@ -901,6 +972,11 @@ Return ONLY a valid JSON object with these keys:
             if cw["id"] != assignee_id and cw["id"] not in final_watcher_ids:
                 final_watcher_ids.append(cw["id"])
                 final_watcher_names.append(cw["name"])
+        elif len(cands) == 0 and _role_people(str(w_name), assignable_users):
+            for cw in _role_people(str(w_name), assignable_users):
+                if cw["id"] != assignee_id and cw["id"] not in final_watcher_ids:
+                    final_watcher_ids.append(cw["id"])
+                    final_watcher_names.append(cw["name"])
         elif len(cands) == 0:
             if str(w_name).strip() not in unrecognized_watchers:
                 unrecognized_watchers.append(str(w_name).strip())
@@ -945,6 +1021,12 @@ Return ONLY a valid JSON object with these keys:
     else:
         due_date = None
 
+    # The model left the deadline out: read a spoken day/time ("saturday 6pm se pehle").
+    if not due_date:
+        due_date, spoken_time = _spoken_due(transcript, now)
+        if due_date and not parsed.get("due_time"):
+            parsed["due_time"] = spoken_time
+
     # Estimate hours validation
     estimate_hours = None
     raw_est = parsed.get("estimate_hours")
@@ -966,6 +1048,16 @@ Return ONLY a valid JSON object with these keys:
     checklist_items = [{"text": str(c).strip()} for c in raw_checklist if str(c).strip()]
 
     subtasks = _collective_from_parse(parsed, transcript, assignable_users)
+    # Sub-tasks the model left without any name: the remaining assignment phrases, in order,
+    # only when they line up one-to-one with the sub-tasks after the lead.
+    if (
+        subtasks
+        and len(spoken_people) == len(subtasks) + 1
+        and spoken_people[0]["id"] == assignee_id
+    ):
+        for sub, person in zip(subtasks, spoken_people[1:]):
+            if sub["assignee_status"] == "unassigned" and not sub["unrecognized_assignee"]:
+                sub.update(assignee_id=person["id"], assignee_name=person["name"], assignee_status="matched")
 
     task_title = (parsed.get("title") or transcript[:100]).strip()
     people: List[Optional[str]] = [assignee_name, spoken_assignee, parsed.get("assignee_name"), *final_watcher_names]
