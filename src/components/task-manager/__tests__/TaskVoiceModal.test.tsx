@@ -135,4 +135,43 @@ describe('TaskVoiceModal security behaviour', () => {
     expect(input.value.length).toBe(VOICE_MAX_TEXT);
     expect(screen.getByText(`${VOICE_MAX_TEXT}/${VOICE_MAX_TEXT}`)).toBeTruthy();
   });
+
+  it('pins an opaque footer below the scrolling body in the draft', async () => {
+    (taskService.voiceParseTask as any).mockResolvedValue({
+      transcript: 'Design banner',
+      task: {
+        title: 'Design banner',
+        description: 'Design the launch banner.',
+        assignee_id: null,
+        watcher_ids: [],
+        company_id: null,
+        start_date: null,
+        due_date: '2026-11-30',
+        due_time: '18:00',
+        estimate_hours: 2,
+        priority: 'medium',
+        checklist: [],
+        is_collective: false,
+        subtasks: [],
+      },
+      confidence: { status: 'unassigned', ambiguous_candidates: [] },
+    });
+    renderModal();
+    fireEvent.change(screen.getByPlaceholderText(/Assign website banner/), { target: { value: 'Design banner' } });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Parse'));
+    });
+    const confirm = screen.getByText('Confirm & Assign Task').closest('button') as HTMLButtonElement;
+    const footer = confirm.closest('.border-t') as HTMLElement;
+    expect(footer).toBeTruthy();
+    expect(footer.className).toMatch(/\bbg-surface\b/);
+    expect(footer.className).toMatch(/\bshrink-0\b/);
+    expect(footer.className).not.toMatch(/bg-surface\/|backdrop-blur|sticky/);
+    expect(footer.contains(screen.getByText('Cancel'))).toBe(true);
+    // The footer is not inside the scrolling body, so form fields never render under it.
+    const body = screen.getByDisplayValue('Design banner').closest('.overflow-y-auto') as HTMLElement;
+    expect(body).toBeTruthy();
+    expect(body.contains(footer)).toBe(false);
+    expect(body.nextElementSibling).toBe(footer);
+  });
 });

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { FormDialog, FormDialogBody } from '@/components/ui/FormDialogLayout';
 import { Button } from '@/components/ui/button';
+import { FormFooter } from '@/components/ui/FormFooter';
 import { taskService } from '@/services/taskService';
 import { useToast } from '@/context/ToastContext';
 import { useWorkspaces } from '@/hooks/useWorkspaces';
@@ -945,34 +946,34 @@ export const TaskVoiceModal: React.FC<Props> = ({
                 </div>
               )}
             </div>
-
-            {/* Actions */}
-            <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs py-3 border-t border-border flex justify-end gap-2.5 shrink-0 z-10 -mx-6 -mb-5 px-6 mt-4">
-              <Button type="button" variant="secondary" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="primary"
-                disabled={step === 'saving'}
-                onClick={handleSave}
-              >
-                {step === 'saving' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                    Creating Task...
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4 mr-1.5" />
-                    Confirm & Assign Task
-                  </>
-                )}
-              </Button>
-            </div>
           </div>
         )}
       </FormDialogBody>
+      {(step === 'draft' || step === 'saving') && (
+        <FormFooter>
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            disabled={step === 'saving'}
+            onClick={handleSave}
+          >
+            {step === 'saving' ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                Creating Task...
+              </>
+            ) : (
+              <>
+                <Check className="w-4 h-4 mr-1.5" />
+                Confirm & Assign Task
+              </>
+            )}
+          </Button>
+        </FormFooter>
+      )}
     </FormDialog>
   );
 };
