@@ -598,7 +598,9 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
 
         task = res["task"]
         self.assertTrue(bool(task["description"]), "Task description must not be empty")
-        self.assertEqual(task["description"], transcript)
+        # Falls back to the work (title), never the raw voice command.
+        self.assertEqual(task["description"], "Fix login bug")
+        self.assertNotEqual(task["description"], transcript)
 
     async def test_task_description_populated_from_detailed_speech(self):
         """Voice agent preserves rich task description with instructions."""
@@ -632,3 +634,177 @@ class VoiceTaskTests(unittest.IsolatedAsyncioTestCase):
 
         task = res["task"]
         self.assertEqual(task["description"], expected_desc)
+
+
+# Roster shaped like the live team (names, roles and departments only; fake ids).
+TEAM_ROSTER = [
+    {"id": "u_faizan", "name": "Faizan Khan", "role": "admin", "department": ""},
+    {"id": "u_safeer", "name": "Safeer", "role": "operations", "department": "All"},
+    {"id": "u_sibat", "name": "Sibat Sajjad", "role": "team_lead", "department": "AI"},
+    {"id": "u_ali", "name": "Ali Ammar", "role": "team_member", "department": "Creative"},
+    {"id": "u_haris", "name": "Muhammad Haris", "role": "team_lead", "department": "Website"},
+    {"id": "u_shamir", "name": "Muhammad Shamir Khan", "role": "team_lead", "department": "Creative"},
+    {"id": "u_awais", "name": "Awais", "role": "team_member", "department": "Creative"},
+    {"id": "u_junaid", "name": "Muhammad Junaid Abbasi", "role": "team_member", "department": "Creative"},
+    {"id": "u_naveed", "name": "Naveed Tariq", "role": "team_member", "department": "Website"},
+]
+
+COLLECTIVE_COMMAND = (
+    "assign a collective task to haris to complete the website, and add a sub task and assign to sibat "
+    "to add voice agent and add another sub task and assign to shahmeer to complete 6 static posts "
+    "all needed by 30 november 6 pm"
+)
+NARRATED_DESCRIPTION = (
+    "Collective task to complete the website. Haris is responsible for overall website completion. "
+    "Subtasks: Sibat will add a voice agent, and Shahmeer will create six static posts. "
+    "All deliverables are required by 30 November 2026 at 18:00."
+)
+
+
+def _groq_reply(parsed):
+    import json as _json
+
+    resp = MagicMock()
+    resp.status_code = 200
+    resp.json.return_value = {"choices": [{"message": {"content": _json.dumps(parsed)}}]}
+    return resp
+
+
+def _collective_parse(description=NARRATED_DESCRIPTION, shahmeer_name="Shahmeer"):
+    return {
+        "is_task": True,
+        "title": "Complete website",
+        "description": description,
+        "assignee_name": "Muhammad Haris",
+        "assignee_id": "u_haris",
+        "spoken_assignee": "haris",
+        "ambiguous_names": [],
+        "watcher_names": [],
+        "watcher_ids": [],
+        "spoken_watchers": [],
+        "company_id": None,
+        "company_name": None,
+        "spoken_company": None,
+        "start_date": None,
+        "due_date": "2026-11-30",
+        "due_time": "18:00",
+        "estimate_hours": None,
+        "priority": "medium",
+        "checklist": [],
+        "is_collective": True,
+        "subtasks": [
+            {"title": "Add voice agent", "description": "", "assignee_name": "Sibat Sajjad", "assignee_id": "u_sibat",
+             "spoken_assignee": "sibat", "due_date": "2026-11-30", "estimate_hours": None},
+            {"title": "Create 6 static posts", "description": "", "assignee_name": shahmeer_name, "assignee_id": None,
+             "spoken_assignee": "shahmeer", "due_date": "2026-11-30", "estimate_hours": None},
+        ],
+    }
+
+
+class VoiceCollectiveNameAndDescriptionTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        patch.object(voice_task_service.settings, "GROQ_API_KEY", "test-key").start()
+
+    async def asyncTearDown(self):
+        patch.stopall()
+
+    async def _extract(self, parsed, transcript=COLLECTIVE_COMMAND, roster=TEAM_ROSTER):
+        with patch("app.services.voice_task_service.httpx.AsyncClient") as mock_client:
+            mock_post = AsyncMock(return_value=_groq_reply(parsed))
+            mock_client.return_value.__aenter__.return_value.post = mock_post
+            res = await voice_task_service.extract_task_from_transcript(transcript=transcript, assignable_users=roster)
+        return res, mock_post
+
+    # ── Sub-task assignee: Roman Urdu spellings of a roster name ────────────
+    async def test_shahmeer_subtask_resolves_to_creative_team_lead(self):
+        res, _ = await self._extract(_collective_parse())
+        task = res["task"]
+        self.assertEqual(task["assignee_id"], "u_haris")
+        self.assertTrue(task["is_collective"])
+        subs = task["subtasks"]
+        self.assertEqual([s["assignee_id"] for s in subs], ["u_sibat", "u_shamir"])
+        self.assertEqual(subs[1]["assignee_name"], "Muhammad Shamir Khan")
+        self.assertEqual(subs[1]["assignee_status"], "matched")
+
+    async def test_spelling_variants_match_only_that_person(self):
+        for spoken in ("Shahmeer", "shahmeer", "Shameer", "Shamir", "Shahmir", "Shah Meer", "Shahmeer Khan", "Muhammad Shahmeer"):
+            with self.subTest(spoken=spoken):
+                ids = [c["id"] for c in voice_task_service._find_matching_candidates(spoken, TEAM_ROSTER)]
+                self.assertEqual(ids, ["u_shamir"])
+
+    async def test_variants_do_not_match_the_wrong_person(self):
+        cases = {
+            "Sameer": [],
+            "Amir": [],
+            "Shah": [],
+            "Hamza": [],
+            "Safeer": ["u_safeer"],
+            "Haris": ["u_haris"],
+            "Harris": ["u_haris"],
+            "Naveed": ["u_naveed"],
+            "Navid": ["u_naveed"],
+        }
+        for spoken, expected in cases.items():
+            with self.subTest(spoken=spoken):
+                ids = [c["id"] for c in voice_task_service._find_matching_candidates(spoken, TEAM_ROSTER)]
+                self.assertEqual(ids, expected)
+        # A shared first name is never resolved to one person.
+        muhammads = voice_task_service._find_matching_candidates("Muhammad", TEAM_ROSTER)
+        self.assertGreater(len(muhammads), 1)
+
+    async def test_two_spellings_on_roster_need_selection_not_a_guess(self):
+        roster = TEAM_ROSTER + [{"id": "u_shameer2", "name": "Shameer Ahmed", "role": "team_member", "department": "SEO"}]
+        res, _ = await self._extract(_collective_parse(), roster=roster)
+        sub = res["task"]["subtasks"][1]
+        self.assertIsNone(sub["assignee_id"])
+        self.assertEqual(sub["assignee_status"], "needs_selection")
+        self.assertEqual({c["id"] for c in sub["ambiguous_candidates"]}, {"u_shamir", "u_shameer2"})
+
+    async def test_unknown_subtask_name_stays_unassigned(self):
+        res, _ = await self._extract(_collective_parse(shahmeer_name="Zubair"))
+        sub = res["task"]["subtasks"][1]
+        self.assertIsNone(sub["assignee_id"])
+        self.assertEqual(sub["assignee_status"], "unassigned")
+
+    # ── Description: the work, not a narration of fields ─────────────────
+    async def test_narrated_description_is_replaced_with_the_work(self):
+        res, _ = await self._extract(_collective_parse())
+        desc = res["task"]["description"]
+        for leaked in ("Haris", "Sibat", "Shahmeer", "Shamir", "November", "18:00", "responsible", "required by"):
+            self.assertNotIn(leaked, desc)
+        self.assertNotEqual(desc.strip().lower(), COLLECTIVE_COMMAND.lower())
+        self.assertIn("Complete website", desc)
+        self.assertIn("Add voice agent", desc)
+        self.assertIn("Create 6 static posts", desc)
+
+    async def test_work_description_is_kept_and_only_narration_dropped(self):
+        work = "Finish the remaining website pages and wire up the booking form on the landing page."
+        res, _ = await self._extract(_collective_parse(description=f"{work} Haris leads this. Everything is due by 30 November at 6 pm."))
+        self.assertEqual(res["task"]["description"], work)
+
+    async def test_real_details_in_a_sentence_with_names_are_kept(self):
+        desc = "Shahmeer will create 6 static posts for the Eid campaign by 30 November."
+        res, _ = await self._extract(_collective_parse(description=desc))
+        self.assertEqual(res["task"]["description"], desc)
+
+    async def test_quantity_is_not_mistaken_for_the_due_hour(self):
+        parsed = _collective_parse(description="Create 6 static posts.")
+        parsed.update(title="Create static posts", is_collective=False, subtasks=[])
+        res, _ = await self._extract(parsed, transcript="create 6 static posts for shamir by 6 pm")
+        self.assertEqual(res["task"]["description"], "Create 6 static posts.")
+
+    async def test_dates_are_kept_when_no_date_field_was_captured(self):
+        parsed = _collective_parse(description="Deliver it by 30 November.")
+        parsed.update(title="Deliver report", due_date=None, due_time=None, is_collective=False, subtasks=[])
+        res, _ = await self._extract(parsed, transcript="deliver report by 30 november")
+        self.assertEqual(res["task"]["description"], "Deliver it by 30 November.")
+
+    async def test_prompt_asks_for_the_work_and_roster_spelling_variants(self):
+        _, mock_post = await self._extract(_collective_parse())
+        payload = mock_post.call_args.kwargs["json"]
+        prompt = payload["messages"][0]["content"]
+        self.assertIn("Do NOT narrate the assignment", prompt)
+        self.assertIn("due date", prompt)
+        self.assertIn("Shahmeer/Shamir/Shameer", prompt)
+        self.assertIn(payload["model"], voice_task_service.DEFAULT_LLM_MODELS)
+        self.assertTrue(payload["response_format"]["json_schema"]["strict"])

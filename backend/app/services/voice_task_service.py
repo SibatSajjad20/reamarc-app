@@ -271,6 +271,13 @@ def _normalize_name_token(token: str) -> str:
     return COMMON_NAME_EQUIVALENTS.get(clean, clean)
 
 
+def _phonetic_name_key(token: str) -> str:
+    """Spelling-neutral key for Roman Urdu names: Shahmeer/Shameer/Shamir -> shamir, Harris -> haris."""
+    key = token.replace("ee", "i").replace("oo", "u")
+    key = re.sub(r"(.)\1+", r"\1", key)
+    return re.sub(r"([aeiou])h(?=[^aeiou]|$)", r"\1", key)
+
+
 async def transcribe_audio(
     audio_bytes: bytes,
     audio_ext: str = "m4a",
@@ -401,14 +408,22 @@ def _find_matching_candidates(
         if not core_spoken or not core_uname:
             continue
 
-        # 2. Word boundary / First name or Last name match
-        if any(st == ut for st in core_spoken for ut in core_uname):
-            if set(core_spoken).issubset(set(core_uname)) or set(core_uname).issubset(set(core_spoken)):
+        # 2. Word boundary / First name or Last name match (spelling-neutral keys)
+        spoken_keys = {_phonetic_name_key(t) for t in core_spoken}
+        uname_keys = {_phonetic_name_key(t) for t in core_uname}
+        if spoken_keys & uname_keys:
+            if spoken_keys.issubset(uname_keys) or uname_keys.issubset(spoken_keys):
                 exact_matches.append(u)
                 continue
             else:
                 token_matches.append(u)
                 continue
+        # "Shah Meer" spoken for "Shahmeer" (or the reverse)
+        if (len(core_spoken) > 1 and _phonetic_name_key("".join(core_spoken)) in uname_keys) or (
+            len(core_uname) > 1 and _phonetic_name_key("".join(core_uname)) in spoken_keys
+        ):
+            exact_matches.append(u)
+            continue
 
         # 3. High-confidence fuzzy string similarity (>= 0.85)
         spoken_joined = " ".join(core_spoken)
@@ -537,6 +552,92 @@ def _collective_from_parse(parsed: Dict[str, Any], transcript: str, assignable_u
     return subs
 
 
+_NUMBER_WORDS = {
+    "one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6",
+    "seven": "7", "eight": "8", "nine": "9", "ten": "10", "eleven": "11", "twelve": "12",
+}
+_MONTHS = (
+    "january|february|march|april|may|june|july|august|september|october|november|december"
+    "|jan|feb|mar|apr|jun|jul|aug|sep|sept|oct|nov|dec"
+)
+_DATE_EXPRESSION = re.compile(
+    r"\b\d{4}-\d{2}-\d{2}\b"
+    r"|\b\d{1,2}(?::\d{2})?\s*(?:am|pm|a\.m\.|p\.m\.)"
+    r"|\b\d{1,2}:\d{2}\b"
+    rf"|\b\d{{1,2}}(?:st|nd|rd|th)?\s+(?:of\s+)?(?:{_MONTHS})\b(?:,?\s+\d{{4}})?"
+    rf"|\b(?:{_MONTHS})\s+\d{{1,2}}(?:st|nd|rd|th)?\b(?:,?\s+\d{{4}})?",
+    re.IGNORECASE,
+)
+_DATE_WORDS = set(_MONTHS.split("|")) | {
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+    "today", "tomorrow", "tonight", "noon", "midnight", "morning", "evening", "eod",
+}
+# Words that carry no work content: grammar, assignment talk and generic task words.
+_NARRATION_WORDS = {
+    "a", "an", "the", "and", "or", "of", "to", "for", "in", "on", "at", "by", "with", "from", "into",
+    "is", "are", "be", "been", "was", "were", "will", "shall", "should", "must", "can", "has", "have",
+    "need", "needs", "needed", "require", "requires", "required", "this", "that", "these", "those", "it",
+    "its", "he", "she", "they", "them", "his", "her", "their", "who", "all", "each", "every", "both",
+    "overall", "entire", "whole", "everything", "everyone", "also", "then", "as", "so", "while",
+    "task", "tasks", "subtask", "subtasks", "sub", "collective", "main", "team", "lead", "leads", "leading", "owner", "owns",
+    "own", "responsible", "responsibility", "assign", "assigned", "assignee", "assigning", "handle",
+    "handles", "handling", "charge", "member", "members", "deliverable", "deliverables", "due",
+    "deadline", "before", "until", "no", "later", "than", "date", "time", "work", "piece", "part",
+}
+
+
+def _content_word(word: str) -> str:
+    word = _NUMBER_WORDS.get(word, word)
+    if len(word) > 3 and word.endswith("s"):
+        word = word[:-1]
+    return word[:5] if len(word) > 5 and not word.isdigit() else word
+
+
+def _work_description(
+    description: str,
+    title: str,
+    subtasks: List[Dict[str, Any]],
+    people: List[Optional[str]],
+    has_date: bool,
+) -> str:
+    """Drop sentences that only narrate who does what and when (already in the fields).
+
+    A sentence is kept whole when it has any word beyond the people involved, the
+    captured date/time, the task and sub-task titles and generic assignment talk.
+    """
+    known = {_content_word(w) for text in [title] + [s.get("title") or "" for s in subtasks]
+             for w in re.findall(r"[a-z0-9]+", text.lower())}
+    name_keys = {
+        _phonetic_name_key(_normalize_name_token(t))
+        for name in people if name
+        for t in str(name).split()
+        if len(_normalize_name_token(t)) >= 3
+    }
+    kept: List[str] = []
+    for sentence in re.split(r"(?<=[.!?;])\s+|\n+", description):
+        if not sentence.strip():
+            continue
+        text = _DATE_EXPRESSION.sub(" ", sentence) if has_date else sentence
+        words = re.findall(r"[a-z0-9]+", text.lower())
+        novel = [
+            w for w in words
+            if w not in _NARRATION_WORDS
+            and not (has_date and (w in _DATE_WORDS or re.fullmatch(r"(19|20)\d\d", w)))
+            and _phonetic_name_key(_normalize_name_token(w)) not in name_keys
+            and _content_word(w) not in known
+        ]
+        if novel:
+            kept.append(sentence.strip())
+    if kept:
+        return " ".join(kept)
+    # Nothing but narration: describe the work from the titles, never the raw command.
+    parts = [title.strip()]
+    sub_titles = [str(s.get("title") or "").strip() for s in subtasks if str(s.get("title") or "").strip()]
+    if sub_titles:
+        parts.append("Includes: " + "; ".join(sub_titles) + ".")
+    return (parts[0].rstrip(".") + ".\n\n" + parts[1]) if len(parts) > 1 else parts[0]
+
+
 async def extract_task_from_transcript(
     transcript: str,
     assignable_users: List[Dict[str, Any]],
@@ -590,11 +691,12 @@ Active Companies / Workspaces:
 CRITICAL RULES FOR EXTRACTION:
 0. "is_task": boolean. Set to true if the voice command is a genuine instruction or request to create, assign, or track a task. Set to false if the speech is casual conversational talk (e.g. "how are you", "what's the weather today"), testing phrases ("hello testing 1 2 3", "mic check"), random chatter, or questions with no actionable task intent.
 1. "title": Short, imperative, professional summary of the task in English (e.g. "Design social media banners", "Review financial audit"). Max 200 chars. Required. If the voice command was in Urdu, translate the action into a concise professional English title.
-2. "description": A clear, comprehensive, and professional task description detailing what needs to be done based on the spoken instruction. Capture the objective, scope, requirements, context, and any specific notes or instructions spoken. ALWAYS generate an informative task description in clear English (if spoken in Urdu or Roman Urdu, translate and articulate clearly in professional English). NEVER leave description empty or blank.
+2. "description": A clear, professional description of the WORK itself: the objective, scope, deliverables, requirements and any specific details spoken (quantities, formats, platforms, references, e.g. "6 static posts"). Do NOT narrate the assignment: never mention who it is assigned to, the lead owner, sub-task owners or watchers, and never restate the due date, time, priority or estimate, because those are captured in their own fields. Do not just repeat the voice command. For a collective task, describe the overall goal and what the finished whole includes, not who does each part. If nothing beyond the title was said, write one short sentence on what completing the task involves, without inventing requirements. Write in clear English (if spoken in Urdu or Roman Urdu, translate and articulate clearly in professional English). NEVER leave description empty or blank.
 3. "assignee_name": MUST be chosen STRICTLY from the names in the "Active Company Team Roster" above if a matching employee is mentioned.
    - NEVER invent, guess, or output any name outside this roster.
    - If the spoken person cannot be found in the roster, output null.
 4. "assignee_id": If the spoken name matches a person in the roster (taking into account Urdu/Pakistani spelling variations like Mohammad/Muhammad, Usman/Osman, Hamza/Humza, or department hints like "Hamza from design"), output their exact "id" from the roster.
+   - Roman Urdu / transcription spellings of the same name are the same person (e.g. Shahmeer/Shamir/Shameer, Haris/Harris, Naveed/Navid): if exactly ONE roster person matches, output their "id" and exact roster "name".
    - If ambiguous (multiple people in the roster match) or if NO ONE in the roster matches, set to null.
 5. "spoken_assignee": Raw name of any person spoken or mentioned for the task (e.g. "Junaid", "John"), or null if no person was mentioned.
 6. "ambiguous_names": If multiple people from the roster match the spoken name (e.g. "Hamza" when there are 2 Hamzas), list their names. Otherwise empty array.
@@ -613,7 +715,7 @@ CRITICAL RULES FOR EXTRACTION:
 17. "priority": One of: "low", "medium", "high", "urgent". Default to "medium". If words like "urgent", "asap", "critical", "top priority" (or Urdu "zaroori", "jaldi") are used, set to "urgent".
 18. "checklist": Array of short string checklist items if mentioned (e.g. ["verify numbers", "send email"]). Otherwise empty array.
 19. "is_collective": true ONLY if the speaker explicitly asks for a collective task / project / sub-tasks, OR names two or more different people each with their own piece of work under one goal (e.g. "website developer builds the page, content writer writes the copy"). Otherwise false.
-20. "subtasks": When "is_collective" is true, one object per piece of work (max {MAX_VOICE_SUBTASKS}), each with "title" (short imperative English), "description", "assignee_name"/"assignee_id"/"spoken_assignee" (same strict roster rules as the main assignee), "due_date" ("YYYY-MM-DD" or null) and "estimate_hours" (number or null). For a collective task, the main "assignee_*" fields are the team lead who owns the whole task. When "is_collective" is false, return [].
+20. "subtasks": When "is_collective" is true, one object per piece of work (max {MAX_VOICE_SUBTASKS}), each with "title" (short imperative English, keep spoken quantities), "description" (the work only, same rule as the main description), "assignee_name"/"assignee_id"/"spoken_assignee" (same strict roster rules as the main assignee), "due_date" ("YYYY-MM-DD" or null) and "estimate_hours" (number or null). For a collective task, the main "assignee_*" fields are the team lead who owns the whole task. When "is_collective" is false, return [].
 
 Return ONLY a valid JSON object with these keys:
 {{
@@ -866,10 +968,21 @@ Return ONLY a valid JSON object with these keys:
     subtasks = _collective_from_parse(parsed, transcript, assignable_users)
 
     task_title = (parsed.get("title") or transcript[:100]).strip()
-    task_description = (parsed.get("description") or "").strip()
-    if not task_description:
-        # Guarantee that task description is always entered and never empty
-        task_description = transcript.strip() if transcript.strip() else task_title
+    people: List[Optional[str]] = [assignee_name, spoken_assignee, parsed.get("assignee_name"), *final_watcher_names]
+    people += [str(w) for w in (parsed.get("spoken_watchers") or []) + (parsed.get("watcher_names") or [])]
+    for raw_sub in parsed.get("subtasks") if isinstance(parsed.get("subtasks"), list) else []:
+        if isinstance(raw_sub, dict):
+            people += [raw_sub.get("assignee_name"), raw_sub.get("spoken_assignee")]
+    for sub in subtasks:
+        people.append(sub.get("assignee_name"))
+    # Never empty, and never the raw voice command: the title (and sub-task titles) describe the work.
+    task_description = _work_description(
+        (parsed.get("description") or "").strip(),
+        task_title,
+        subtasks,
+        people,
+        has_date=bool(due_date or start_date or parsed.get("due_time")),
+    )
 
     return {
         "transcript": transcript,
