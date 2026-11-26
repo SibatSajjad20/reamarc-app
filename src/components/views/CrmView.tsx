@@ -269,12 +269,12 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     void load();
   });
 
-  // Performance-optimized polling: 10s cadence, pause when hidden, backoff on 429
+  // Performance-optimized polling: 30s cadence, pause when hidden, backoff on 429
   useEffect(() => {
     if (assignedTo && assignedTo !== 'unassigned') return undefined;
     let cancelled = false;
     let timerId: number | null = null;
-    let pollInterval = 10000;
+    let pollInterval = 30000;
 
     const schedulePoll = () => {
       timerId = window.setTimeout(async () => {
@@ -300,7 +300,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
           if (!cancelled) {
             setLeads(list.items);
             setRateLimited(false);
-            pollInterval = 10000;
+            pollInterval = 30000;
           }
         } catch (err: any) {
           if (err?.name === 'AbortError' || err?.status === 499) {

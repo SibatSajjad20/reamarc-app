@@ -142,7 +142,7 @@ function readSection(): { view?: TaskViewMode; stage?: TaskStatus | 'all' } {
 }
 
 /** Quiet board refresh while Tasks stays open (two people watching the same list). */
-export const TASKS_LIVE_POLL_MS = 10_000;
+export const TASKS_LIVE_POLL_MS = 60_000;
 const TASKS_LIVE_POLL_BACKOFF_MS = 30_000;
 
 export const TaskManagerView: React.FC = () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
@@ -115,8 +115,9 @@ export default function AlertsScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const theme = useTheme();
-  const { markAllRead, refreshUnread } = useInbox();
-  const [items, setItems] = useState<Item[]>([]);
+  const { markAllRead, refreshUnread, rows, rowsKey } = useInbox();
+  // undefined until the saved clear-all cutoff is read, so cleared alerts never flash.
+  const [cutoff, setCutoff] = useState<string | null | undefined>(undefined);
   const [loading, setLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
 
@@ -128,16 +129,18 @@ export default function AlertsScreen() {
 
   const canBroadcast = roleCanBroadcast(user);
 
+  // The list comes from the shared inbox fetch (same /mobile/notifications call that sets the badge),
+  // so this screen no longer downloads the list twice per refresh.
+  const items = useMemo(() => {
+    if (cutoff === undefined || !user || rowsKey !== `${user.id}:${user.company_id || ''}`) return [];
+    return (rows as Item[]).filter((n) => !cutoff || !n.created_at || n.created_at > cutoff);
+  }, [rows, rowsKey, user, cutoff]);
+
   const load = useCallback(async (spin = false) => {
     if (spin) setLoading(true);
     try {
-      const [data, cutoff] = await Promise.all([
-        api<Item[]>('/mobile/notifications'),
-        getClearedNotificationsCutoff(),
-      ]);
-      const valid = (data || []).filter((n) => !cutoff || !n.created_at || n.created_at > cutoff);
-      setItems(valid);
-      await refreshUnread();
+      const [, savedCutoff] = await Promise.all([refreshUnread(), getClearedNotificationsCutoff()]);
+      setCutoff(savedCutoff);
     } catch {
       /* ignore */
     } finally {
@@ -159,7 +162,7 @@ export default function AlertsScreen() {
         /* ignore */
       }
     } finally {
-      setItems([]);
+      setCutoff(nowIso);
       await refreshUnread();
       setClearing(false);
     }
@@ -191,7 +194,7 @@ export default function AlertsScreen() {
   useFocusEffect(
     useCallback(() => {
       load(true);
-      const id = setInterval(() => load(false), 8000);
+      const id = setInterval(() => load(false), 30000);
       return () => clearInterval(id);
     }, [load]),
   );
