@@ -344,6 +344,41 @@ async def get_visible_or_404(db, task_id: str, user: Dict[str, Any], settings: O
     return task
 
 
+_ROLE_FIELDS = (("assigner_id", "assigner_role"), ("assignee_id", "assignee_role"))
+
+
+async def _fill_missing_roles(db, tasks: Sequence[Dict[str, Any]]) -> None:
+    """Tasks made before roles were stored have no assigner_role/assignee_role.
+
+    Fill them in memory from each person's current role in this company (one batched
+    lookup). Never written back to the database.
+    """
+    need = {
+        str(t.get(id_key))
+        for t in tasks
+        for id_key, role_key in _ROLE_FIELDS
+        if t and not t.get(role_key) and t.get(id_key)
+    }
+    if not need:
+        return
+    people = await company_member_users(
+        {"id": {"$in": sorted(need)}},
+        db=db,
+        include_inactive=True,
+        include_needs_setup=True,
+        projection={"_id": 0, "id": 1, "role": 1},
+    )
+    roles = {str(p.get("id")): role_of(p) for p in people or [] if p.get("id") and p.get("role")}
+    for t in tasks:
+        if not t:
+            continue
+        for id_key, role_key in _ROLE_FIELDS:
+            if not t.get(role_key):
+                role = roles.get(str(t.get(id_key) or ""))
+                if role:
+                    t[role_key] = role
+
+
 def decorate(task: Dict[str, Any], user: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     out = _public(task) or {}
     out["view_only"] = is_view_only(user, task, settings)
@@ -830,6 +865,7 @@ async def sync_stage_from_log(db, task_id: str, requested: Optional[str], actor:
         return None
     cfg = await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, actor, cfg)
+    await _fill_missing_roles(db, [task])
     current = str(task.get("status") or "todo")
     if current == want or current == "cancelled":
         return None
@@ -855,9 +891,10 @@ async def sync_stage_from_log(db, task_id: str, requested: Optional[str], actor:
 async def get_task(db, task_id: str, user: Dict[str, Any], settings: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     cfg = settings if settings is not None else await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, user, cfg)
-    out = decorate(task, user, cfg)
     subtasks = await db.tasks.find({"parent_id": task_id}).to_list(200)
     visible = [s for s in subtasks if can_view(user, s, cfg)]
+    await _fill_missing_roles(db, [task, *visible])
+    out = decorate(task, user, cfg)
     out["subtasks"] = [_public(s) for s in visible]
     out["subtasks_count"] = len(visible)
     children: Dict[str, List[str]] = {}
@@ -991,6 +1028,7 @@ async def list_tasks(
     total = await db.tasks.count_documents(query)
     cursor = db.tasks.find(query).sort([("due_date", ASCENDING), ("created_at", DESCENDING)]).skip((page - 1) * limit).limit(limit)
     rows = await cursor.to_list(limit)
+    await _fill_missing_roles(db, rows)
     items = [decorate(r, user, cfg) for r in rows]
     children = await _attach_subtask_counts(db, items)
     await _attach_logged_hours(db, items, children)
@@ -1328,6 +1366,7 @@ async def assert_subtasks_complete(db, task: Dict[str, Any], dest: str) -> None:
 async def change_stage(db, task_id: str, dest: str, actor: Dict[str, Any], reason: Optional[str] = None) -> Dict[str, Any]:
     cfg = await get_task_settings(db)
     task = await get_visible_or_404(db, task_id, actor, cfg)
+    await _fill_missing_roles(db, [task])
     ok, message = can_transition(actor, task, dest, reason, cfg)
     if not ok:
         raise HTTPException(status_code=422, detail=message)
