@@ -292,4 +292,26 @@ describe('TaskListView', () => {
     expect(screen.getByText('Sibat Sajjad, test')).toBeTruthy();
     expect(screen.queryByText('from AI Reamarc')).toBeNull();
   });
+
+  it('shows Start Date column in every stage task list with formatted date or em-dash fallback', () => {
+    render(
+      <TaskListView
+        tasks={[
+          task({ id: 't-with-start', serial: 'T-0010', status: 'todo', start_date: '2026-11-05', due_date: '2026-11-12' }),
+          task({ id: 't-no-start', serial: 'T-0011', status: 'in_progress', start_date: null, due_date: null }),
+        ]}
+        actor={{ id: 'admin', role: 'admin' }}
+        onOpen={vi.fn()}
+        onAction={vi.fn()}
+        onViewAll={vi.fn()}
+      />,
+    );
+    expect(screen.getAllByRole('columnheader', { name: 'Start Date' })).toHaveLength(4);
+    const startCells = screen.getAllByTestId('task-list-start-date');
+    expect(startCells).toHaveLength(2);
+    expect(startCells[0].textContent).toBe(
+      new Date('2026-11-05T00:00:00').toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+    );
+    expect(startCells[1].textContent).toBe('—');
+  });
 });

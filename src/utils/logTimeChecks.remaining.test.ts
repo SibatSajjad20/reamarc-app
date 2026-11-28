@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findDuplicate, formatHours, parseDurationToHours, remainingShiftHours } from './logTimeChecks';
+import { findDuplicate, formatHours, parseDurationToHours, remainingLogHours, remainingShiftHours } from './logTimeChecks';
 
 describe('remainingShiftHours', () => {
   it('drops remaining as time at work increases, even with 0 logged', () => {
@@ -15,6 +15,24 @@ describe('remainingShiftHours', () => {
   it('is zero when at-work meets or exceeds expected', () => {
     expect(remainingShiftHours(6, 6)).toBe(0);
     expect(remainingShiftHours(6, 7.5)).toBe(0);
+  });
+});
+
+describe('remainingLogHours', () => {
+  it('subtracts logged hours from time at work (e.g. 4h 20m - 2h = 2h 20m)', () => {
+    const remaining = remainingLogHours(4 + 20 / 60, 2);
+    expect(formatHours(remaining)).toBe('2h 20m');
+  });
+
+  it('equals full at-work time when nothing is logged yet', () => {
+    const remaining = remainingLogHours(4 + 19 / 60, 0);
+    expect(formatHours(remaining)).toBe('4h 19m');
+  });
+
+  it('clamps to zero when logged meets or exceeds at-work time', () => {
+    expect(remainingLogHours(4.5, 4.5)).toBe(0);
+    expect(remainingLogHours(4.5, 6)).toBe(0);
+    expect(remainingLogHours(0, 1)).toBe(0);
   });
 });
 

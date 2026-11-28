@@ -49,4 +49,51 @@ describe('ShiftTasksTracker pending OT hint', () => {
     );
     expect(screen.queryByText(/OT pending/i)).toBeNull();
   });
+
+  it('calculates Remaining as At work minus Logged (e.g. 4h 20m - 2h = 2h 20m)', () => {
+    render(
+      <ShiftTasksTracker
+        dayTarget={{
+          ...baseTarget,
+          expected_hours: 6,
+          time_at_work_hours: 4 + 20 / 60,
+          logged_hours: 2,
+          has_checkout: true,
+        }}
+      />
+    );
+    const remainingValue = screen.getByText('Remaining').nextElementSibling;
+    expect(remainingValue?.textContent).toBe('2h 20m');
+  });
+
+  it('clamps Remaining to 0m when Logged exceeds At work and falls back to expected for WFH without check-in', () => {
+    const { rerender } = render(
+      <ShiftTasksTracker
+        dayTarget={{
+          ...baseTarget,
+          expected_hours: 6,
+          time_at_work_hours: 4,
+          logged_hours: 5,
+          has_checkout: true,
+        }}
+      />
+    );
+    expect(screen.getByText('Remaining').nextElementSibling?.textContent).toBe('0m');
+
+    rerender(
+      <ShiftTasksTracker
+        dayTarget={{
+          ...baseTarget,
+          expected_hours: 6,
+          time_at_work_hours: 0,
+          worked_hours: 0,
+          logged_hours: 2.5,
+          has_checkin: false,
+          has_checkout: false,
+          is_wfh: true,
+        }}
+      />
+    );
+    expect(screen.getByText('Remaining').nextElementSibling?.textContent).toBe('3h 30m');
+  });
 });

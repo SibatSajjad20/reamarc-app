@@ -30,10 +30,23 @@ import type { TaskActor } from '@/types/task';
 
 const PREVIEW = 10;
 
+function formatDateLabel(raw?: string | null): string {
+  if (!raw) return '—';
+  const clean = String(raw).trim();
+  const datePart = clean.includes('T') ? clean.split('T')[0] : clean;
+  const d = new Date(`${datePart}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return clean;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatStart(task: Task): { label: string; className: string } {
+  if (!task.start_date) return { label: '—', className: 'text-fg-muted' };
+  return { label: formatDateLabel(task.start_date), className: 'text-fg' };
+}
+
 function formatDue(task: Task): { label: string; className: string } {
   if (!task.due_date) return { label: '—', className: 'text-fg-muted' };
-  const d = new Date(`${task.due_date}T00:00:00`);
-  const label = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  const label = formatDateLabel(task.due_date);
   if (isOverdue(task)) return { label, className: 'text-danger-fg' };
   if (isDueToday(task)) return { label, className: 'text-warning-fg' };
   return { label, className: 'text-fg' };
@@ -142,6 +155,7 @@ export const TaskStageSection: React.FC<Props> = ({
               <TH>Task Name</TH>
               <TH>Assignee</TH>
               <TH>Project Name</TH>
+              <TH>Start Date</TH>
               <TH>Deadline</TH>
               <TH>Priority</TH>
               <TH className="w-10">Action</TH>
@@ -149,6 +163,7 @@ export const TaskStageSection: React.FC<Props> = ({
           </THead>
           <TBody>
             {shown.map((task) => {
+              const start = formatStart(task);
               const due = formatDue(task);
               const checklist = task.checklist || [];
               const done = checklist.filter((c) => c.done).length;
@@ -218,10 +233,10 @@ export const TaskStageSection: React.FC<Props> = ({
                       ) : null}
                     </TD>
                   )}
-                  <TD className="text-fg-muted text-xs">{task.serial}</TD>
+                  <TD className="text-fg-muted text-xs whitespace-nowrap">{task.serial}</TD>
                   <TD>
-                    <div className="flex flex-col gap-1 min-w-0">
-                      <span className="text-sm text-fg truncate">{task.title}</span>
+                    <div className="flex flex-col gap-1 min-w-0 max-w-[14rem] xl:max-w-[17rem] 2xl:max-w-[25rem]">
+                      <span className="text-sm text-fg truncate" title={task.title}>{task.title}</span>
                       {grouped && (
                         <span className="text-micro text-fg-muted" data-testid="task-group-people">
                           {task.assignment_group?.done_count}/{task.assignment_group?.total_count} people done
@@ -257,7 +272,7 @@ export const TaskStageSection: React.FC<Props> = ({
                   </TD>
                   <TD>
                     <div
-                      className="flex items-start gap-2 min-w-[11rem] max-w-[18rem]"
+                      className="flex items-start gap-2 min-w-[9.5rem] max-w-[14rem]"
                       title={(task.assignment_chain || []).map((h) => h.to_name).join(' → ')}
                       data-testid="task-list-assignee"
                     >
@@ -282,15 +297,20 @@ export const TaskStageSection: React.FC<Props> = ({
                     </div>
                   </TD>
                   <TD>
-                    <div className="flex flex-col min-w-0">
+                    <div className="flex flex-col min-w-0 max-w-[10rem] lg:max-w-[13rem]">
                       <span className="text-sm text-fg truncate">{task.department || '—'}</span>
                       {task.related?.client_name && (
                         <span className="text-micro text-fg-muted truncate">{task.related.client_name}</span>
                       )}
                     </div>
                   </TD>
-                  <TD className={cn('text-sm', due.className)}>{due.label}</TD>
-                  <TD>
+                  <TD className={cn('text-sm whitespace-nowrap', start.className)} data-testid="task-list-start-date">
+                    {start.label}
+                  </TD>
+                  <TD className={cn('text-sm whitespace-nowrap', due.className)} data-testid="task-list-deadline">
+                    {due.label}
+                  </TD>
+                  <TD className="whitespace-nowrap">
                     <TaskPriorityPill priority={task.priority} />
                   </TD>
                   <RowActions onClick={(e) => e.stopPropagation()}>

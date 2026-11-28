@@ -118,6 +118,15 @@ export function remainingShiftHours(expectedHours: number, timeAtWorkHours: numb
   return Math.max(0, safeExpected - safeAtWork);
 }
 
+/** Log time remaining: hours spent at work minus hours already logged (clamped at 0). */
+export function remainingLogHours(timeAtWorkHours: number, loggedHours: number): number {
+  const atWork = Number(timeAtWorkHours);
+  const logged = Number(loggedHours);
+  const atWorkMins = Number.isFinite(atWork) ? Math.round(Math.max(0, atWork) * 60) : 0;
+  const loggedMins = Number.isFinite(logged) ? Math.round(Math.max(0, logged) * 60) : 0;
+  return Math.max(0, atWorkMins - loggedMins) / 60;
+}
+
 export function formatSignedHours(hours: number): string {
   if (Math.abs(hours) < 0.01) return '0h';
   const sign = hours > 0 ? '+' : '−';
