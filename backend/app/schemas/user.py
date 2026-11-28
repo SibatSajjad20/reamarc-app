@@ -233,6 +233,7 @@ class MemberResponse(BaseModel):
     can_edit: Optional[bool] = True
     can_edit_identity: Optional[bool] = True
     can_edit_role: Optional[bool] = True
+    password_updated: Optional[bool] = None
 
     @field_validator("created_at", mode="before")
     @classmethod

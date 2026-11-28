@@ -28,6 +28,7 @@ export interface AdminMember {
   can_edit?: boolean;
   can_edit_identity?: boolean;
   can_edit_role?: boolean;
+  password_updated?: boolean;
 }
 
 export type AdminUser = AdminMember;

@@ -238,6 +238,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           payload.workspace_ids = newWorkspaces;
         }
         // Never send is_active for login_managed_elsewhere
+        if (canEditIdentity && password.trim()) {
+          payload.password = password.trim();
+        }
         await onSubmit(member.id, payload);
       } else {
         const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));

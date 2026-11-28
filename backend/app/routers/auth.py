@@ -1226,6 +1226,126 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
     return {"message": "Verification code is valid.", "valid": True}
 
 
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+@limiter.limit("10/minute")
+async def reset_password(request: Request, payload: ResetPasswordRequest):
+    """
+    Step 3: Verifies the code one final time, hashes the new password with bcrypt,
+    updates the global user document in MongoDB, and marks the reset record as used.
+    """
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database connection is currently unavailable.",
+        )
+
+    if len(payload.new_password) < 8:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be at least 8 characters long.",
+        )
+
+    email_clean = str(payload.email).lower().strip()
+    code_clean = payload.code.strip()
+
+    user_doc = await gdb.users.find_one({"email": email_clean})
+    if not user_doc:
+        user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
+
+    if not user_doc or not user_doc.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code. Please request a new code.",
+        )
+
+    reset_doc = await gdb.password_resets.find_one(
+        {"email": email_clean, "used": False},
+        sort=[("created_at", -1)],
+    )
+
+    if not reset_doc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code. Please request a new code.",
+        )
+
+    current_attempts = reset_doc.get("attempts", 0)
+    if current_attempts >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Too many failed attempts. This verification code has been locked. Please request a new code.",
+        )
+
+    now = datetime.now(timezone.utc)
+    expires_at = reset_doc.get("expires_at")
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except Exception:
+            expires_at = None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if not expires_at or now > expires_at:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has expired. Please request a new code.",
+        )
+
+    if not await asyncio.to_thread(verify_password, code_clean, reset_doc.get("code_hash", "")):
+        updated = await gdb.password_resets.find_one_and_update(
+            {"_id": reset_doc["_id"]},
+            {"$inc": {"attempts": 1}},
+            return_document=ReturnDocument.AFTER,
+        )
+        new_attempts = updated.get("attempts", current_attempts + 1) if updated else current_attempts + 1
+        remaining = max(0, 5 - new_attempts)
+        if remaining == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Too many failed attempts. This verification code has been locked. Please request a new code.",
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid verification code. {remaining} attempt(s) remaining.",
+        )
+
+    # Invalidate the reset record atomically to prevent race-condition re-use
+    updated_reset = await gdb.password_resets.find_one_and_update(
+        {"_id": reset_doc["_id"], "used": False},
+        {"$set": {"used": True, "used_at": now}},
+    )
+    if not updated_reset:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Verification code has already been used. Please request a new code.",
+        )
+
+    # Hash new password and update global user record
+    new_hashed_password = await asyncio.to_thread(get_password_hash, payload.new_password)
+    await gdb.users.update_one(
+        {"_id": user_doc["_id"]},
+        {
+            "$set": {
+                "hashed_password": new_hashed_password,
+                "updated_at": now.isoformat(),
+                "refresh_jtis": [],
+            },
+            "$inc": {"session_epoch": 1, "token_version": 1},
+        },
+    )
+
+    invalidate_auth_cache(user_id=str(user_doc.get("id") or user_doc.get("_id")))
+
+    # Invalidate / mark used all other pending reset tokens for this user
+    await gdb.password_resets.update_many(
+        {"email": email_clean, "used": False},
+        {"$set": {"used": True, "used_at": now}},
+    )
+
+    return {"message": "Password has been successfully reset. You can now log in with your new password."}
+
 
 from pydantic import BaseModel
 

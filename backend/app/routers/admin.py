@@ -1051,9 +1051,17 @@ async def update_member(
         HOME_LOGIN_MSG,
     )
     payload_fields = member_in.model_dump(exclude_unset=True)
+    password_requested = "password" in payload_fields
+    if password_requested and (member_in.password is None or not member_in.password.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password cannot be empty.",
+        )
     await assert_can_edit_member(current_user, existing_user, target_role, payload_fields)
     assert_super_admin_protected(current_user, existing_user)
     may_edit_identity = await can_edit_global_identity(current_user, existing_user)
+    if password_requested and not may_edit_identity:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HOME_LOGIN_MSG)
 
     # Super Admin Protection: HR cannot modify the Super Admin account
     if is_target_admin and not is_caller_admin:
@@ -1356,6 +1364,7 @@ async def update_member(
                 "company_id": current_user.get("company_id"),
             })
 
+        password_written = False
         user_set = {
             k: v for k, v in update_fields.items() if k not in MEMBERSHIP_ONLY_USER_KEYS
         }
@@ -1367,8 +1376,8 @@ async def update_member(
                 return_document=True,
             )
             if not updated_user:
-                updated_user = dict(existing_user)
-                updated_user.update(user_set)
+                raise HTTPException(status_code=404, detail="Member not found.")
+            password_written = "hashed_password" in user_set
         else:
             updated_user = dict(existing_user)
 
@@ -1387,6 +1396,15 @@ async def update_member(
             {"$set": update_fields},
             return_document=True,
         )
+        if not updated_user:
+            raise HTTPException(status_code=404, detail="Member not found.")
+        password_written = "hashed_password" in update_fields and may_edit_identity
+
+    if password_requested and not password_written:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Password could not be updated.",
+        )
 
     if ("hashed_password" in update_fields or "email" in update_fields or update_fields.get("is_active") is False) and may_edit_identity:
         await invalidate_global_login(user_id)
@@ -1396,6 +1414,8 @@ async def update_member(
         await purge_pre_joining_attendance(user_id, new_joining)
 
     formatted = _format_member_resp(updated_user)
+    if password_written:
+        formatted["password_updated"] = True
     await _attach_member_edit_flags(
         formatted,
         current_user,

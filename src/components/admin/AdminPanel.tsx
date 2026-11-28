@@ -193,8 +193,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   const handleUpdateMember = async (userId: string, payload: UpdateMemberPayload) => {
+    const requestedPassword = Boolean(payload.password && payload.password.trim());
     try {
       const updated = await adminService.updateMember(userId, payload);
+      if (requestedPassword && updated?.password_updated !== true) {
+        const err = new Error('Password was not updated. Please verify permissions and try again.');
+        (err as any).__toastHandled = true;
+        addToast('Password Not Updated', err.message, 'error');
+        throw err;
+      }
       addToast('Member Updated', 'Profile changes saved.', 'success');
       setIsEditModalOpen(false);
       setMemberToEdit(null);
@@ -203,7 +210,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       }
       await fetchMembers();
     } catch (err: any) {
-      addToast('Update Failed', err.message || 'Could not save member.', 'error');
+      if (!err?.__toastHandled) {
+        addToast('Update Failed', err.message || 'Could not save member.', 'error');
+      }
       // Rethrow so the open form stays open and shows the error instead of closing as if saved.
       throw err;
     }
