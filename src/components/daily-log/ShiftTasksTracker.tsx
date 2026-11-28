@@ -7,6 +7,7 @@ import { formatHours, remainingLogHours } from '../../utils/logTimeChecks';
 import {
   formatNowHhMm,
   LOG_GAP_MATCH_HOURS,
+  parseHhMmToMinutes,
   provisionalNetWorkHours,
   signedLogGapHours,
 } from '../../utils/liveNetWorkHours';
@@ -25,6 +26,59 @@ export interface ShiftTasksTrackerProps {
   className?: string;
   variant?: 'strip' | 'pill';
   offDay?: OffDayInfo;
+}
+
+const NIGHT_SHIFT_CHECKOUT_GRACE_MINS = 240;
+const NOON_MINS = 12 * 60;
+
+/**
+ * True only when the target shift is currently live (today's open punch, or
+ * yesterday's night shift still inside its active/checkout window).
+ */
+export function isDayTargetLive(
+  dayTarget: DayTarget | null | undefined,
+  now: Date = new Date()
+): boolean {
+  if (!dayTarget?.has_checkin || dayTarget.has_checkout || !dayTarget.check_in) {
+    return false;
+  }
+  const targetIso = dayTarget.date ? toIsoDate(dayTarget.date) : '';
+  if (!targetIso) return false;
+
+  const todayIso = toIsoDate(now);
+  if (targetIso === todayIso) {
+    return true;
+  }
+
+  if (dayTarget.is_night_shift) {
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const yesterdayIso = toIsoDate(yesterday);
+    if (targetIso === yesterdayIso) {
+      const nowMins = now.getHours() * 60 + now.getMinutes();
+      const shiftEndMins = parseHhMmToMinutes(dayTarget.shift_end);
+      if (shiftEndMins !== null && shiftEndMins < NOON_MINS) {
+        return nowMins < Math.min(NOON_MINS, shiftEndMins + NIGHT_SHIFT_CHECKOUT_GRACE_MINS);
+      }
+      return now.getHours() < 12;
+    }
+  }
+
+  return false;
+}
+
+function computeProvisionalHours(dayTarget: DayTarget, checkOut: string): number {
+  if (!dayTarget.check_in) return 0;
+  return provisionalNetWorkHours({
+    checkIn: dayTarget.check_in,
+    checkOut,
+    shiftStart: dayTarget.shift_start,
+    shiftEnd: dayTarget.shift_end,
+    breakDurationMinutes: dayTarget.break_duration_minutes ?? 60,
+    breakStart: dayTarget.break_start_time,
+    breakEnd: dayTarget.break_end_time,
+    isNightShift: Boolean(dayTarget.is_night_shift),
+    countFromActualCheckIn: Boolean(dayTarget.count_from_actual_check_in),
+  });
 }
 
 function formatTrackerHours(hours: number): string {
@@ -61,12 +115,15 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   const isFullLeave = Boolean(dayTarget?.is_full_leave);
 
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const isLive = isDayTargetLive(dayTarget, new Date(nowTick));
+  const isPastNoCheckout = stillIn && !isLive;
 
   useEffect(() => {
-    if (!stillIn) return;
+    if (!isLive) return;
+    setNowTick(Date.now());
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [stillIn, dayTarget?.date, dayTarget?.check_in]);
+  }, [isLive, dayTarget?.date, dayTarget?.check_in]);
 
   const loggedHours = useMemo(() => {
     if (typeof loggedHoursProp === 'number' && Number.isFinite(loggedHoursProp)) {
@@ -77,26 +134,27 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
 
   const timeAtWorkHours = useMemo(() => {
     if (!dayTarget) return 0;
-    if (stillIn && dayTarget.check_in) {
-      return provisionalNetWorkHours({
-        checkIn: dayTarget.check_in,
-        checkOut: formatNowHhMm(new Date(nowTick)),
-        shiftStart: dayTarget.shift_start,
-        shiftEnd: dayTarget.shift_end,
-        breakDurationMinutes: dayTarget.break_duration_minutes ?? 60,
-        breakStart: dayTarget.break_start_time,
-        breakEnd: dayTarget.break_end_time,
-        isNightShift: Boolean(dayTarget.is_night_shift),
-        countFromActualCheckIn: Boolean(dayTarget.count_from_actual_check_in),
-      });
+    if (isLive && dayTarget.check_in) {
+      return computeProvisionalHours(dayTarget, formatNowHhMm(new Date(nowTick)));
     }
     const fromApi = Number(dayTarget.time_at_work_hours);
     if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
     const worked = Number(dayTarget.worked_hours);
     if (Number.isFinite(worked) && worked > 0) return worked;
+    if (isPastNoCheckout && dayTarget.check_in && dayTarget.shift_end) {
+      const isNight = Boolean(dayTarget.is_night_shift);
+      const shiftStartMins = parseHhMmToMinutes(dayTarget.shift_start || '09:30') ?? 570;
+      const shiftEndMins = parseHhMmToMinutes(dayTarget.shift_end);
+      const checkInMins = parseHhMmToMinutes(dayTarget.check_in);
+      const crosses = isNight || (shiftEndMins !== null && shiftEndMins <= shiftStartMins);
+      if (!crosses && checkInMins !== null && shiftEndMins !== null && checkInMins >= shiftEndMins) {
+        return 0;
+      }
+      return computeProvisionalHours(dayTarget, dayTarget.shift_end);
+    }
     if (isWfh && !hasCheckin) return Math.max(0, Number(dayTarget.expected_hours) || 0);
     return 0;
-  }, [dayTarget, stillIn, nowTick, isWfh, hasCheckin]);
+  }, [dayTarget, isLive, isPastNoCheckout, nowTick, isWfh, hasCheckin]);
 
   const expectedHours = Math.max(0, Number(dayTarget?.expected_hours) || 8);
   const remainingHours = remainingLogHours(timeAtWorkHours, loggedHours);
@@ -273,6 +331,9 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
         <div className="text-h2 font-semibold font-numeric tabular-nums text-fg leading-tight">
           {atWorkDisplay}
         </div>
+        {isPastNoCheckout ? (
+          <div className="text-small text-fg-muted">No checkout</div>
+        ) : null}
         {Number(dayTarget?.pending_overtime_minutes) > 0 ? (
           <div className="text-small text-fg-muted">
             includes {formatTrackerHours(Number(dayTarget?.pending_overtime_minutes) / 60)} OT pending
